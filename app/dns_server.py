@@ -11,6 +11,8 @@ record types without having to reimplement DNS semantics.
 from __future__ import annotations
 
 import logging
+import queue
+import threading
 import time
 
 from dnslib import AAAA, QTYPE, RCODE, RR, A, DNSRecord
@@ -109,8 +111,11 @@ class FilteringResolver:
         data = request.pack()
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
         upstreams = self._select_upstreams(qname, client_ip)
-
         strategy = self._config.get("dns", "upstream_strategy", default="in_order")
+
+        if strategy == "race" and len(upstreams) > 1:
+            return self._forward_race(request, data, upstreams, timeout)
+
         if self._upstream_stats is not None:
             upstreams = self._upstream_stats.rank(upstreams, strategy)
 
@@ -126,6 +131,43 @@ class FilteringResolver:
                     self._upstream_stats.record(upstream, time.monotonic() - start, False)
                 logger.warning("upstream %s failed: %s", upstream, exc)
                 continue
+
+        reply = request.reply()
+        reply.header.rcode = RCODE.SERVFAIL
+        return reply
+
+    def _forward_race(self, request: DNSRecord, data: bytes, upstreams: list[str], timeout: float) -> DNSRecord:
+        """"All at once" strategy: fire the query at every upstream at the
+        same time and go with whichever answers first. The rest keep
+        running in their own (daemon) threads in the background purely so
+        their latency/success still gets recorded - nothing waits on them
+        and nothing is done to cancel them, there's no cheap way to abort
+        an in-flight socket/HTTPS call from another thread, and letting
+        them finish naturally is harmless (their result is simply never
+        used once a winner has already answered the client).
+        """
+        results: queue.Queue[tuple[str, bytes | None, Exception | None]] = queue.Queue()
+
+        def worker(upstream: str) -> None:
+            start = time.monotonic()
+            try:
+                resp = upstream_transport.forward(data, upstream, timeout)
+                if self._upstream_stats is not None:
+                    self._upstream_stats.record(upstream, time.monotonic() - start, True)
+                results.put((upstream, resp, None))
+            except Exception as exc:  # noqa: BLE001
+                if self._upstream_stats is not None:
+                    self._upstream_stats.record(upstream, time.monotonic() - start, False)
+                results.put((upstream, None, exc))
+
+        for upstream in upstreams:
+            threading.Thread(target=worker, args=(upstream,), daemon=True).start()
+
+        for _ in upstreams:
+            upstream, resp, exc = results.get()
+            if resp is not None:
+                return DNSRecord.parse(resp)
+            logger.warning("upstream %s failed (race mode): %s", upstream, exc)
 
         reply = request.reply()
         reply.header.rcode = RCODE.SERVFAIL

@@ -180,13 +180,21 @@ your LAN clients on port 53 - there's no DoT/DoH/DoQ *listener*.
 
 `dns.upstreams` takes as many resolvers as you want - all of them are
 always available as fallback if earlier ones fail. `dns.upstream_strategy`
-picks which one is tried *first* for each query:
+picks which one is tried *first* for each query - or, for `race`, all of
+them at once:
 
 - `in_order` (default) - try them in the order listed, top to bottom.
 - `fastest` - try whichever has the lowest average response time over the
   last `upstream_stats_window_minutes` (15 by default).
 - `most_stable` - try whichever has the fewest failures / most consistent
   response time in that window, favoring reliability over raw speed.
+- `race` ("All at once - FIFO") - send the query to every configured
+  upstream simultaneously and answer the client with whichever replies
+  first; the rest keep running in the background purely so their
+  latency/success still gets recorded, but their answer is discarded.
+  Lowest possible latency at the cost of querying every upstream for
+  every single request (more outbound traffic, and every upstream sees
+  every query rather than just the one that "won").
 
 A background thread health-checks every configured upstream every 2
 minutes (regardless of which one traffic is actually using), so stats -
