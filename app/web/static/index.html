@@ -741,13 +741,26 @@ function renderQueryLogRow(q) {
     });
     refreshAll();
   };
-  return el("tr", {}, [
+  const hideBtn = el("button", { class: "secondary", text: "Hide" });
+  hideBtn.title = "Stop logging this domain going forward";
+  hideBtn.onclick = async () => {
+    await api("/api/log-ignore/domains", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: q.domain }),
+    });
+    document
+      .getElementById("query-log-rows")
+      .querySelectorAll(`tr[data-domain="${CSS.escape(q.domain)}"]`)
+      .forEach((tr) => tr.remove());
+  };
+  return el("tr", { "data-domain": q.domain }, [
     el("td", { text: fmtTime(q.ts) }),
     el("td", { text: q.domain }),
     el("td", { text: q.qtype }),
     el("td", { text: clientLabel(q.client) }),
     el("td", {}, [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })]),
-    el("td", {}, [blockBtn]),
+    el("td", {}, [blockBtn, hideBtn]),
   ]);
 }
 

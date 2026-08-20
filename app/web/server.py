@@ -464,9 +464,16 @@ def create_app(
         return config_store.mutate(_mutate)
 
     # -- import an existing AdGuard Home config, from the browser -------
+    # Deliberately a plain (non-async) def: blocklist.refresh() below makes
+    # blocking HTTP calls for every configured source, and a real AdGuard
+    # config can list several. FastAPI runs sync routes in a worker thread,
+    # same as every other endpoint here that calls refresh() - an async def
+    # would instead run that blocking work directly on the event loop and
+    # freeze the entire web UI for every user until every source timed out
+    # or responded.
     @app.post("/api/import/adguard")
-    async def import_adguard(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
-        raw = await file.read()
+    def import_adguard(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
+        raw = file.file.read()
         try:
             adguard = yaml.safe_load(raw)
         except yaml.YAMLError as exc:

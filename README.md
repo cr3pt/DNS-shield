@@ -262,13 +262,19 @@ labels are decoded back to Unicode. Plain ASCII and accented Latin domains
 Latin script trigger it. The global/group allowlist always overrides this
 if you need a specific exception. Off by default.
 
-### Query log browser and quick-block
+### Query log browser, quick-block, and quick-hide
 
 The dashboard's **Query log** section searches the full retained history
 (not just the last few entries) - filter by domain substring, client
 (IP or resolved name) substring, record type, blocked/allowed, and a time
 range, with pagination via "Load more". Each row has a **Block** button
-that adds that domain to the global denylist on the spot.
+that adds that domain to the global denylist on the spot, and a **Hide**
+button that adds it to `logging.ignored_domains` (see below) - a shortcut
+for the same thing you can do from Settings, minus the typing. Existing
+rows for that domain vanish from the currently displayed page immediately
+for feedback, but only future queries actually stop being logged - Hide
+doesn't delete anything already written to `stats.db`, and doesn't affect
+resolution/blocking, only what shows up in this log.
 
 ### Excluding domains/clients from the log
 
