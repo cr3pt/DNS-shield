@@ -160,6 +160,17 @@
     padding: 1rem 1.25rem;
   }
   section h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+  /* Subtle theme-matched tint: mixes the current theme's accent/danger
+     color into the panel background/border, so it stays correct across
+     every color theme without hardcoding per-theme values here. */
+  section.section-allow {
+    background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--panel-border));
+  }
+  section.section-deny {
+    background: color-mix(in srgb, var(--danger) 7%, var(--panel));
+    border-color: color-mix(in srgb, var(--danger) 30%, var(--panel-border));
+  }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--panel-border); }
   th { color: var(--muted); font-weight: 500; }
@@ -167,6 +178,23 @@
   .tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; }
   .tag.blocked { background: rgba(255,93,117,0.15); color: var(--danger); }
   .tag.allowed { background: rgba(77,159,255,0.15); color: var(--accent); }
+  .info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-left: 0.35rem;
+    border-radius: 50%;
+    border: 1px solid var(--muted);
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-style: italic;
+    font-family: Georgia, "Times New Roman", serif;
+    cursor: help;
+    user-select: none;
+  }
+  .info-icon:hover { border-color: var(--danger); color: var(--danger); }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
     background: var(--input-bg);
@@ -381,7 +409,7 @@
   </section>
 
   <div class="two-col">
-    <section>
+    <section class="section-allow">
       <h2>Allowlist (never blocked)</h2>
       <form class="inline" id="add-allow-form">
         <input type="text" id="allow-domain" placeholder="example.com" required>
@@ -389,7 +417,7 @@
       </form>
       <table><tbody id="allow-rows"></tbody></table>
     </section>
-    <section>
+    <section class="section-deny">
       <h2>Denylist (always blocked)</h2>
       <form class="inline" id="add-deny-form">
         <input type="text" id="deny-domain" placeholder="tracker.example.com" required>
@@ -844,12 +872,16 @@ function renderQueryLogRow(q) {
       .querySelectorAll(`tr[data-domain="${CSS.escape(q.domain)}"]`)
       .forEach((tr) => tr.remove());
   };
+  const resultCell = [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })];
+  if (q.blocked && q.reason) {
+    resultCell.push(el("span", { class: "info-icon", title: q.reason, text: "i" }));
+  }
   return el("tr", { "data-domain": q.domain }, [
     el("td", { text: fmtTime(q.ts) }),
     el("td", { text: q.domain }),
     el("td", { text: q.qtype }),
     el("td", { text: clientLabel(q.client) }),
-    el("td", {}, [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })]),
+    el("td", {}, resultCell),
     el("td", {}, [blockBtn, hideBtn]),
   ]);
 }

@@ -288,6 +288,13 @@ immediately for feedback, but only future queries actually stop being
 logged - Hide doesn't delete anything already written to `stats.db`, and
 doesn't affect resolution/blocking, only what shows up in this log.
 
+A blocked row also shows an (i) icon - hover it to see exactly why that
+query was blocked: which blocklist subscription matched (by name), a
+manual denylist entry (global or a specific client group's), or the
+non-Latin-script filter. This is computed at query time and stored per
+row (a `reason` column on `stats.db`, backfilled as `null` for rows
+logged before this existed - hover shows nothing for those).
+
 ### Excluding domains/clients from the log
 
 `logging.ignored_domains` / `logging.ignored_clients` (dashboard: Settings

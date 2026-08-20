@@ -49,8 +49,9 @@ class FilteringResolver:
             # would otherwise get a noise entry here, which isn't useful.
             return request.reply()
 
-        blocked = bool(qname) and self._blocklist.is_blocked(qname, client_ip)
-        self._stats.record(qname, blocked, client_ip, qtype_name)
+        reason = self._blocklist.block_reason(qname, client_ip) if qname else None
+        blocked = reason is not None
+        self._stats.record(qname, blocked, client_ip, qtype_name, reason)
 
         if blocked:
             return self._blocked_reply(request)

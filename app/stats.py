@@ -67,12 +67,18 @@ class Stats:
         conn = self._connect()
         try:
             conn.executescript(SCHEMA)
+            # "reason" was added after this table already existed in some
+            # deployments - CREATE TABLE IF NOT EXISTS above is a no-op for
+            # those, so add the column by hand if it's still missing.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(queries)")}
+            if "reason" not in columns:
+                conn.execute("ALTER TABLE queries ADD COLUMN reason TEXT")
             conn.commit()
         finally:
             conn.close()
 
     # -- writing ------------------------------------------------------
-    def record(self, qname: str, blocked: bool, client_ip: str, qtype: str) -> None:
+    def record(self, qname: str, blocked: bool, client_ip: str, qtype: str, reason: str | None = None) -> None:
         """Non-blocking: just hands the row to the writer thread.
 
         A domain/client on logging.ignored_domains/ignored_clients is
@@ -82,7 +88,7 @@ class Stats:
         """
         if self._is_ignored(qname, client_ip):
             return
-        self._queue.put((time.time(), qname, qtype, client_ip, int(blocked)))
+        self._queue.put((time.time(), qname, qtype, client_ip, int(blocked), reason))
 
     def _is_ignored(self, qname: str, client_ip: str) -> bool:
         ignored_domains = self._config.get("logging", "ignored_domains", default=[]) or []
@@ -105,7 +111,7 @@ class Stats:
                     except queue.Empty:
                         break
                 conn.executemany(
-                    "INSERT INTO queries (ts, domain, qtype, client, blocked) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO queries (ts, domain, qtype, client, blocked, reason) VALUES (?, ?, ?, ?, ?, ?)",
                     batch,
                 )
                 conn.commit()
@@ -152,7 +158,7 @@ class Stats:
                 (top_n,),
             ).fetchall()
             recent = conn.execute(
-                "SELECT ts, domain, qtype, client, blocked FROM queries ORDER BY id DESC LIMIT ?",
+                "SELECT ts, domain, qtype, client, blocked, reason FROM queries ORDER BY id DESC LIMIT ?",
                 (log_n,),
             ).fetchall()
         finally:
@@ -172,6 +178,7 @@ class Stats:
                     "qtype": row["qtype"],
                     "client": row["client"],
                     "blocked": bool(row["blocked"]),
+                    "reason": row["reason"],
                 }
                 for row in recent
             ],
@@ -235,7 +242,7 @@ class Stats:
             conn.row_factory = sqlite3.Row
             total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_sql}", params).fetchone()["c"]
             rows = conn.execute(
-                f"SELECT ts, domain, qtype, client, blocked FROM queries {where_sql} "
+                f"SELECT ts, domain, qtype, client, blocked, reason FROM queries {where_sql} "
                 "ORDER BY id DESC LIMIT ? OFFSET ?",
                 params + [limit, offset],
             ).fetchall()
@@ -250,6 +257,7 @@ class Stats:
                     "qtype": row["qtype"],
                     "client": row["client"],
                     "blocked": bool(row["blocked"]),
+                    "reason": row["reason"],
                 }
                 for row in rows
             ],

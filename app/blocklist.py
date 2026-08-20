@@ -104,6 +104,7 @@ class BlocklistManager:
         self._lock = threading.RLock()
         self._blocked: frozenset[str] = frozenset()
         self._allowed: frozenset[str] = frozenset()
+        self._domain_source: dict[str, str] = {}
         self._source_counts: dict[str, int] = {}
         self._allow_source_counts: dict[str, int] = {}
         self._last_refresh: float | None = None
@@ -113,7 +114,13 @@ class BlocklistManager:
 
     # -- matching -----------------------------------------------------
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
-        """Precedence: group deny > global deny > group allow > global allow >
+        return self.block_reason(qname, client_ip) is not None
+
+    def block_reason(self, qname: str, client_ip: str | None = None) -> str | None:
+        """Returns why a query would be blocked (for the query-log's info
+        tooltip), or None if it isn't blocked.
+
+        Precedence: group deny > global deny > group allow > global allow >
         allow-list sources > group disabled (pass-through) > non-Latin
         script filter > blocklists. A client not matching any configured
         group behaves exactly as if client_groups were empty.
@@ -131,37 +138,42 @@ class BlocklistManager:
             return any(qname == d or qname.endswith("." + d) for d in (domains or []))
 
         if group and matches(group.get("denylist")):
-            return True
+            return f"Denylist (client group \"{group.get('name', '')}\")"
         if matches(self._config.get("denylist", default=[])):
-            return True
+            return "Denylist (manually added)"
         if group and matches(group.get("allowlist")):
-            return False
+            return None
         if matches(self._config.get("allowlist", default=[])):
-            return False
+            return None
 
         with self._lock:
-            allowed, blocked = self._allowed, self._blocked
+            allowed, blocked, domain_source = self._allowed, self._blocked, self._domain_source
 
-        if self._in_domain_set(qname, allowed):
-            return False
+        if self._find_match(qname, allowed) is not None:
+            return None
         if group is not None and not group.get("enabled", True):
-            return False
+            return None
 
         if self._config.get("dns", "block_non_latin", default=False) and is_non_latin_domain(qname):
-            return True
+            return "Non-Latin-script domain filter"
 
-        return self._in_domain_set(qname, blocked)
+        matched = self._find_match(qname, blocked)
+        if matched is None:
+            return None
+        source = domain_source.get(matched)
+        return f"Blocklist: {source}" if source else "Blocklist"
 
     @staticmethod
-    def _in_domain_set(qname: str, domain_set: frozenset[str]) -> bool:
+    def _find_match(qname: str, domain_set: frozenset[str]) -> str | None:
         if qname in domain_set:
-            return True
+            return qname
         # Subdomain match: block sub.ads.example.com if ads.example.com listed.
         labels = qname.split(".")
         for i in range(1, len(labels)):
-            if ".".join(labels[i:]) in domain_set:
-                return True
-        return False
+            candidate = ".".join(labels[i:])
+            if candidate in domain_set:
+                return candidate
+        return None
 
     def _find_group(self, client_ip: str | None) -> dict[str, Any] | None:
         if not client_ip:
@@ -213,9 +225,10 @@ class BlocklistManager:
                 return set()
         return parse_list(text)
 
-    def _fetch_sources(self, sources: Iterable[dict]) -> tuple[set[str], dict[str, int]]:
+    def _fetch_sources(self, sources: Iterable[dict]) -> tuple[set[str], dict[str, int], dict[str, str]]:
         merged: set[str] = set()
         counts: dict[str, int] = {}
+        domain_source: dict[str, str] = {}
         for source in sources:
             if not source.get("enabled", True):
                 continue
@@ -226,19 +239,22 @@ class BlocklistManager:
             domains = self._fetch_one(name, url)
             counts[name] = len(domains)
             merged |= domains
-        return merged, counts
+            for domain in domains:
+                domain_source.setdefault(domain, name)
+        return merged, counts, domain_source
 
     def refresh(self) -> None:
         with self._refresh_lock:
             sources = self._config.get("blocklists", "sources", default=[]) or []
-            merged, counts = self._fetch_sources(sources)
+            merged, counts, domain_source = self._fetch_sources(sources)
 
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
-            allow_merged, allow_counts = self._fetch_sources(allow_sources)
+            allow_merged, allow_counts, _ = self._fetch_sources(allow_sources)
 
             with self._lock:
                 self._blocked = frozenset(merged)
                 self._source_counts = counts
+                self._domain_source = domain_source
                 self._allowed = frozenset(allow_merged)
                 self._allow_source_counts = allow_counts
                 self._last_refresh = time.time()
