@@ -178,6 +178,14 @@ class Stats:
                 "SELECT client, COUNT(*) AS c FROM queries GROUP BY client ORDER BY c DESC LIMIT ?",
                 (top_n,),
             ).fetchall()
+            qtype_counts = conn.execute(
+                "SELECT qtype, COUNT(*) AS c FROM queries GROUP BY qtype ORDER BY c DESC"
+            ).fetchall()
+            block_reasons = conn.execute(
+                "SELECT reason, COUNT(*) AS c FROM queries WHERE blocked = 1 AND reason IS NOT NULL "
+                "GROUP BY reason ORDER BY c DESC LIMIT ?",
+                (top_n,),
+            ).fetchall()
             recent = conn.execute(
                 "SELECT ts, domain, qtype, client, blocked, reason FROM queries ORDER BY id DESC LIMIT ?",
                 (log_n,),
@@ -192,6 +200,8 @@ class Stats:
             "top_domains": [[row["domain"], row["c"]] for row in top_domains],
             "top_blocked_domains": [[row["domain"], row["c"]] for row in top_blocked_domains],
             "top_clients": [[row["client"], row["c"]] for row in top_clients],
+            "qtype_counts": [[row["qtype"], row["c"]] for row in qtype_counts],
+            "block_reasons": [[row["reason"], row["c"]] for row in block_reasons],
             "recent_queries": [
                 {
                     "ts": row["ts"],

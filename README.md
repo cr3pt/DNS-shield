@@ -89,11 +89,15 @@ device's DNS at `<host>:53` to test it.
 To use it network-wide, set it as the DNS server in your router's DHCP
 settings (or on individual devices).
 
-The dashboard has two tabs (remembered across reloads): **Logs** - query
-volume/block-rate stats, top blocked domains, and the query log browser -
-and **Settings** - everything else (DNS/web/logging settings, upstreams,
-blocklists, allow/deny lists, client groups, the AdGuard Home importer).
-The pause-blocking bar at the top is always visible regardless of tab.
+The dashboard has three tabs (remembered across reloads): **Logs** - just
+the query log browser; **Stats** - the summary cards, top blocked
+domains, top queried domains overall, top querying clients, a query-type
+breakdown, and a "blocked by" breakdown (which blocklist/rule is
+responsible for the most blocks); and **Settings** - everything else
+(DNS/web/logging settings, upstreams, blocklists, allow/deny lists,
+client groups, the AdGuard Home importer, and "Delete all logged
+queries" under Logging & blocklist refresh). The pause-blocking bar at
+the top is always visible regardless of tab.
 
 ## Configuration
 

@@ -304,11 +304,59 @@
 
   <div class="tabs" id="tabs">
     <button type="button" class="tab-btn" data-tab="logs">Logs</button>
+    <button type="button" class="tab-btn" data-tab="stats">Stats</button>
     <button type="button" class="tab-btn" data-tab="settings">Settings</button>
   </div>
 
-  <div id="tab-settings" class="tab-panel">
+  <div id="tab-stats" class="tab-panel">
   <div class="cards" id="cards"></div>
+
+  <section>
+    <h2>Top blocked domains</h2>
+    <table>
+      <thead><tr><th>Domain</th><th>Count</th></tr></thead>
+      <tbody id="top-blocked-rows"></tbody>
+    </table>
+  </section>
+
+  <div class="two-col">
+    <section>
+      <h2>Top queried domains</h2>
+      <p class="muted">All queries, blocked and allowed.</p>
+      <table>
+        <thead><tr><th>Domain</th><th>Count</th></tr></thead>
+        <tbody id="top-domains-rows"></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Top querying clients</h2>
+      <table>
+        <thead><tr><th>Client</th><th>Count</th></tr></thead>
+        <tbody id="top-clients-rows"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="two-col">
+    <section>
+      <h2>Query types</h2>
+      <table>
+        <thead><tr><th>Type</th><th>Count</th></tr></thead>
+        <tbody id="qtype-rows"></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Blocked by</h2>
+      <p class="muted">Which blocklist/rule is responsible for the most blocks.</p>
+      <table>
+        <thead><tr><th>Reason</th><th>Count</th></tr></thead>
+        <tbody id="block-reason-rows"></tbody>
+      </table>
+    </section>
+  </div>
+  </div>
+
+  <div id="tab-settings" class="tab-panel">
 
   <section>
     <h2>Settings</h2>
@@ -420,6 +468,8 @@
       <p class="hint" style="color:var(--muted);">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log.</p>
       <div id="log-ignore-domains"></div>
       <div id="log-ignore-clients"></div>
+      <p class="hint" style="margin-top:1rem;">Irreversible - wipes every row already logged, regardless of retention.</p>
+      <button type="button" class="danger" id="query-log-purge">Delete all logged queries</button>
     </div>
   </section>
 
@@ -505,14 +555,6 @@
 
   <div id="tab-logs" class="tab-panel">
   <section>
-    <h2>Top blocked domains</h2>
-    <table>
-      <thead><tr><th>Domain</th><th>Count</th></tr></thead>
-      <tbody id="top-blocked-rows"></tbody>
-    </table>
-  </section>
-
-  <section>
     <h2>Query log</h2>
     <form class="inline" id="query-log-filter-form">
       <input type="text" id="ql-domain" placeholder="Domain contains...">
@@ -544,7 +586,6 @@
       </select>
       <button type="submit">Apply filters</button>
       <button type="button" class="secondary" id="query-log-clear">Clear</button>
-      <button type="button" class="danger" id="query-log-purge" style="margin-left:auto;">Delete all logged queries</button>
     </form>
     <p class="muted" id="query-log-summary"></p>
     <table>
@@ -693,6 +734,44 @@ async function loadStatusAndStats() {
     ]));
   }
 
+  const topDomains = document.getElementById("top-domains-rows");
+  topDomains.innerHTML = "";
+  for (const [domain, count] of stats.top_domains) {
+    topDomains.appendChild(el("tr", {}, [
+      el("td", { text: domain }),
+      el("td", { text: count }),
+    ]));
+  }
+
+  const topClients = document.getElementById("top-clients-rows");
+  topClients.innerHTML = "";
+  for (const [client, count] of stats.top_clients) {
+    topClients.appendChild(el("tr", {}, [
+      el("td", { text: clientLabel(client) }),
+      el("td", { text: count }),
+    ]));
+  }
+
+  const qtypeRows = document.getElementById("qtype-rows");
+  qtypeRows.innerHTML = "";
+  for (const [qtype, count] of stats.qtype_counts) {
+    qtypeRows.appendChild(el("tr", {}, [
+      el("td", { text: qtype }),
+      el("td", { text: count }),
+    ]));
+  }
+
+  const reasonRows = document.getElementById("block-reason-rows");
+  reasonRows.innerHTML = "";
+  if (stats.block_reasons.length === 0) {
+    reasonRows.appendChild(el("tr", {}, [el("td", { colspan: "2", class: "muted", text: "Nothing blocked yet." })]));
+  }
+  for (const [reason, count] of stats.block_reasons) {
+    reasonRows.appendChild(el("tr", {}, [
+      el("td", { text: reason }),
+      el("td", { text: count }),
+    ]));
+  }
 }
 
 async function loadSourceTable(apiPath, rowsElId, countsKey) {
@@ -1264,19 +1343,23 @@ document.getElementById("resume-btn").addEventListener("click", async () => {
   loadStatusAndStats();
 });
 
+const TAB_NAMES = ["logs", "stats", "settings"];
+
 function setActiveTab(tab) {
+  if (!TAB_NAMES.includes(tab)) tab = "logs";
   for (const btn of document.querySelectorAll(".tab-btn")) {
     btn.classList.toggle("active", btn.dataset.tab === tab);
   }
-  document.getElementById("tab-logs").classList.toggle("active", tab === "logs");
-  document.getElementById("tab-settings").classList.toggle("active", tab === "settings");
+  for (const name of TAB_NAMES) {
+    document.getElementById("tab-" + name).classList.toggle("active", name === tab);
+  }
   localStorage.setItem("dnsshield-tab", tab);
 }
 
 for (const btn of document.querySelectorAll(".tab-btn")) {
   btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
 }
-setActiveTab(localStorage.getItem("dnsshield-tab") === "settings" ? "settings" : "logs");
+setActiveTab(localStorage.getItem("dnsshield-tab"));
 
 refreshAll();
 setInterval(() => { loadStatusAndStats(); loadQueryLog(true); }, 10000);
