@@ -89,6 +89,12 @@ device's DNS at `<host>:53` to test it.
 To use it network-wide, set it as the DNS server in your router's DHCP
 settings (or on individual devices).
 
+The dashboard has two tabs (remembered across reloads): **Logs** - query
+volume/block-rate stats, top blocked domains, and the query log browser -
+and **Settings** - everything else (DNS/web/logging settings, upstreams,
+blocklists, allow/deny lists, client groups, the AdGuard Home importer).
+The pause-blocking bar at the top is always visible regardless of tab.
+
 ## Configuration
 
 Every setting is editable from the dashboard's **Settings** section (DNS,

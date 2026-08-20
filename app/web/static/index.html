@@ -207,6 +207,20 @@
   }
   .pause-bar.paused #pause-status { color: var(--warn); font-weight: 600; }
   .pause-controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .tabs { display: flex; gap: 0.5rem; }
+  .tab-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--panel-border);
+    padding: 0.5rem 1.1rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.88rem;
+  }
+  .tab-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .tab-panel { display: none; flex-direction: column; gap: 1.5rem; }
+  .tab-panel.active { display: flex; }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
     background: var(--input-bg);
@@ -288,6 +302,12 @@
     </div>
   </section>
 
+  <div class="tabs" id="tabs">
+    <button type="button" class="tab-btn" data-tab="logs">Logs</button>
+    <button type="button" class="tab-btn" data-tab="settings">Settings</button>
+  </div>
+
+  <div id="tab-settings" class="tab-panel">
   <div class="cards" id="cards"></div>
 
   <section>
@@ -481,7 +501,9 @@
     </div>
     <p class="muted">In-memory only, respects each answer's TTL - cleared automatically on restart.</p>
   </section>
+  </div>
 
+  <div id="tab-logs" class="tab-panel">
   <section>
     <h2>Top blocked domains</h2>
     <table>
@@ -533,6 +555,7 @@
       <button type="button" class="secondary" id="query-log-load-more" style="display:none;">Load more</button>
     </div>
   </section>
+  </div>
 </main>
 
 <script>
@@ -1240,6 +1263,20 @@ document.getElementById("resume-btn").addEventListener("click", async () => {
   await api("/api/resume", { method: "POST" });
   loadStatusAndStats();
 });
+
+function setActiveTab(tab) {
+  for (const btn of document.querySelectorAll(".tab-btn")) {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  }
+  document.getElementById("tab-logs").classList.toggle("active", tab === "logs");
+  document.getElementById("tab-settings").classList.toggle("active", tab === "settings");
+  localStorage.setItem("dnsshield-tab", tab);
+}
+
+for (const btn of document.querySelectorAll(".tab-btn")) {
+  btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+}
+setActiveTab(localStorage.getItem("dnsshield-tab") === "settings" ? "settings" : "logs");
 
 refreshAll();
 setInterval(() => { loadStatusAndStats(); loadQueryLog(true); }, 10000);
