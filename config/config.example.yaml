@@ -33,7 +33,10 @@ dns:
   #   "fastest"      try whichever has the lowest average response time
   #   "most_stable"  try whichever has the fewest failures / most consistent
   #                  response time (favors reliability over raw speed)
-  # Whichever is tried first, the others are still used as fallback if it fails.
+  #   "race"         query every upstream at once, answer with whichever
+  #                  replies first ("All at once - FIFO" in the dashboard)
+  # For in_order/fastest/most_stable, the others are still used as fallback
+  # if the first choice fails.
   upstream_strategy: "in_order"
   upstream_stats_window_minutes: 15
   # "nxdomain" replies with NXDOMAIN, "null_ip" replies with blocked_ipv4/::
@@ -96,11 +99,14 @@ domain_upstreams: []
 
 # Per-client/group overrides, matched by source IP or CIDR. The first
 # matching group wins; a client matching no group just gets the global
-# policy above. Precedence for a matched client: group allowlist > global
-# allowlist > group denylist > global denylist > group "enabled: false"
-# (no filtering at all for that client) > the blocklists. A group's own
-# `upstreams` (if set) is used for that client's queries instead of the
-# global dns.upstreams list, unless a domain_upstreams rule above matches first.
+# policy above. Precedence for a matched client: group denylist > global
+# denylist > group allowlist > global allowlist > group "enabled: false"
+# (no filtering at all for that client) > the blocklists. Denylist beats
+# allowlist at both levels, so an explicit deny is truly "always blocked"
+# even for a domain that's also allowlisted; allowlist only overrides the
+# *blocklists* (subscribed lists). A group's own `upstreams` (if set) is
+# used for that client's queries instead of the global dns.upstreams list,
+# unless a domain_upstreams rule above matches first.
 #
 # client_groups:
 #   - name: "Kids"
@@ -121,7 +127,8 @@ web:
   username: "admin"
   # CHANGE THIS before exposing the web UI beyond your own machine.
   password: "changeme"
-  # Dashboard color theme: "navy", "slate", "forest", or "plum".
+  # Dashboard color theme, paired dark/light by hue: "navy"/"daylight",
+  # "slate"/"mist", "forest"/"meadow", or "plum"/"lilac".
   theme: "navy"
 
 logging:

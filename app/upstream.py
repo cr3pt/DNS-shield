@@ -1,7 +1,7 @@
 """Upstream DNS transports: plain UDP/TCP, DNS-over-TLS, DNS-over-HTTPS.
 
-An `upstreams` entry in config.yaml is plain "host:port" (UDP, with an
-automatic TCP retry if the reply is truncated) unless prefixed:
+A `dns.upstreams` entry is plain "host:port" (UDP, with an automatic TCP
+retry if the reply is truncated) unless prefixed:
 
   - "dot://host"            or "dot://host:853"   -> DNS-over-TLS (RFC 7858)
   - "doh://host/path"       or a full "https://…"  -> DNS-over-HTTPS (RFC 8484)

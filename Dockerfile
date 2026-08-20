@@ -11,7 +11,14 @@ COPY config ./config
 RUN mkdir -p /data
 VOLUME ["/data"]
 
-ENV DNSSHIELD_CONFIG=/data/config.yaml \
+# DNSSHIELD_CONFIG_DB/DNSSHIELD_CONFIG_BACKUP are the live config (SQLite)
+# and its periodic human-readable YAML export - the ones that matter.
+# DNSSHIELD_CONFIG only names a legacy config.yaml path, read as a one-time
+# fallback if the database doesn't exist yet and neither does the backup
+# (migrating a very old, file-only install of this project).
+ENV DNSSHIELD_CONFIG_DB=/data/config.db \
+    DNSSHIELD_CONFIG_BACKUP=/data/config.backup.yaml \
+    DNSSHIELD_CONFIG=/data/config.yaml \
     DNSSHIELD_DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 

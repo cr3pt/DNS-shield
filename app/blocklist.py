@@ -5,9 +5,9 @@ Supported input formats (auto-detected per line):
   - AdBlock/uBlock syntax:  ||ads.example.com^
   - plain domain list:      ads.example.com
 
-Every list source is a URL *you* configure in config.yaml - DNS-shield
-never talks to any address that isn't either an upstream resolver or a
-blocklist URL from your own config.
+Every list source is a URL *you* configure (dashboard or config.db) -
+DNS-shield never talks to any address that isn't either an upstream
+resolver or a blocklist URL from your own config.
 """
 
 from __future__ import annotations

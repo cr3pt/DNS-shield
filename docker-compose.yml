@@ -11,4 +11,4 @@ services:
     volumes:
       - ./data:/data
     # DNS-shield only ever talks to the upstream resolvers and blocklist
-    # URLs configured in ./data/config.yaml - nothing else.
+    # URLs configured in ./data/config.db - nothing else.

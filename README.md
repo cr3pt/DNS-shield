@@ -6,6 +6,20 @@ sit as your network's DNS resolver and drop queries to ad/tracker domains -
 but with a much smaller, auditable footprint and **no built-in calls to any
 third-party cloud service**.
 
+## Screenshots
+
+| Logs | Stats |
+| --- | --- |
+| ![Query log browser](docs/screenshots/logs.png) | ![Stats tab](docs/screenshots/stats.png) |
+
+| Settings - DNS & upstreams | Settings - client groups |
+| --- | --- |
+| ![DNS settings](docs/screenshots/settings-dns.png) | ![Client groups](docs/screenshots/client-groups.png) |
+
+| Allowlist / Denylist | Pause blocking |
+| --- | --- |
+| ![Allowlist and denylist](docs/screenshots/allow-deny.png) | ![Pause blocking bar](docs/screenshots/pause-bar.png) |
+
 ## Why not just use AdGuard Home?
 
 ### What AdGuard Home actually is and how it works
@@ -54,8 +68,8 @@ DNS-shield implements the same core mechanism (DNS sinkhole + filter lists +
 web UI) but keeps it **local-only by construction**:
 
 - The only outbound network calls it ever makes are (a) to the blocklist
-  URLs *you* list in `config.yaml`, and (b) to the upstream resolvers *you*
-  list in `config.yaml`. There is no default AdGuard-operated endpoint.
+  URLs *you* configure, and (b) to the upstream resolvers *you* configure.
+  There is no default AdGuard-operated endpoint.
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
 - All state - config, cached blocklists, query stats/log - lives on your
@@ -115,16 +129,21 @@ dns:
   listen_address: "0.0.0.0"
   listen_port: 53
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # as many as you like - see below
-  upstream_strategy: "in_order"  # or "fastest" / "most_stable" - see below
+  upstream_timeout_seconds: 3.0
+  upstream_strategy: "in_order"  # or "fastest" / "most_stable" / "race" - see below
   upstream_stats_window_minutes: 15
   block_mode: "nxdomain"                     # or "null_ip"
+  blocked_ipv4: "0.0.0.0"        # used when block_mode is "null_ip"
+  blocked_ipv6: "::"              # ditto, for AAAA
   block_ipv6: false             # true: answer AAAA queries empty instead of forwarding
   block_non_latin: false        # true: block Cyrillic/Arabic/CJK/etc. domains - see below
   cache_enabled: true            # in-memory cache of upstream answers, per their own TTL
   cache_max_entries: 10000
-  cache_max_ttl_seconds: 3600
+  cache_min_ttl_seconds: 0        # floor applied to cached TTLs
+  cache_max_ttl_seconds: 3600     # cap applied to cached TTLs
   resolve_client_names: false    # reverse-DNS client IPs for display (see below)
   client_name_resolver: ""       # e.g. "192.168.1.1:53" - your router, not an upstream
+  client_name_cache_seconds: 3600
 
 blocklists:
   refresh_interval_hours: 24
@@ -142,12 +161,14 @@ domain_upstreams: []   # route specific domains to specific resolvers - see belo
 client_groups: []   # per-IP/CIDR overrides, see below
 
 web:
+  listen_address: "0.0.0.0"
   listen_port: 3000
   username: "admin"
   password: "changeme"   # change this from the dashboard
-  theme: "navy"           # "navy", "slate", "forest", or "plum"
+  theme: "navy"           # 8 palettes, dark/light pairs - see Color themes below
 
 logging:
+  level: "INFO"             # Python log level; YAML-only, not in the dashboard
   retention_days: 30       # how long query log entries are kept in stats.db
   ignored_domains: []      # never logged, but still resolved/blocked normally
   ignored_clients: []      # same, by client IP/CIDR
@@ -308,6 +329,22 @@ labels are decoded back to Unicode. Plain ASCII and accented Latin domains
 Latin script trigger it. The global/group allowlist always overrides this
 if you need a specific exception. Off by default.
 
+### DNS answer cache
+
+`dns.cache_enabled` (on by default) keeps resolved answers in memory,
+keyed by domain+record type, for as long as their own TTL says they're
+valid - clamped between `cache_min_ttl_seconds` and `cache_max_ttl_seconds`
+(handy if some upstream returns unusually short/long TTLs you don't
+trust) and bounded to `cache_max_entries` with LRU eviction. A repeat
+lookup for anything still cached is answered immediately, without
+forwarding to an upstream at all - lower latency and less outbound query
+volume for the CDN/ad/tracker hostnames that make up most repeat
+traffic. Purely in-process memory: nothing is written to disk, and it's
+empty again after a restart. The Stats tab shows current entry count and
+hit rate; Settings -> DNS answer cache has a "Clear cache" button to
+empty it on demand (e.g. right after changing upstreams, to stop
+serving anything answered by the old one).
+
 ### Query log browser, quick-block, and quick-hide
 
 The dashboard's **Query log** section searches the full retained history
@@ -335,6 +372,27 @@ this log.
 reset of the query log, not a filtered delete. Irreversible; the
 dashboard asks for confirmation first.
 
+A blocked row also shows an (i) icon - hover it to see exactly why that
+query was blocked: which blocklist subscription matched (by name), a
+manual denylist entry (global or a specific client group's), or the
+non-Latin-script filter. This is computed at query time and stored per
+row (a `reason` column on `stats.db`, backfilled as `null` for rows
+logged before this existed - hover shows nothing for those).
+
+### Stats tab
+
+Cards for total/blocked queries, block rate, blocklist domain count,
+cache entries, and cache hit rate, plus five tables computed from the
+full retained history in `stats.db` (not just what's currently on
+screen elsewhere): **Top blocked domains**, **Top queried domains**
+(everything, blocked and allowed - useful for spotting what a device
+actually talks to), **Top querying clients** (busiest device on the
+network), **Query types** (A/AAAA/CNAME/... breakdown), and **Blocked
+by** (which specific blocklist subscription or rule is responsible for
+the most blocks - the same reasons as the query log's (i) icon, just
+aggregated). All of it updates live every 10 seconds alongside the rest
+of the dashboard.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide
@@ -346,13 +404,6 @@ every query resolves as if no blocklist, denylist, or client group
 existed; it self-expires exactly at the chosen time (no polling/cleanup
 needed - the timestamp is just checked against the current time) or you
 can hit "Resume blocking" early.
-
-A blocked row also shows an (i) icon - hover it to see exactly why that
-query was blocked: which blocklist subscription matched (by name), a
-manual denylist entry (global or a specific client group's), or the
-non-Latin-script filter. This is computed at query time and stored per
-row (a `reason` column on `stats.db`, backfilled as `null` for rows
-logged before this existed - hover shows nothing for those).
 
 ### Excluding domains/clients from the log
 
