@@ -287,8 +287,10 @@ range.
 
 ### Color themes
 
-Settings -> Web UI -> Color theme switches between four dark palettes -
-Navy & Azure (default), Slate & Cyan, Forest & Emerald, and Plum & Violet.
+Settings -> Web UI -> Color theme switches between eight palettes, four
+dark and four light, paired by hue: Navy & Azure / Daylight & Azure,
+Slate & Cyan / Mist & Cyan, Forest & Emerald / Meadow & Emerald, and
+Plum & Violet / Lilac & Violet. Navy & Azure (dark) is the default.
 Applies instantly, stored in `web.theme`.
 
 ### Editing the config file directly

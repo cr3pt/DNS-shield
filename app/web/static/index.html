@@ -58,6 +58,63 @@
     --warn: #ffb454;
     --input-bg: #130c22;
   }
+  /* Light counterparts, one per dark theme above, same hue family. */
+  :root[data-theme="daylight"] {
+    color-scheme: light;
+    --bg: #f4f7fd;
+    --panel: #ffffff;
+    --panel-border: #d7e0f5;
+    --text: #101a33;
+    --muted: #5b6786;
+    --accent: #2a6df0;
+    --accent-text: #ffffff;
+    --danger: #e11d48;
+    --danger-text: #ffffff;
+    --warn: #b45309;
+    --input-bg: #ffffff;
+  }
+  :root[data-theme="mist"] {
+    color-scheme: light;
+    --bg: #f6f8fa;
+    --panel: #ffffff;
+    --panel-border: #d0d7de;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0f8fa3;
+    --accent-text: #ffffff;
+    --danger: #cf222e;
+    --danger-text: #ffffff;
+    --warn: #9a6700;
+    --input-bg: #ffffff;
+  }
+  :root[data-theme="meadow"] {
+    color-scheme: light;
+    --bg: #f3faf6;
+    --panel: #ffffff;
+    --panel-border: #c9e6d7;
+    --text: #0b2e1f;
+    --muted: #4d7663;
+    --accent: #0f9d63;
+    --accent-text: #ffffff;
+    --danger: #dc2626;
+    --danger-text: #ffffff;
+    --warn: #b45309;
+    --input-bg: #ffffff;
+  }
+  :root[data-theme="lilac"] {
+    color-scheme: light;
+    --bg: #f8f6fd;
+    --panel: #ffffff;
+    --panel-border: #e0d6f5;
+    --text: #241a3d;
+    --muted: #6b5c8f;
+    --accent: #8b3ff0;
+    --accent-text: #ffffff;
+    --danger: #dc2626;
+    --danger-text: #ffffff;
+    --warn: #b45309;
+    --input-bg: #ffffff;
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -252,10 +309,14 @@
           <div class="field">
             <label>Color theme</label>
             <select id="s-web-theme">
-              <option value="navy">Navy &amp; Azure</option>
-              <option value="slate">Slate &amp; Cyan</option>
-              <option value="forest">Forest &amp; Emerald</option>
-              <option value="plum">Plum &amp; Violet</option>
+              <option value="navy">Navy &amp; Azure (dark)</option>
+              <option value="slate">Slate &amp; Cyan (dark)</option>
+              <option value="forest">Forest &amp; Emerald (dark)</option>
+              <option value="plum">Plum &amp; Violet (dark)</option>
+              <option value="daylight">Daylight &amp; Azure (light)</option>
+              <option value="mist">Mist &amp; Cyan (light)</option>
+              <option value="meadow">Meadow &amp; Emerald (light)</option>
+              <option value="lilac">Lilac &amp; Violet (light)</option>
             </select>
           </div>
           <div class="field"><label>Username</label><input type="text" id="s-web-username"></div>
