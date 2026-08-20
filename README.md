@@ -235,10 +235,16 @@ client_groups:
     enabled: false   # pass-through: no ad/tracker blocking for this group
 ```
 
-Precedence for a query from a matched client: group allowlist > global
-allowlist > group denylist > global denylist > group `enabled: false`
-(no filtering at all) > the blocklists. Manage groups (and their per-group
-allow/deny lists) from the dashboard or by editing this list directly.
+Precedence for a query from a matched client: group denylist > global
+denylist > group allowlist > global allowlist > group `enabled: false`
+(no filtering at all) > the blocklists. Denylist beats allowlist at both
+levels, so an explicit deny entry is truly "always blocked" even for a
+domain that's also allowlisted (e.g. after a query-log Unblock, which
+allowlists a domain - manually denylisting that same domain again still
+works); allowlist only beats the *blocklists* (subscribed lists), which
+is the main reason to allowlist something in the first place. Manage
+groups (and their per-group allow/deny lists) from the dashboard or by
+editing this list directly.
 
 ### Disabling IPv6
 

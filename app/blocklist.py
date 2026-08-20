@@ -113,10 +113,16 @@ class BlocklistManager:
 
     # -- matching -----------------------------------------------------
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
-        """Precedence: group allow > global allow > allow-list sources >
-        group deny > global deny > group disabled (pass-through) >
-        non-Latin script filter > blocklists. A client not matching any
-        configured group behaves exactly as if client_groups were empty.
+        """Precedence: group deny > global deny > group allow > global allow >
+        allow-list sources > group disabled (pass-through) > non-Latin
+        script filter > blocklists. A client not matching any configured
+        group behaves exactly as if client_groups were empty.
+
+        Deny (group or global) is checked before allow (group or global) so
+        an explicit denylist entry is truly "always blocked", as the UI
+        labels it, even for a domain that's also on the allowlist - e.g.
+        after a query-log Unblock, which adds to the allowlist, manually
+        denylisting that same domain again must still work.
         """
         qname = qname.rstrip(".").lower()
         group = self._find_group(client_ip)
@@ -124,6 +130,10 @@ class BlocklistManager:
         def matches(domains: Iterable[str] | None) -> bool:
             return any(qname == d or qname.endswith("." + d) for d in (domains or []))
 
+        if group and matches(group.get("denylist")):
+            return True
+        if matches(self._config.get("denylist", default=[])):
+            return True
         if group and matches(group.get("allowlist")):
             return False
         if matches(self._config.get("allowlist", default=[])):
@@ -134,10 +144,6 @@ class BlocklistManager:
 
         if self._in_domain_set(qname, allowed):
             return False
-        if group and matches(group.get("denylist")):
-            return True
-        if matches(self._config.get("denylist", default=[])):
-            return True
         if group is not None and not group.get("enabled", True):
             return False
 
