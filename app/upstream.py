@@ -18,6 +18,7 @@ import ipaddress
 import socket
 import ssl
 import struct
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -130,27 +131,44 @@ def hostname_of(upstream: str) -> str | None:
 
 
 def protected_hostnames(config_store) -> set[str]:
-    """Hostnames of every configured upstream resolver (global, per-domain
-    routing, per-client-group) - domains DNS-shield itself must be able to
-    resolve to reach a DoT/DoH upstream at all. These are always exempt
-    from blocking (a coincidental blocklist match would otherwise cut
-    DNS-shield off from that upstream) and excluded from the query log by
-    default (it's DNS-shield's own traffic, not something a user browsed
-    to). Recomputed from the live config on every call, so it stays
-    correct the moment upstreams change - there is nothing to configure
-    separately.
+    """Hostnames DNS-shield must always be able to resolve to keep working
+    at all: every configured upstream resolver (global, per-domain routing,
+    per-client-group) and every blocklist/allow-list subscription URL.
+    Blocking or hiding either would be self-defeating - a coincidental
+    blocklist match on an upstream's hostname would cut DNS-shield off from
+    that resolver, and one on a blocklist source's hostname would stop
+    blocklists from ever refreshing.
+
+    These are always exempt from blocking and excluded from the query log
+    by default (it's DNS-shield's own background traffic, not something a
+    user browsed to). Recomputed from the live config on every call, so it
+    stays correct the moment upstreams or list sources change - there is
+    nothing to configure separately.
     """
     hostnames: set[str] = set()
 
-    def _collect(entries) -> None:
+    def _collect_upstreams(entries) -> None:
         for entry in entries or []:
             host = hostname_of(entry)
             if host:
                 hostnames.add(host)
 
-    _collect(config_store.get("dns", "upstreams", default=[]))
+    _collect_upstreams(config_store.get("dns", "upstreams", default=[]))
     for rule in config_store.get("domain_upstreams", default=[]) or []:
-        _collect(rule.get("upstreams"))
+        _collect_upstreams(rule.get("upstreams"))
     for group in config_store.get("client_groups", default=[]) or []:
-        _collect(group.get("upstreams"))
+        _collect_upstreams(group.get("upstreams"))
+
+    def _collect_source_urls(sources) -> None:
+        for source in sources or []:
+            url = source.get("url") if isinstance(source, dict) else None
+            if not url:
+                continue
+            host = urlparse(url).hostname
+            if host:
+                hostnames.add(host.lower())
+
+    _collect_source_urls(config_store.get("blocklists", "sources", default=[]))
+    _collect_source_urls(config_store.get("blocklists", "allow_sources", default=[]))
+
     return hostnames

@@ -185,19 +185,27 @@ current even for a server the strategy has stopped picking, and it can be
 picked again if it improves. This only ever probes the upstream hosts
 already in your config.
 
-### Upstream hostnames are always resolvable and never logged
+A line starting with `#` in the Upstream DNS servers box is a comment and
+is ignored - handy for keeping a resolver around (with a note on why)
+without deleting and retyping it later.
+
+### Upstream and blocklist hostnames are always resolvable and never logged
 
 Whatever hostname a `dot://`/`doh://` upstream needs DNS to resolve (e.g.
-`dns.nextdns.io`) is automatically exempt from every blocking mechanism -
-above even a manual denylist entry - and left out of the query log by
+`dns.nextdns.io`), or a blocklist/allow-list subscription URL's host (e.g.
+`raw.githubusercontent.com`), is automatically exempt from every blocking
+mechanism - above even a manual denylist entry and a pause-blocking
+bypass wouldn't even need to check it - and left out of the query log by
 default. No configuration needed: this is derived straight from
-`dns.upstreams`, `domain_upstreams[].upstreams`, and
-`client_groups[].upstreams` every time it's checked, so it stays correct
-whenever your upstreams change. The point is to make it impossible to
-accidentally lock DNS-shield out of its own upstream (a coincidental
-blocklist match on that hostname would otherwise be a self-inflicted
-outage), and to keep this constant background lookup out of a log meant
-for what your devices are actually browsing to.
+`dns.upstreams`, `domain_upstreams[].upstreams`, `client_groups[].upstreams`,
+and every `blocklists.sources`/`blocklists.allow_sources` URL, every time
+it's checked, so it stays correct whenever any of those change. The point
+is to make it impossible to accidentally lock DNS-shield out of its own
+upstream or its own blocklists (a coincidental blocklist match on either
+hostname would otherwise be a self-inflicted outage - blocking your own
+blocklist source is a particularly nasty one, since it would silently
+stop all list refreshes), and to keep this constant background lookup out
+of a log meant for what your devices are actually browsing to.
 
 ### Per-domain and per-client DNS routing
 
@@ -293,14 +301,33 @@ button.
 
 Block adds the domain to the global denylist; Unblock reverses whatever
 caused that particular query to be blocked - removes a manual denylist
-entry if that's why, and also adds the domain to the global allowlist,
-which always takes precedence, so it un-blocks a blocklist-source match
-too. Hide adds the domain to `logging.ignored_domains` (see below) - a
-shortcut for the same thing you can do from Settings, minus the typing.
-Existing rows for that domain vanish from the currently displayed page
-immediately for feedback, but only future queries actually stop being
-logged - Hide doesn't delete anything already written to `stats.db`, and
-doesn't affect resolution/blocking, only what shows up in this log.
+entry if that's why (denylist always wins over the allowlist - see
+[Per-client/group policies](#per-clientgroup-policies) - so leaving a
+stale denylist entry behind would otherwise silently defeat it), and also
+adds the domain to the global allowlist, which overrides a blocklist-
+source match. Hide adds the domain to `logging.ignored_domains` (see
+below) - a shortcut for the same thing you can do from Settings, minus
+the typing. Existing rows for that domain vanish from the currently
+displayed page immediately for feedback, but only future queries actually
+stop being logged - Hide doesn't delete anything already written to
+`stats.db`, and doesn't affect resolution/blocking, only what shows up in
+this log.
+
+**Delete all logged queries** wipes every row from `stats.db` - a full
+reset of the query log, not a filtered delete. Irreversible; the
+dashboard asks for confirmation first.
+
+### Pause blocking
+
+The bar at the top of the dashboard can pause *all* blocking network-wide
+for a chosen duration (10/30/60/120 seconds, 5/10/30/60 minutes, or until
+you manually resume it) - useful for quickly checking whether DNS-shield
+is the cause of something breaking, without having to hunt down and
+temporarily remove a specific denylist entry or blocklist. While paused,
+every query resolves as if no blocklist, denylist, or client group
+existed; it self-expires exactly at the chosen time (no polling/cleanup
+needed - the timestamp is just checked against the current time) or you
+can hit "Resume blocking" early.
 
 A blocked row also shows an (i) icon - hover it to see exactly why that
 query was blocked: which blocklist subscription matched (by name), a

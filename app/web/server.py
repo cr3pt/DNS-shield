@@ -94,6 +94,10 @@ class BlocklistSettingsIn(BaseModel):
     refresh_interval_hours: float | None = None
 
 
+class PauseIn(BaseModel):
+    seconds: float | None = None  # None/omitted = pause until manually resumed
+
+
 def create_app(
     config_store, blocklist, stats, started_at: float, cache=None, client_names=None, upstream_stats=None
 ) -> FastAPI:
@@ -124,7 +128,31 @@ def create_app(
             "allowlist_sources": blocklist.allow_source_counts(),
             "cache": cache.stats() if cache is not None else None,
             "upstream_stats": upstream_stats.snapshot() if upstream_stats is not None else {},
+            "pause": {
+                "active": blocklist.is_paused(),
+                "until": config_store.get("pause", "until", default=None),
+            },
         }
+
+    @app.post("/api/pause")
+    def pause_blocking(body: PauseIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            pause_cfg = data.setdefault("pause", {})
+            pause_cfg["active"] = True
+            pause_cfg["until"] = (time.time() + body.seconds) if body.seconds else None
+            return pause_cfg
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/resume")
+    def resume_blocking(_: None = Depends(require_auth)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            pause_cfg = data.setdefault("pause", {})
+            pause_cfg["active"] = False
+            pause_cfg["until"] = None
+            return pause_cfg
+
+        return config_store.mutate(_mutate)
 
     @app.get("/api/stats")
     def get_stats(top_n: int = 25, log_n: int = 200, _: None = Depends(require_auth)) -> dict[str, Any]:
@@ -172,6 +200,11 @@ def create_app(
             "total": total,
             "client_names": client_names.snapshot() if client_names is not None else {},
         }
+
+    @app.delete("/api/query-log")
+    def clear_query_log(_: None = Depends(require_auth)) -> dict[str, Any]:
+        stats.clear()
+        return {"ok": True}
 
     @app.post("/api/cache/clear")
     def clear_cache(_: None = Depends(require_auth)) -> dict[str, Any]:
@@ -531,8 +564,10 @@ def create_app(
 
     @app.put("/api/settings/upstreams")
     def update_upstreams(body: UpstreamsIn, _: None = Depends(require_auth)) -> list[str]:
+        upstreams = [u.strip() for u in body.upstreams if u.strip() and not u.strip().startswith("#")]
+
         def _mutate(data: dict[str, Any]) -> list[str]:
-            data.setdefault("dns", {})["upstreams"] = body.upstreams
+            data.setdefault("dns", {})["upstreams"] = upstreams
             return data["dns"]["upstreams"]
 
         return config_store.mutate(_mutate)

@@ -195,6 +195,18 @@
     user-select: none;
   }
   .info-icon:hover { border-color: var(--danger); color: var(--danger); }
+  .pause-bar {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 0.75rem 1.25rem;
+  }
+  .pause-bar.paused {
+    background: color-mix(in srgb, var(--warn) 12%, var(--panel));
+    border-color: color-mix(in srgb, var(--warn) 45%, var(--panel-border));
+  }
+  .pause-bar.paused #pause-status { color: var(--warn); font-weight: 600; }
+  .pause-controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
     background: var(--input-bg);
@@ -255,6 +267,27 @@
   <span class="sub" id="uptime">-</span>
 </header>
 <main>
+  <section id="pause-bar" class="pause-bar">
+    <div class="row">
+      <div id="pause-status" class="muted">Blocking active</div>
+      <div class="pause-controls" id="pause-controls">
+        <select id="pause-duration">
+          <option value="10">10 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="300">5 minutes</option>
+          <option value="600">10 minutes</option>
+          <option value="1800">30 minutes</option>
+          <option value="3600">60 minutes</option>
+          <option value="">Until re-enabled</option>
+        </select>
+        <button type="button" id="pause-btn" class="danger">Pause blocking</button>
+        <button type="button" id="resume-btn" class="secondary" style="display:none;">Resume blocking</button>
+      </div>
+    </div>
+  </section>
+
   <div class="cards" id="cards"></div>
 
   <section>
@@ -302,9 +335,9 @@
 
     <div class="settings-group">
       <h3>Upstream DNS servers</h3>
-      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first.</p>
+      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is a comment and is ignored.</p>
       <form id="upstreams-form">
-        <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query"></textarea>
+        <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query&#10;# disabled for now:&#10;# 8.8.8.8:53"></textarea>
         <div style="margin-top:0.5rem;"><button type="submit">Save upstreams</button></div>
       </form>
       <table style="margin-top:0.75rem;">
@@ -489,6 +522,7 @@
       </select>
       <button type="submit">Apply filters</button>
       <button type="button" class="secondary" id="query-log-clear">Clear</button>
+      <button type="button" class="danger" id="query-log-purge" style="margin-left:auto;">Delete all logged queries</button>
     </form>
     <p class="muted" id="query-log-summary"></p>
     <table>
@@ -527,6 +561,15 @@ const fmtDuration = (s) => {
   const m = Math.floor(s / 60);
   return (d ? d + "d " : "") + h + "h " + m + "m";
 };
+// For short countdowns (pause duration) - fmtDuration's h/m granularity
+// would show "0h 0m" for anything under a minute.
+const fmtShortDuration = (s) => {
+  s = Math.max(0, Math.floor(s));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  if (m === 0) return sec + "s";
+  return m + "m " + sec + "s";
+};
 
 async function api(path, options = {}) {
   const res = await fetch(path, options);
@@ -551,6 +594,35 @@ function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+function renderPauseBar(pause) {
+  const bar = document.getElementById("pause-bar");
+  const statusEl = document.getElementById("pause-status");
+  const controls = document.getElementById("pause-controls");
+  const pauseBtn = document.getElementById("pause-btn");
+  const resumeBtn = document.getElementById("resume-btn");
+  const durationSelect = document.getElementById("pause-duration");
+
+  const active = !!(pause && pause.active);
+  bar.classList.toggle("paused", active);
+
+  if (active) {
+    if (pause.until) {
+      const remaining = Math.max(0, Math.round(pause.until - Date.now() / 1000));
+      statusEl.textContent = "Blocking paused - resumes in " + fmtShortDuration(remaining);
+    } else {
+      statusEl.textContent = "Blocking paused until manually resumed";
+    }
+    durationSelect.style.display = "none";
+    pauseBtn.style.display = "none";
+    resumeBtn.style.display = "";
+  } else {
+    statusEl.textContent = "Blocking active";
+    durationSelect.style.display = "";
+    pauseBtn.style.display = "";
+    resumeBtn.style.display = "none";
+  }
+}
+
 async function loadStatusAndStats() {
   const [status, stats] = await Promise.all([
     api("/api/status"),
@@ -559,6 +631,7 @@ async function loadStatusAndStats() {
 
   document.getElementById("dns-listen").textContent = "DNS listening on " + status.dns_listen;
   document.getElementById("uptime").textContent = "uptime " + fmtDuration(status.uptime_seconds);
+  renderPauseBar(status.pause);
 
   const cards = document.getElementById("cards");
   cards.innerHTML = "";
@@ -950,7 +1023,7 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
 
 document.getElementById("upstreams-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const upstreams = document.getElementById("s-upstreams").value.split("\n").map((s) => s.trim()).filter(Boolean);
+  const upstreams = document.getElementById("s-upstreams").value.split("\n").map((s) => s.trim()).filter((s) => s && !s.startsWith("#"));
   await api("/api/settings/upstreams", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -1143,6 +1216,29 @@ document.getElementById("query-log-clear").addEventListener("click", () => {
 document.getElementById("query-log-load-more").addEventListener("click", () => {
   queryLogOffset += QUERY_LOG_PAGE_SIZE;
   loadQueryLog(false);
+});
+
+document.getElementById("query-log-purge").addEventListener("click", async () => {
+  if (!confirm("Delete every logged query from stats.db? This cannot be undone.")) return;
+  await api("/api/query-log", { method: "DELETE" });
+  document.getElementById("query-log-filter-form").reset();
+  loadQueryLog(true);
+});
+
+document.getElementById("pause-btn").addEventListener("click", async () => {
+  const raw = document.getElementById("pause-duration").value;
+  const seconds = raw ? parseInt(raw, 10) : null;
+  await api("/api/pause", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ seconds }),
+  });
+  loadStatusAndStats();
+});
+
+document.getElementById("resume-btn").addEventListener("click", async () => {
+  await api("/api/resume", { method: "POST" });
+  loadStatusAndStats();
 });
 
 refreshAll();

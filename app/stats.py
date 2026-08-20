@@ -129,6 +129,19 @@ class Stats:
     def stop(self) -> None:
         self._stop_event.set()
 
+    # -- clearing -----------------------------------------------------------
+    def clear(self) -> None:
+        """Wipes every stored query log entry. Irreversible - the caller
+        (the web UI) is expected to confirm with the user first.
+        """
+        conn = self._connect()
+        try:
+            conn.execute("DELETE FROM queries")
+            conn.commit()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+
     # -- retention ------------------------------------------------------
     def _cleanup_loop(self) -> None:
         while not self._stop_event.wait(3600):

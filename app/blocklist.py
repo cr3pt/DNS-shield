@@ -117,21 +117,33 @@ class BlocklistManager:
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
         return self.block_reason(qname, client_ip) is not None
 
+    def is_paused(self) -> bool:
+        """True while a temporary global bypass (Settings -> Pause
+        blocking) is in effect. A timed pause self-expires just by time
+        passing - there's no background job clearing the stored flag,
+        callers just stop seeing it as active once `until` is past.
+        """
+        if not self._config.get("pause", "active", default=False):
+            return False
+        until = self._config.get("pause", "until", default=None)
+        return until is None or time.time() < until
+
     def block_reason(self, qname: str, client_ip: str | None = None) -> str | None:
         """Returns why a query would be blocked (for the query-log's info
         tooltip), or None if it isn't blocked.
 
-        Precedence: upstream resolver hostnames > group deny > global deny >
-        group allow > global allow > allow-list sources > group disabled
-        (pass-through) > non-Latin script filter > blocklists. A client not
-        matching any configured group behaves exactly as if client_groups
-        were empty.
+        Precedence: pause-blocking bypass > upstream/blocklist-source
+        hostnames > group deny > global deny > group allow > global allow >
+        allow-list sources > group disabled (pass-through) > non-Latin
+        script filter > blocklists. A client not matching any configured
+        group behaves exactly as if client_groups were empty.
 
         The hostname of a configured upstream (e.g. "dns.nextdns.io" for a
-        doh:// upstream) is checked first and unconditionally allowed - a
-        coincidental blocklist/denylist match on it would otherwise cut
-        DNS-shield off from that upstream entirely, since it needs plain
-        DNS to resolve that hostname before it can even reach it.
+        doh:// upstream) or blocklist subscription URL is checked next and
+        unconditionally allowed - a coincidental blocklist/denylist match
+        on it would otherwise cut DNS-shield off from that upstream or
+        blocklist entirely, since it needs plain DNS to resolve that
+        hostname before it can even reach it.
 
         Deny (group or global) is checked before allow (group or global) so
         an explicit denylist entry is truly "always blocked", as the UI
@@ -140,6 +152,10 @@ class BlocklistManager:
         denylisting that same domain again must still work.
         """
         qname = qname.rstrip(".").lower()
+
+        if self.is_paused():
+            return None
+
         group = self._find_group(client_ip)
 
         def matches(domains: Iterable[str] | None) -> bool:
