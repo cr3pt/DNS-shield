@@ -30,11 +30,20 @@ class FilteringResolver:
 
     def resolve(self, request, handler):
         qname = str(request.q.qname).rstrip(".").lower()
-        qtype_name = QTYPE.get(request.q.qtype, str(request.q.qtype))
+        qtype = request.q.qtype
+        qtype_name = QTYPE.get(qtype, str(qtype))
         client_ip = handler.client_address[0] if handler is not None else "?"
 
         if self._client_names is not None:
             self._client_names.touch(client_ip)
+
+        if qtype == QTYPE.AAAA and self._config.get("dns", "block_ipv6", default=False):
+            # Answer NOERROR with no records, rather than NXDOMAIN: this
+            # tells the client "this name has no IPv6 address", which makes
+            # a dual-stack client fall straight back to A/IPv4 instead of
+            # waiting out a timeout or treating the whole name as missing.
+            self._stats.record(qname, True, client_ip, qtype_name)
+            return request.reply()
 
         blocked = bool(qname) and self._blocklist.is_blocked(qname, client_ip)
         self._stats.record(qname, blocked, client_ip, qtype_name)

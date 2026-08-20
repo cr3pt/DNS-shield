@@ -1,8 +1,11 @@
 # DNS-shield configuration
 #
-# This file is copied to /data/config.yaml on first start and is then
-# owned by the running instance (the web UI edits it directly). Edit the
-# copy under your bind-mounted data directory, not this example.
+# This file only seeds the *first* boot: DNS-shield's live config lives in
+# a database (data/config.db), and from then on is edited via the web UI
+# or the REST API. A full copy is exported to data/config.backup.yaml every
+# 12h (and once at every startup) as a human-readable backup/reference -
+# edit that or this file only to change what a *fresh* data volume starts
+# with, never a config that's already running.
 
 dns:
   listen_address: "0.0.0.0"
@@ -26,6 +29,11 @@ dns:
   block_mode: "nxdomain"
   blocked_ipv4: "0.0.0.0"
   blocked_ipv6: "::"
+  # If you don't use IPv6 on your network, turn this on: AAAA queries get
+  # an empty NOERROR reply straight away (skipping the blocklist and the
+  # upstream entirely) instead of a real IPv6 address, so dual-stack
+  # clients fall back to IPv4 immediately instead of trying IPv6 first.
+  block_ipv6: false
   # In-memory cache of upstream answers, keyed by (domain, qtype) and
   # respecting each answer's own TTL. Cuts repeat-lookup latency and
   # upstream traffic; purely local, nothing persisted to disk.
@@ -47,6 +55,11 @@ blocklists:
     - name: "StevenBlack Unified Hosts"
       url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
       enabled: true
+  # Same format as sources above, but these override the blocklists: any
+  # domain fetched here is never blocked, even if it's also on a source
+  # list. Handy for a maintained allowlist subscription rather than
+  # adding every exception by hand to the global `allowlist` below.
+  allow_sources: []
 
 # Domains that are always allowed, even if present on a blocklist.
 allowlist: []
@@ -83,3 +96,8 @@ logging:
   # Query log is stored in a local SQLite database (/data/stats.db).
   # Entries older than this are pruned automatically, hourly.
   retention_days: 30
+  # Domains/clients that are never written to the query log, even though
+  # they're resolved/blocked completely normally - only what shows up in
+  # the log and stats is affected. Domains also cover their subdomains.
+  ignored_domains: []
+  ignored_clients: []   # exact IPs or CIDR ranges, e.g. "192.168.1.50" or "192.168.1.0/24"

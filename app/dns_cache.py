@@ -6,9 +6,11 @@ ago - and repeat lookups (CDN/ad/tracker hostnames requested by many
 devices) are most of a home network's DNS traffic. Caching cuts both
 latency and the number of queries that leave the network at all.
 
-Purely local: an OrderedDict in process memory, bounded by max_entries
-with LRU eviction. Nothing is written to disk and nothing is sent
-anywhere else.
+Purely local: an OrderedDict in process memory, bounded by
+dns.cache_max_entries with LRU eviction. Nothing is written to disk and
+nothing is sent anywhere else. Sizing/TTL bounds and the on/off switch are
+read from the config store on every use, so changes made from the web UI
+take effect immediately without restarting.
 """
 
 from __future__ import annotations
@@ -23,14 +25,15 @@ CacheKey = tuple[str, int, int]
 
 
 class DNSCache:
-    def __init__(self, max_entries: int = 10000, min_ttl: int = 0, max_ttl: int = 3600):
-        self._max_entries = max_entries
-        self._min_ttl = min_ttl
-        self._max_ttl = max_ttl
+    def __init__(self, config_store):
+        self._config = config_store
         self._lock = threading.Lock()
         self._store: OrderedDict[CacheKey, tuple[float, list[RR]]] = OrderedDict()
         self._hits = 0
         self._misses = 0
+
+    def _enabled(self) -> bool:
+        return bool(self._config.get("dns", "cache_enabled", default=True))
 
     @staticmethod
     def _key(request: DNSRecord) -> CacheKey:
@@ -38,6 +41,9 @@ class DNSCache:
         return (str(q.qname).lower(), q.qtype, q.qclass)
 
     def get(self, request: DNSRecord) -> DNSRecord | None:
+        if not self._enabled():
+            return None
+
         key = self._key(request)
         with self._lock:
             entry = self._store.get(key)
@@ -60,27 +66,32 @@ class DNSCache:
         return reply
 
     def put(self, request: DNSRecord, response: DNSRecord) -> None:
+        if not self._enabled():
+            return
         if response.header.rcode != RCODE.NOERROR or response.header.tc:
             return
         answers = list(response.rr)
         if not answers:
             return
 
+        min_ttl = int(self._config.get("dns", "cache_min_ttl_seconds", default=0))
+        max_ttl = int(self._config.get("dns", "cache_max_ttl_seconds", default=3600))
         ttl = min(rr.ttl for rr in answers)
-        ttl = max(self._min_ttl, min(ttl, self._max_ttl))
+        ttl = max(min_ttl, min(ttl, max_ttl))
         if ttl <= 0:
             return
 
+        max_entries = int(self._config.get("dns", "cache_max_entries", default=10000))
         key = self._key(request)
         with self._lock:
             self._store[key] = (time.time() + ttl, answers)
             self._store.move_to_end(key)
-            while len(self._store) > self._max_entries:
+            while len(self._store) > max_entries:
                 self._store.popitem(last=False)
 
     def stats(self) -> dict:
         with self._lock:
-            return {"entries": len(self._store), "hits": self._hits, "misses": self._misses}
+            return {"enabled": self._enabled(), "entries": len(self._store), "hits": self._hits, "misses": self._misses}
 
     def clear(self) -> None:
         with self._lock:

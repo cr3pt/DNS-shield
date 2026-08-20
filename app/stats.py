@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app.netmatch import ip_matches
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS queries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,10 +40,10 @@ CREATE INDEX IF NOT EXISTS idx_queries_blocked ON queries(blocked);
 
 
 class Stats:
-    def __init__(self, db_path: Path, retention_days: float = 30.0, flush_interval: float = 1.0):
+    def __init__(self, db_path: Path, config_store, flush_interval: float = 1.0):
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._retention_days = retention_days
+        self._config = config_store
         self._flush_interval = flush_interval
         self._queue: "queue.Queue[tuple[float, str, str, str, int]]" = queue.Queue()
         self._started_at = time.time()
@@ -71,8 +73,23 @@ class Stats:
 
     # -- writing ------------------------------------------------------
     def record(self, qname: str, blocked: bool, client_ip: str, qtype: str) -> None:
-        """Non-blocking: just hands the row to the writer thread."""
+        """Non-blocking: just hands the row to the writer thread.
+
+        A domain/client on logging.ignored_domains/ignored_clients is
+        simply never written here - resolution and blocking already
+        happened before this is called, so this only affects what shows
+        up in the query log, not how the query itself was answered.
+        """
+        if self._is_ignored(qname, client_ip):
+            return
         self._queue.put((time.time(), qname, qtype, client_ip, int(blocked)))
+
+    def _is_ignored(self, qname: str, client_ip: str) -> bool:
+        ignored_domains = self._config.get("logging", "ignored_domains", default=[]) or []
+        if any(qname == d or qname.endswith("." + d) for d in ignored_domains):
+            return True
+        ignored_clients = self._config.get("logging", "ignored_clients", default=[]) or []
+        return any(ip_matches(client_ip, pattern) for pattern in ignored_clients)
 
     def _writer_loop(self) -> None:
         conn = self._connect()
@@ -104,7 +121,8 @@ class Stats:
             self._prune()
 
     def _prune(self) -> None:
-        cutoff = time.time() - self._retention_days * 86400
+        retention_days = float(self._config.get("logging", "retention_days", default=30))
+        cutoff = time.time() - retention_days * 86400
         conn = self._connect()
         try:
             conn.execute("DELETE FROM queries WHERE ts < ?", (cutoff,))
@@ -158,3 +176,82 @@ class Stats:
                 for row in recent
             ],
         }
+
+    def query_log(
+        self,
+        domain: str | None = None,
+        client_like: str | None = None,
+        client_ips: list[str] | None = None,
+        qtype: str | None = None,
+        blocked: bool | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Search the full retained history (not just the in-memory tail).
+
+        client_ips (exact IPs, e.g. resolved from a hostname search) and
+        client_like (a substring against the stored IP) are OR'd together
+        when both are given, so a client filter can match either an IP
+        fragment or a resolved display name.
+        """
+        where: list[str] = []
+        params: list[Any] = []
+
+        if domain:
+            where.append("domain LIKE ?")
+            params.append(f"%{domain.lower()}%")
+        if qtype:
+            where.append("qtype = ?")
+            params.append(qtype)
+        if blocked is not None:
+            where.append("blocked = ?")
+            params.append(int(blocked))
+        if since is not None:
+            where.append("ts >= ?")
+            params.append(since)
+        if until is not None:
+            where.append("ts <= ?")
+            params.append(until)
+
+        client_clauses = []
+        if client_ips:
+            client_clauses.append("client IN (%s)" % ",".join("?" for _ in client_ips))
+            params_client = list(client_ips)
+        else:
+            params_client = []
+        if client_like:
+            client_clauses.append("client LIKE ?")
+            params_client.append(f"%{client_like}%")
+        if client_clauses:
+            where.append("(" + " OR ".join(client_clauses) + ")")
+            params.extend(params_client)
+
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_sql}", params).fetchone()["c"]
+            rows = conn.execute(
+                f"SELECT ts, domain, qtype, client, blocked FROM queries {where_sql} "
+                "ORDER BY id DESC LIMIT ? OFFSET ?",
+                params + [limit, offset],
+            ).fetchall()
+        finally:
+            conn.close()
+
+        return (
+            [
+                {
+                    "ts": row["ts"],
+                    "domain": row["domain"],
+                    "qtype": row["qtype"],
+                    "client": row["client"],
+                    "blocked": bool(row["blocked"]),
+                }
+                for row in rows
+            ],
+            total,
+        )

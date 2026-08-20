@@ -69,14 +69,24 @@
   .tag.blocked { background: rgba(242,85,90,0.15); color: var(--danger); }
   .tag.allowed { background: rgba(79,209,165,0.15); color: var(--accent); }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
-  input[type=text], input[type=url] {
+  input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
     background: #0c101a;
     border: 1px solid var(--panel-border);
     color: var(--text);
     padding: 0.4rem 0.6rem;
     border-radius: 6px;
     font-size: 0.85rem;
+    font-family: inherit;
   }
+  textarea { width: 100%; min-height: 80px; resize: vertical; font-family: ui-monospace, monospace; }
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
+  .field { display: flex; flex-direction: column; gap: 0.3rem; }
+  .field label { font-size: 0.78rem; color: var(--muted); }
+  .field.checkbox { flex-direction: row; align-items: center; gap: 0.5rem; }
+  .field.checkbox label { font-size: 0.85rem; color: var(--text); }
+  .hint { font-size: 0.75rem; color: var(--warn); margin: 0.4rem 0; }
+  .settings-group h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin: 1.25rem 0 0.6rem; }
+  .settings-group:first-child h3 { margin-top: 0; }
   button {
     background: var(--accent);
     color: #06231a;
@@ -121,6 +131,76 @@
   <div class="cards" id="cards"></div>
 
   <section>
+    <h2>Settings</h2>
+
+    <div class="settings-group">
+      <h3>DNS</h3>
+      <form id="dns-settings-form">
+        <div class="field-grid">
+          <div class="field"><label>Listen address</label><input type="text" id="s-dns-listen-address"></div>
+          <div class="field"><label>Listen port</label><input type="number" id="s-dns-listen-port"></div>
+          <div class="field"><label>Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
+          <div class="field">
+            <label>Block mode</label>
+            <select id="s-dns-block-mode">
+              <option value="nxdomain">nxdomain</option>
+              <option value="null_ip">null_ip</option>
+            </select>
+          </div>
+          <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
+          <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries)</label></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled">Answer cache enabled</label></div>
+          <div class="field"><label>Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
+          <div class="field"><label>Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
+          <div class="field"><label>Cache max TTL (seconds)</label><input type="number" id="s-dns-cache-max-ttl"></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-resolve-names"><label for="s-dns-resolve-names">Resolve client hostnames</label></div>
+          <div class="field"><label>Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
+          <div class="field"><label>Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
+        </div>
+        <p class="hint">Listen address/port changes require restarting the container (docker compose restart). Everything else here applies immediately.</p>
+        <button type="submit">Save DNS settings</button>
+      </form>
+    </div>
+
+    <div class="settings-group">
+      <h3>Upstream resolvers</h3>
+      <form id="upstreams-form">
+        <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query"></textarea>
+        <div style="margin-top:0.5rem;"><button type="submit">Save upstreams</button></div>
+      </form>
+    </div>
+
+    <div class="settings-group">
+      <h3>Web UI</h3>
+      <form id="web-settings-form">
+        <div class="field-grid">
+          <div class="field"><label>Listen address</label><input type="text" id="s-web-listen-address"></div>
+          <div class="field"><label>Listen port</label><input type="number" id="s-web-listen-port"></div>
+          <div class="field"><label>Username</label><input type="text" id="s-web-username"></div>
+          <div class="field"><label>New password</label><input type="password" id="s-web-password" placeholder="leave blank to keep current"></div>
+        </div>
+        <p class="hint">Listen address/port changes require restarting the container. Username/password apply immediately.</p>
+        <button type="submit">Save web settings</button>
+      </form>
+    </div>
+
+    <div class="settings-group">
+      <h3>Logging &amp; blocklist refresh</h3>
+      <form id="misc-settings-form">
+        <div class="field-grid">
+          <div class="field"><label>Query log retention (days)</label><input type="number" id="s-retention-days"></div>
+          <div class="field"><label>Blocklist refresh interval (hours)</label><input type="number" id="s-refresh-interval"></div>
+        </div>
+        <button type="submit">Save</button>
+      </form>
+      <p class="hint" style="color:var(--muted);">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log.</p>
+      <div id="log-ignore-domains"></div>
+      <div id="log-ignore-clients"></div>
+    </div>
+  </section>
+
+  <section>
     <h2>Blocklists</h2>
     <form class="inline" id="add-blocklist-form">
       <input type="text" id="bl-name" placeholder="Name" required>
@@ -131,6 +211,20 @@
     <table>
       <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
       <tbody id="blocklist-rows"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Allow-list sources</h2>
+    <p class="muted">Same format as blocklists, but any domain fetched here is never blocked - overrides the blocklists above.</p>
+    <form class="inline" id="add-allow-source-form">
+      <input type="text" id="as-name" placeholder="Name" required>
+      <input type="url" id="as-url" placeholder="https://.../allowlist.txt" required>
+      <button type="submit">Add</button>
+    </form>
+    <table>
+      <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
+      <tbody id="allow-source-rows"></tbody>
     </table>
   </section>
 
@@ -184,11 +278,46 @@
   </section>
 
   <section>
-    <h2>Recent queries</h2>
+    <h2>Query log</h2>
+    <form class="inline" id="query-log-filter-form">
+      <input type="text" id="ql-domain" placeholder="Domain contains...">
+      <input type="text" id="ql-client" placeholder="Client IP or name contains...">
+      <select id="ql-qtype">
+        <option value="">All types</option>
+        <option value="A">A</option>
+        <option value="AAAA">AAAA</option>
+        <option value="CNAME">CNAME</option>
+        <option value="MX">MX</option>
+        <option value="TXT">TXT</option>
+        <option value="NS">NS</option>
+        <option value="SOA">SOA</option>
+        <option value="PTR">PTR</option>
+        <option value="SRV">SRV</option>
+        <option value="CAA">CAA</option>
+        <option value="HTTPS">HTTPS</option>
+      </select>
+      <select id="ql-status">
+        <option value="">All results</option>
+        <option value="true">Blocked</option>
+        <option value="false">Allowed</option>
+      </select>
+      <select id="ql-range">
+        <option value="">All time</option>
+        <option value="3600">Last hour</option>
+        <option value="86400">Last 24 hours</option>
+        <option value="604800">Last 7 days</option>
+      </select>
+      <button type="submit">Apply filters</button>
+      <button type="button" class="secondary" id="query-log-clear">Clear</button>
+    </form>
+    <p class="muted" id="query-log-summary"></p>
     <table>
-      <thead><tr><th>Time</th><th>Domain</th><th>Type</th><th>Client</th><th>Result</th></tr></thead>
-      <tbody id="recent-rows"></tbody>
+      <thead><tr><th>Time</th><th>Domain</th><th>Type</th><th>Client</th><th>Result</th><th></th></tr></thead>
+      <tbody id="query-log-rows"></tbody>
     </table>
+    <div style="margin-top:0.5rem;">
+      <button type="button" class="secondary" id="query-log-load-more" style="display:none;">Load more</button>
+    </div>
   </section>
 </main>
 
@@ -249,7 +378,7 @@ async function loadStatusAndStats() {
   add("Blocklist domains", status.blocklist_domains.toLocaleString());
 
   const cacheSection = document.getElementById("cache-section");
-  if (status.cache) {
+  if (status.cache && status.cache.enabled) {
     cacheSection.style.display = "";
     const c = status.cache;
     const cacheTotal = c.hits + c.misses;
@@ -271,30 +400,19 @@ async function loadStatusAndStats() {
     ]));
   }
 
-  const recent = document.getElementById("recent-rows");
-  recent.innerHTML = "";
-  for (const q of stats.recent_queries) {
-    recent.appendChild(el("tr", {}, [
-      el("td", { text: fmtTime(q.ts) }),
-      el("td", { text: q.domain }),
-      el("td", { text: q.qtype }),
-      el("td", { text: clientLabel(q.client) }),
-      el("td", {}, [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })]),
-    ]));
-  }
 }
 
-async function loadBlocklists() {
-  const sources = await api("/api/blocklists");
+async function loadSourceTable(apiPath, rowsElId, countsKey) {
+  const sources = await api(apiPath);
   const status = await api("/api/status");
-  const counts = status.blocklist_sources || {};
-  const rows = document.getElementById("blocklist-rows");
+  const counts = status[countsKey] || {};
+  const rows = document.getElementById(rowsElId);
   rows.innerHTML = "";
   sources.forEach((s, i) => {
     const toggleBtn = el("button", { class: "secondary", text: s.enabled ? "Disable" : "Enable" });
-    toggleBtn.onclick = async () => { await api(`/api/blocklists/${i}/toggle`, { method: "POST" }); refreshAll(); };
+    toggleBtn.onclick = async () => { await api(`${apiPath}/${i}/toggle`, { method: "POST" }); refreshAll(); };
     const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/blocklists/${i}`, { method: "DELETE" }); refreshAll(); };
+    delBtn.onclick = async () => { await api(`${apiPath}/${i}`, { method: "DELETE" }); refreshAll(); };
     rows.appendChild(el("tr", {}, [
       el("td", { text: s.name }),
       el("td", { text: s.url }),
@@ -303,6 +421,14 @@ async function loadBlocklists() {
       el("td", {}, [toggleBtn, delBtn]),
     ]));
   });
+}
+
+async function loadBlocklists() {
+  await loadSourceTable("/api/blocklists", "blocklist-rows", "blocklist_sources");
+}
+
+async function loadAllowSources() {
+  await loadSourceTable("/api/allow-sources", "allow-source-rows", "allowlist_sources");
 }
 
 async function loadRules() {
@@ -394,12 +520,210 @@ async function loadClientGroups() {
   });
 }
 
+async function loadSettings() {
+  const s = await api("/api/settings");
+
+  document.getElementById("s-dns-listen-address").value = s.dns.listen_address ?? "";
+  document.getElementById("s-dns-listen-port").value = s.dns.listen_port ?? "";
+  document.getElementById("s-dns-upstream-timeout").value = s.dns.upstream_timeout_seconds ?? "";
+  document.getElementById("s-dns-block-mode").value = s.dns.block_mode ?? "nxdomain";
+  document.getElementById("s-dns-blocked-ipv4").value = s.dns.blocked_ipv4 ?? "";
+  document.getElementById("s-dns-blocked-ipv6").value = s.dns.blocked_ipv6 ?? "";
+  document.getElementById("s-dns-block-ipv6").checked = !!s.dns.block_ipv6;
+  document.getElementById("s-dns-cache-enabled").checked = !!s.dns.cache_enabled;
+  document.getElementById("s-dns-cache-max-entries").value = s.dns.cache_max_entries ?? "";
+  document.getElementById("s-dns-cache-min-ttl").value = s.dns.cache_min_ttl_seconds ?? "";
+  document.getElementById("s-dns-cache-max-ttl").value = s.dns.cache_max_ttl_seconds ?? "";
+  document.getElementById("s-dns-resolve-names").checked = !!s.dns.resolve_client_names;
+  document.getElementById("s-dns-name-resolver").value = s.dns.client_name_resolver ?? "";
+  document.getElementById("s-dns-name-cache-seconds").value = s.dns.client_name_cache_seconds ?? "";
+
+  document.getElementById("s-upstreams").value = (s.upstreams || []).join("\n");
+
+  document.getElementById("s-web-listen-address").value = s.web.listen_address ?? "";
+  document.getElementById("s-web-listen-port").value = s.web.listen_port ?? "";
+  document.getElementById("s-web-username").value = s.web.username ?? "";
+  document.getElementById("s-web-password").value = "";
+
+  document.getElementById("s-retention-days").value = s.logging.retention_days ?? "";
+  document.getElementById("s-refresh-interval").value = s.blocklists_refresh_interval_hours ?? "";
+}
+
+async function loadLogIgnore() {
+  const ignore = await api("/api/log-ignore");
+
+  const domainsEditor = buildRuleEditor(
+    "Ignored domains (never logged)",
+    ignore.domains || [],
+    async (d) => { await api("/api/log-ignore/domains", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+    async (d) => { await api(`/api/log-ignore/domains/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const domainsEl = document.getElementById("log-ignore-domains");
+  domainsEl.innerHTML = "";
+  domainsEl.appendChild(domainsEditor);
+
+  const clientsEditor = buildRuleEditor(
+    "Ignored clients (IP or CIDR, never logged)",
+    ignore.clients || [],
+    async (v) => { await api("/api/log-ignore/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: v }) }); refreshAll(); },
+    async (v) => { await api(`/api/log-ignore/clients/${encodeURIComponent(v)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const clientsEl = document.getElementById("log-ignore-clients");
+  clientsEl.innerHTML = "";
+  clientsEl.appendChild(clientsEditor);
+}
+
+let queryLogOffset = 0;
+const QUERY_LOG_PAGE_SIZE = 100;
+
+function queryLogFilterParams() {
+  const params = new URLSearchParams();
+  const domain = document.getElementById("ql-domain").value.trim();
+  const client = document.getElementById("ql-client").value.trim();
+  const qtype = document.getElementById("ql-qtype").value;
+  const status = document.getElementById("ql-status").value;
+  const range = document.getElementById("ql-range").value;
+  if (domain) params.set("domain", domain);
+  if (client) params.set("client", client);
+  if (qtype) params.set("qtype", qtype);
+  if (status) params.set("blocked", status);
+  if (range) params.set("since", (Date.now() / 1000 - parseInt(range, 10)).toString());
+  return params;
+}
+
+function renderQueryLogRow(q) {
+  const blockBtn = el("button", { class: "secondary", text: "Block" });
+  blockBtn.onclick = async () => {
+    await api("/api/rules/deny", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: q.domain }),
+    });
+    refreshAll();
+  };
+  return el("tr", {}, [
+    el("td", { text: fmtTime(q.ts) }),
+    el("td", { text: q.domain }),
+    el("td", { text: q.qtype }),
+    el("td", { text: clientLabel(q.client) }),
+    el("td", {}, [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })]),
+    el("td", {}, [blockBtn]),
+  ]);
+}
+
+async function loadQueryLog(reset) {
+  if (reset) queryLogOffset = 0;
+  const params = queryLogFilterParams();
+  params.set("limit", QUERY_LOG_PAGE_SIZE.toString());
+  params.set("offset", queryLogOffset.toString());
+
+  const result = await api(`/api/query-log?${params.toString()}`);
+  clientNames = { ...clientNames, ...(result.client_names || {}) };
+
+  const rows = document.getElementById("query-log-rows");
+  if (reset) rows.innerHTML = "";
+  for (const q of result.rows) {
+    rows.appendChild(renderQueryLogRow(q));
+  }
+
+  const shown = queryLogOffset + result.rows.length;
+  document.getElementById("query-log-summary").textContent =
+    result.total === 0 ? "No matching queries" : `Showing ${shown} of ${result.total.toLocaleString()} matching queries`;
+  document.getElementById("query-log-load-more").style.display = shown < result.total ? "" : "none";
+}
+
 async function refreshAll() {
   await loadStatusAndStats();
   await loadBlocklists();
+  await loadAllowSources();
   await loadRules();
   await loadClientGroups();
+  await loadSettings();
+  await loadLogIgnore();
+  await loadQueryLog(true);
 }
+
+document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await api("/api/settings/dns", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      listen_address: document.getElementById("s-dns-listen-address").value.trim(),
+      listen_port: parseInt(document.getElementById("s-dns-listen-port").value, 10),
+      upstream_timeout_seconds: parseFloat(document.getElementById("s-dns-upstream-timeout").value),
+      block_mode: document.getElementById("s-dns-block-mode").value,
+      blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
+      blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
+      block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
+      cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
+      cache_max_entries: parseInt(document.getElementById("s-dns-cache-max-entries").value, 10),
+      cache_min_ttl_seconds: parseInt(document.getElementById("s-dns-cache-min-ttl").value, 10),
+      cache_max_ttl_seconds: parseInt(document.getElementById("s-dns-cache-max-ttl").value, 10),
+      resolve_client_names: document.getElementById("s-dns-resolve-names").checked,
+      client_name_resolver: document.getElementById("s-dns-name-resolver").value.trim(),
+      client_name_cache_seconds: parseInt(document.getElementById("s-dns-name-cache-seconds").value, 10),
+    }),
+  });
+  refreshAll();
+});
+
+document.getElementById("upstreams-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const upstreams = document.getElementById("s-upstreams").value.split("\n").map((s) => s.trim()).filter(Boolean);
+  await api("/api/settings/upstreams", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ upstreams }),
+  });
+  refreshAll();
+});
+
+document.getElementById("web-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const password = document.getElementById("s-web-password").value;
+  const body = {
+    listen_address: document.getElementById("s-web-listen-address").value.trim(),
+    listen_port: parseInt(document.getElementById("s-web-listen-port").value, 10),
+    username: document.getElementById("s-web-username").value.trim(),
+  };
+  if (password) body.password = password;
+  await api("/api/settings/web", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  refreshAll();
+});
+
+document.getElementById("misc-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await api("/api/settings/logging", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ retention_days: parseFloat(document.getElementById("s-retention-days").value) }),
+  });
+  await api("/api/settings/blocklists", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_interval_hours: parseFloat(document.getElementById("s-refresh-interval").value) }),
+  });
+  refreshAll();
+});
+
+document.getElementById("add-allow-source-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("as-name").value.trim();
+  const url = document.getElementById("as-url").value.trim();
+  if (!name || !url) return;
+  await api("/api/allow-sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, url, enabled: true }),
+  });
+  e.target.reset();
+  refreshAll();
+});
 
 document.getElementById("add-group-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -466,8 +790,23 @@ document.getElementById("add-deny-form").addEventListener("submit", async (e) =>
   refreshAll();
 });
 
+document.getElementById("query-log-filter-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loadQueryLog(true);
+});
+
+document.getElementById("query-log-clear").addEventListener("click", () => {
+  document.getElementById("query-log-filter-form").reset();
+  loadQueryLog(true);
+});
+
+document.getElementById("query-log-load-more").addEventListener("click", () => {
+  queryLogOffset += QUERY_LOG_PAGE_SIZE;
+  loadQueryLog(false);
+});
+
 refreshAll();
-setInterval(() => { loadStatusAndStats(); }, 10000);
+setInterval(() => { loadStatusAndStats(); loadQueryLog(true); }, 10000);
 </script>
 </body>
 </html>

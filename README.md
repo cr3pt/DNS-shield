@@ -59,12 +59,14 @@ web UI) but keeps it **local-only by construction**:
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
 - All state - config, cached blocklists, query stats/log - lives on your
-  bind-mounted `./data` volume (plain YAML config, cached list files, and a
-  local SQLite database for the query log). Nothing is sent anywhere else,
-  and you can open `./data/stats.db` yourself with any SQLite client to
-  verify exactly what's stored.
-- Small enough (~600 lines of Python) to actually read end to end; see
-  [Architecture](#architecture) below for exactly what each file does.
+  bind-mounted `./data` volume: a local SQLite database for config
+  (`config.db`) and one for the query log (`stats.db`), plus cached list
+  files. Nothing is sent anywhere else, and you can open either database
+  yourself with any SQLite client to verify exactly what's stored.
+- Every setting is configurable from the dashboard - no editing a YAML
+  file and restarting to change an upstream resolver or a blocklist.
+- Small enough to actually read end to end; see [Architecture](#architecture)
+  below for exactly what each file does.
 
 This intentionally does **not** try to be a full AdGuard Home replacement -
 no DHCP server, no DoH/DoT/DoQ termination, no parental control. It's the
@@ -79,18 +81,24 @@ cd DNS-shield
 docker compose up -d --build
 ```
 
-On first start it seeds `./data/config.yaml` from
-`config/config.example.yaml`. Open `http://<host>:3000`, log in with the
-default `admin` / `changeme` credentials from that file, **change the
-password**, and point a device's DNS at `<host>:53` to test it.
+On first start it seeds `./data/config.db` from `config/config.example.yaml`.
+Open `http://<host>:3000`, log in with the default `admin` / `changeme`
+credentials, **change the password** (Settings -> Web UI), and point a
+device's DNS at `<host>:53` to test it.
 
 To use it network-wide, set it as the DNS server in your router's DHCP
 settings (or on individual devices).
 
 ## Configuration
 
-Everything lives in `./data/config.yaml` (bind-mounted, so it survives
-rebuilds) and can also be edited live from the web UI:
+Every setting is editable from the dashboard's **Settings** section (DNS,
+upstreams, web UI, logging, blocklists) and its dedicated pages (blocklists,
+allow-list sources, allow/deny rules, client groups, log-ignore list) - no
+file editing needed for day-to-day use.
+
+Under the hood, the live config lives in `./data/config.db` (SQLite), and a
+full copy is exported to `./data/config.backup.yaml` every 12 hours (and
+once at every startup) purely as a human-readable backup/reference:
 
 ```yaml
 dns:
@@ -98,11 +106,12 @@ dns:
   listen_port: 53
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # only servers DNS-shield forwards to
   block_mode: "nxdomain"                     # or "null_ip"
-  cache_enabled: true          # in-memory cache of upstream answers, per their own TTL
+  block_ipv6: false             # true: answer AAAA queries empty instead of forwarding
+  cache_enabled: true            # in-memory cache of upstream answers, per their own TTL
   cache_max_entries: 10000
   cache_max_ttl_seconds: 3600
-  resolve_client_names: false  # reverse-DNS client IPs for display (see below)
-  client_name_resolver: ""     # e.g. "192.168.1.1:53" - your router, not an upstream
+  resolve_client_names: false    # reverse-DNS client IPs for display (see below)
+  client_name_resolver: ""       # e.g. "192.168.1.1:53" - your router, not an upstream
 
 blocklists:
   refresh_interval_hours: 24
@@ -110,6 +119,7 @@ blocklists:
     - name: "StevenBlack Unified Hosts"
       url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
       enabled: true
+  allow_sources: []   # same format, but overrides the blocklists - see below
 
 allowlist: []   # always resolved normally, even if a blocklist matches
 denylist: []    # always blocked, even if not on a blocklist
@@ -119,14 +129,17 @@ client_groups: []   # per-IP/CIDR overrides, see below
 web:
   listen_port: 3000
   username: "admin"
-  password: "changeme"   # change this
+  password: "changeme"   # change this from the dashboard
 
 logging:
-  retention_days: 30   # how long query log entries are kept in stats.db
+  retention_days: 30       # how long query log entries are kept in stats.db
+  ignored_domains: []      # never logged, but still resolved/blocked normally
+  ignored_clients: []      # same, by client IP/CIDR
 ```
 
-Add/remove blocklists and allow/deny entries either by editing this file or
-through the web UI (both write to the same file).
+This example file (`config/config.example.yaml`) only matters for a *fresh*
+data volume's first boot, or to recover from a wiped `config.db` - see
+[Editing the config file directly](#editing-the-config-file-directly) below.
 
 ### Encrypted upstream (DNS-over-TLS / DNS-over-HTTPS)
 
@@ -182,24 +195,87 @@ allowlist > group denylist > global denylist > group `enabled: false`
 (no filtering at all) > the blocklists. Manage groups (and their per-group
 allow/deny lists) from the dashboard or by editing this list directly.
 
+### Disabling IPv6
+
+If your network doesn't use IPv6, turn on `dns.block_ipv6` (dashboard:
+Settings -> DNS -> "Disable IPv6"). AAAA queries then get an empty
+`NOERROR` reply immediately - not NXDOMAIN, which would incorrectly tell a
+dual-stack client the whole name doesn't exist - so clients fall back to
+IPv4 right away instead of waiting out an IPv6 connection timeout first.
+This skips the blocklist and upstream entirely for AAAA queries.
+
+### Query log browser and quick-block
+
+The dashboard's **Query log** section searches the full retained history
+(not just the last few entries) - filter by domain substring, client
+(IP or resolved name) substring, record type, blocked/allowed, and a time
+range, with pagination via "Load more". Each row has a **Block** button
+that adds that domain to the global denylist on the spot.
+
+### Excluding domains/clients from the log
+
+`logging.ignored_domains` / `logging.ignored_clients` (dashboard: Settings
+-> Logging & blocklist refresh) keep specific domains or clients out of the
+query log and stats entirely - they're still resolved and blocked exactly
+as normal, this only controls what gets written to `stats.db`. Domain
+entries also cover their subdomains; clients accept an exact IP or a CIDR
+range.
+
+### Editing the config file directly
+
+DNS-shield's live configuration lives in `./data/config.db`, not a YAML
+file - it's edited through the dashboard/REST API, and a full export is
+written to `./data/config.backup.yaml` every 12 hours and at every startup
+as a plain-text backup. That backup file is only ever *read* to seed a
+fresh database (an empty data volume's first boot, or after you delete
+`config.db` to reset). To hand-edit config as YAML: stop the container,
+edit (or replace) `./data/config.backup.yaml`, delete `./data/config.db`
+(and its `-wal`/`-shm` files, if present), and start it again.
+
+## Importing from AdGuard Home
+
+If you're migrating an existing AdGuard Home setup, `app/import_adguard.py`
+converts its `AdGuardHome.yaml` into a DNS-shield config: filter and
+whitelist-filter subscriptions, `user_rules` (both block rules and `@@`
+exceptions), upstream resolvers (`tls://`/`https://` converted to
+`dot://`/`doh://`), listen address/port, blocking mode, and each
+`clients.persistent[].ids` entry (IPs/CIDRs only - MAC addresses aren't
+supported) as a `client_groups` entry:
+
+```bash
+docker compose exec dns-shield python -m app.import_adguard /path/to/AdGuardHome.yaml
+```
+
+It only ever reads the two YAML files you point it at and writes one
+output file - prints a summary of what was imported and, importantly, what
+wasn't (parental control/safe browsing, DHCP, TLS termination, and your web
+UI password - AdGuard stores a bcrypt hash that can't be turned back into
+plaintext, so set that yourself from the dashboard). Full instructions for
+applying the result - which differ depending on whether you're setting up
+fresh or importing into an already-running instance - are printed at the
+end of the run.
+
 ## Architecture
 
 ```
 app/
-  config.py       thread-safe YAML config store, mutated in place by the web UI
-  blocklist.py    fetches + parses hosts/AdBlock-syntax lists, builds the block set,
-                  refreshes on a timer, caches lists to disk for offline restarts
-  dns_server.py   dnslib-based UDP/TCP DNS server; blocks locally, serves cached
-                  answers, or forwards the raw request packet to your upstreams
-  dns_cache.py    in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
-                  nothing persisted to disk)
-  upstream.py     upstream transports: plain UDP/TCP, DNS-over-TLS, DNS-over-HTTPS
-  client_names.py background reverse-DNS (PTR) resolver for dashboard display only
-  stats.py        query log storage: SQLite database (data/stats.db), async writes,
-                  hourly pruning by logging.retention_days
-  web/server.py   FastAPI REST API + basic-auth, backing the dashboard
-  web/static/     single self-contained dashboard page (no external assets/CDN)
-  main.py         wires the above together and starts everything
+  config.py          config storage: SQLite (data/config.db) as the live source of
+                      truth, exported to data/config.backup.yaml every 12h
+  netmatch.py         shared IP/CIDR matching for client groups and log-ignore rules
+  blocklist.py        fetches + parses hosts/AdBlock-syntax lists (block and allow),
+                       refreshes on a timer, caches lists to disk for offline restarts
+  dns_server.py        dnslib-based UDP/TCP DNS server; blocks locally, serves cached
+                        answers, or forwards the raw request packet to your upstreams
+  dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
+                       nothing persisted to disk)
+  upstream.py          upstream transports: plain UDP/TCP, DNS-over-TLS, DNS-over-HTTPS
+  client_names.py      background reverse-DNS (PTR) resolver for dashboard display only
+  stats.py             query log storage: SQLite database (data/stats.db), async writes,
+                       hourly pruning, filterable search for the query-log browser
+  import_adguard.py    one-off AdGuard Home -> DNS-shield config converter (see above)
+  web/server.py        FastAPI REST API + basic-auth, backing the dashboard
+  web/static/          single self-contained dashboard page (no external assets/CDN)
+  main.py              wires the above together and starts everything
 ```
 
 Request flow: client -> DNS-shield (UDP/TCP :53) -> blocklist match? ->

@@ -36,34 +36,22 @@ def main() -> None:
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logger = logging.getLogger("dnsshield.main")
 
-    config_store = ConfigStore()
+    config_store = ConfigStore(db_path=DATA_DIR / "config.db", backup_path=DATA_DIR / "config.backup.yaml")
+    config_store.start_backup_thread(interval_hours=12)
     log_level = config_store.get("logging", "level", default=level)
     logging.getLogger().setLevel(log_level)
 
     blocklist = BlocklistManager(config_store, cache_dir=DATA_DIR / "blocklist_cache")
     blocklist.start()
 
-    retention_days = float(config_store.get("logging", "retention_days", default=30))
-    stats = Stats(DATA_DIR / "stats.db", retention_days=retention_days)
+    stats = Stats(DATA_DIR / "stats.db", config_store)
 
-    cache = None
-    if config_store.get("dns", "cache_enabled", default=True):
-        cache = DNSCache(
-            max_entries=int(config_store.get("dns", "cache_max_entries", default=10000)),
-            min_ttl=int(config_store.get("dns", "cache_min_ttl_seconds", default=0)),
-            max_ttl=int(config_store.get("dns", "cache_max_ttl_seconds", default=3600)),
-        )
-
-    client_names = None
-    if config_store.get("dns", "resolve_client_names", default=False):
-        resolver_addr = config_store.get("dns", "client_name_resolver", default="")
-        if resolver_addr:
-            client_names = ClientNameResolver(
-                resolver_addr,
-                cache_ttl=float(config_store.get("dns", "client_name_cache_seconds", default=3600)),
-            )
-        else:
-            logger.warning("dns.resolve_client_names is true but dns.client_name_resolver is not set - skipping")
+    # Settings for these (enabled/thresholds/resolver address) are all read
+    # live from config_store on every use, so changes from the web UI take
+    # effect immediately - these objects always exist, they just no-op
+    # internally when their feature is turned off.
+    cache = DNSCache(config_store)
+    client_names = ClientNameResolver(config_store)
 
     start_dns_servers(config_store, blocklist, stats, cache=cache, client_names=client_names)
 
