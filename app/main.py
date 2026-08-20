@@ -41,9 +41,8 @@ def main() -> None:
     blocklist = BlocklistManager(config_store, cache_dir=DATA_DIR / "blocklist_cache")
     blocklist.start()
 
-    max_log_entries = int(config_store.get("logging", "query_log_size", default=5000))
-    stats = Stats(DATA_DIR / "stats.json", max_log_entries=max_log_entries)
-    stats.start_autosave()
+    retention_days = float(config_store.get("logging", "retention_days", default=30))
+    stats = Stats(DATA_DIR / "stats.db", retention_days=retention_days)
 
     start_dns_servers(config_store, blocklist, stats)
 

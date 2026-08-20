@@ -59,8 +59,10 @@ web UI) but keeps it **local-only by construction**:
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
 - All state - config, cached blocklists, query stats/log - lives on your
-  bind-mounted `./data` volume as plain YAML/JSON files. Nothing is sent
-  anywhere else, and you can `grep` it yourself to verify.
+  bind-mounted `./data` volume (plain YAML config, cached list files, and a
+  local SQLite database for the query log). Nothing is sent anywhere else,
+  and you can open `./data/stats.db` yourself with any SQLite client to
+  verify exactly what's stored.
 - Small enough (~600 lines of Python) to actually read end to end; see
   [Architecture](#architecture) below for exactly what each file does.
 
@@ -111,6 +113,9 @@ web:
   listen_port: 3000
   username: "admin"
   password: "changeme"   # change this
+
+logging:
+  retention_days: 30   # how long query log entries are kept in stats.db
 ```
 
 Add/remove blocklists and allow/deny entries either by editing this file or
@@ -125,7 +130,8 @@ app/
                   refreshes on a timer, caches lists to disk for offline restarts
   dns_server.py   dnslib-based UDP/TCP DNS server; blocks locally or forwards the
                   raw request packet to your configured upstream resolvers
-  stats.py        in-memory counters + bounded query log, snapshotted to disk
+  stats.py        query log storage: SQLite database (data/stats.db), async writes,
+                  hourly pruning by logging.retention_days
   web/server.py   FastAPI REST API + basic-auth, backing the dashboard
   web/static/     single self-contained dashboard page (no external assets/CDN)
   main.py         wires the above together and starts everything

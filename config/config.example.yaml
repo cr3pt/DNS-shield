@@ -41,5 +41,6 @@ web:
 
 logging:
   level: "INFO"
-  # Keep the last N query log entries in memory / on disk for the UI.
-  query_log_size: 5000
+  # Query log is stored in a local SQLite database (/data/stats.db).
+  # Entries older than this are pruned automatically, hourly.
+  retention_days: 30
