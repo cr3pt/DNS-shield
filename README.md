@@ -267,14 +267,20 @@ if you need a specific exception. Off by default.
 The dashboard's **Query log** section searches the full retained history
 (not just the last few entries) - filter by domain substring, client
 (IP or resolved name) substring, record type, blocked/allowed, and a time
-range, with pagination via "Load more". Each row has a **Block** button
-that adds that domain to the global denylist on the spot, and a **Hide**
-button that adds it to `logging.ignored_domains` (see below) - a shortcut
-for the same thing you can do from Settings, minus the typing. Existing
-rows for that domain vanish from the currently displayed page immediately
-for feedback, but only future queries actually stop being logged - Hide
-doesn't delete anything already written to `stats.db`, and doesn't affect
-resolution/blocking, only what shows up in this log.
+range, with pagination via "Load more". Each row has a **Block**/**Unblock**
+button (whichever applies to that row's current state) and a **Hide**
+button.
+
+Block adds the domain to the global denylist; Unblock reverses whatever
+caused that particular query to be blocked - removes a manual denylist
+entry if that's why, and also adds the domain to the global allowlist,
+which always takes precedence, so it un-blocks a blocklist-source match
+too. Hide adds the domain to `logging.ignored_domains` (see below) - a
+shortcut for the same thing you can do from Settings, minus the typing.
+Existing rows for that domain vanish from the currently displayed page
+immediately for feedback, but only future queries actually stop being
+logged - Hide doesn't delete anything already written to `stats.db`, and
+doesn't affect resolution/blocking, only what shows up in this log.
 
 ### Excluding domains/clients from the log
 

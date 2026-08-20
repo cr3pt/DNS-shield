@@ -793,13 +793,25 @@ function queryLogFilterParams() {
 }
 
 function renderQueryLogRow(q) {
-  const blockBtn = el("button", { class: "secondary", text: "Block" });
+  const blockBtn = el("button", { class: "secondary", text: q.blocked ? "Unblock" : "Block" });
   blockBtn.onclick = async () => {
-    await api("/api/rules/deny", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain: q.domain }),
-    });
+    if (q.blocked) {
+      // Covers both ways a domain ends up blocked: a manual denylist entry
+      // (removed here) and a blocklist-source match (overridden by adding
+      // to the allowlist, which always takes precedence).
+      await api(`/api/rules/deny/${encodeURIComponent(q.domain)}`, { method: "DELETE" });
+      await api("/api/rules/allow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: q.domain }),
+      });
+    } else {
+      await api("/api/rules/deny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: q.domain }),
+      });
+    }
     refreshAll();
   };
   const hideBtn = el("button", { class: "secondary", text: "Hide" });
