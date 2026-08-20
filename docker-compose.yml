@@ -1,0 +1,14 @@
+services:
+  dns-shield:
+    build: .
+    image: dns-shield:latest
+    container_name: dns-shield
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "3000:3000/tcp"
+    volumes:
+      - ./data:/data
+    # DNS-shield only ever talks to the upstream resolvers and blocklist
+    # URLs configured in ./data/config.yaml - nothing else.

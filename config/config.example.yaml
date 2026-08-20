@@ -1,0 +1,45 @@
+# DNS-shield configuration
+#
+# This file is copied to /data/config.yaml on first start and is then
+# owned by the running instance (the web UI edits it directly). Edit the
+# copy under your bind-mounted data directory, not this example.
+
+dns:
+  listen_address: "0.0.0.0"
+  listen_port: 53
+  # Upstream resolvers queried for anything that is not blocked.
+  # Only these hosts (and the blocklist URLs below) are ever contacted
+  # by DNS-shield - nothing is sent anywhere else.
+  upstreams:
+    - "1.1.1.1:53"
+    - "9.9.9.9:53"
+  upstream_timeout_seconds: 3.0
+  # "nxdomain" replies with NXDOMAIN, "null_ip" replies with blocked_ipv4/::
+  block_mode: "nxdomain"
+  blocked_ipv4: "0.0.0.0"
+  blocked_ipv6: "::"
+
+blocklists:
+  refresh_interval_hours: 24
+  sources:
+    - name: "StevenBlack Unified Hosts"
+      url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+      enabled: true
+
+# Domains that are always allowed, even if present on a blocklist.
+allowlist: []
+
+# Domains that are always blocked, in addition to the blocklists.
+denylist: []
+
+web:
+  listen_address: "0.0.0.0"
+  listen_port: 3000
+  username: "admin"
+  # CHANGE THIS before exposing the web UI beyond your own machine.
+  password: "changeme"
+
+logging:
+  level: "INFO"
+  # Keep the last N query log entries in memory / on disk for the UI.
+  query_log_size: 5000

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNS-shield</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1420;
+    --panel: #171d2b;
+    --panel-border: #262e42;
+    --text: #e6e9f0;
+    --muted: #8a93a6;
+    --accent: #4fd1a5;
+    --danger: #f2555a;
+    --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.15rem; margin: 0; }
+  header .sub { color: var(--muted); font-size: 0.85rem; }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 1rem;
+  }
+  .card .value { font-size: 1.6rem; font-weight: 600; }
+  .card .label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+  }
+  section h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--panel-border); }
+  th { color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+  .tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; }
+  .tag.blocked { background: rgba(242,85,90,0.15); color: var(--danger); }
+  .tag.allowed { background: rgba(79,209,165,0.15); color: var(--accent); }
+  form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  input[type=text], input[type=url] {
+    background: #0c101a;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  button {
+    background: var(--accent);
+    color: #06231a;
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.82rem;
+  }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--panel-border); }
+  button.danger { background: var(--danger); color: #2a0b0c; }
+  .row { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
+  .muted { color: var(--muted); }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>DNS-shield</h1>
+  <span class="sub" id="dns-listen">-</span>
+  <span class="sub" id="uptime">-</span>
+</header>
+<main>
+  <div class="cards" id="cards"></div>
+
+  <section>
+    <h2>Blocklists</h2>
+    <form class="inline" id="add-blocklist-form">
+      <input type="text" id="bl-name" placeholder="Name" required>
+      <input type="url" id="bl-url" placeholder="https://.../hosts" required>
+      <button type="submit">Add</button>
+      <button type="button" class="secondary" id="refresh-blocklists">Refresh now</button>
+    </form>
+    <table>
+      <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
+      <tbody id="blocklist-rows"></tbody>
+    </table>
+  </section>
+
+  <div class="two-col">
+    <section>
+      <h2>Allowlist (never blocked)</h2>
+      <form class="inline" id="add-allow-form">
+        <input type="text" id="allow-domain" placeholder="example.com" required>
+        <button type="submit">Add</button>
+      </form>
+      <table><tbody id="allow-rows"></tbody></table>
+    </section>
+    <section>
+      <h2>Denylist (always blocked)</h2>
+      <form class="inline" id="add-deny-form">
+        <input type="text" id="deny-domain" placeholder="tracker.example.com" required>
+        <button type="submit">Add</button>
+      </form>
+      <table><tbody id="deny-rows"></tbody></table>
+    </section>
+  </div>
+
+  <section>
+    <h2>Top blocked domains</h2>
+    <table>
+      <thead><tr><th>Domain</th><th>Count</th></tr></thead>
+      <tbody id="top-blocked-rows"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Recent queries</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Domain</th><th>Type</th><th>Client</th><th>Result</th></tr></thead>
+      <tbody id="recent-rows"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString();
+const fmtDuration = (s) => {
+  s = Math.floor(s);
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60);
+  return (d ? d + "d " : "") + h + "h " + m + "m";
+};
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  if (res.status === 401) {
+    document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+    throw new Error("unauthorized");
+  }
+  if (!res.ok) throw new Error(await res.text());
+  return res.status === 204 ? null : res.json();
+}
+
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "text") node.textContent = v;
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) node.appendChild(c);
+  return node;
+}
+
+async function loadStatusAndStats() {
+  const [status, stats] = await Promise.all([
+    api("/api/status"),
+    api("/api/stats?top_n=25&log_n=100"),
+  ]);
+
+  document.getElementById("dns-listen").textContent = "DNS listening on " + status.dns_listen;
+  document.getElementById("uptime").textContent = "uptime " + fmtDuration(status.uptime_seconds);
+
+  const cards = document.getElementById("cards");
+  cards.innerHTML = "";
+  const add = (label, value) => cards.appendChild(
+    el("div", { class: "card" }, [
+      el("div", { class: "value", text: value }),
+      el("div", { class: "label", text: label }),
+    ])
+  );
+  const pct = stats.total_queries ? ((stats.blocked_queries / stats.total_queries) * 100).toFixed(1) : "0.0";
+  add("Total queries", stats.total_queries.toLocaleString());
+  add("Blocked queries", stats.blocked_queries.toLocaleString());
+  add("Block rate", pct + "%");
+  add("Blocklist domains", status.blocklist_domains.toLocaleString());
+
+  const topBlocked = document.getElementById("top-blocked-rows");
+  topBlocked.innerHTML = "";
+  for (const [domain, count] of stats.top_blocked_domains) {
+    topBlocked.appendChild(el("tr", {}, [
+      el("td", { text: domain }),
+      el("td", { text: count }),
+    ]));
+  }
+
+  const recent = document.getElementById("recent-rows");
+  recent.innerHTML = "";
+  for (const q of stats.recent_queries) {
+    recent.appendChild(el("tr", {}, [
+      el("td", { text: fmtTime(q.ts) }),
+      el("td", { text: q.domain }),
+      el("td", { text: q.qtype }),
+      el("td", { text: q.client }),
+      el("td", {}, [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })]),
+    ]));
+  }
+}
+
+async function loadBlocklists() {
+  const sources = await api("/api/blocklists");
+  const status = await api("/api/status");
+  const counts = status.blocklist_sources || {};
+  const rows = document.getElementById("blocklist-rows");
+  rows.innerHTML = "";
+  sources.forEach((s, i) => {
+    const toggleBtn = el("button", { class: "secondary", text: s.enabled ? "Disable" : "Enable" });
+    toggleBtn.onclick = async () => { await api(`/api/blocklists/${i}/toggle`, { method: "POST" }); refreshAll(); };
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/blocklists/${i}`, { method: "DELETE" }); refreshAll(); };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: s.name }),
+      el("td", { text: s.url }),
+      el("td", { text: (counts[s.name] ?? "-").toString() }),
+      el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? "enabled" : "disabled" })]),
+      el("td", {}, [toggleBtn, delBtn]),
+    ]));
+  });
+}
+
+async function loadRules() {
+  const rules = await api("/api/rules");
+  const allowRows = document.getElementById("allow-rows");
+  allowRows.innerHTML = "";
+  for (const domain of rules.allowlist) {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/rules/allow/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
+    allowRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
+  }
+  const denyRows = document.getElementById("deny-rows");
+  denyRows.innerHTML = "";
+  for (const domain of rules.denylist) {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/rules/deny/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
+    denyRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
+  }
+}
+
+async function refreshAll() {
+  await loadStatusAndStats();
+  await loadBlocklists();
+  await loadRules();
+}
+
+document.getElementById("add-blocklist-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("bl-name").value.trim();
+  const url = document.getElementById("bl-url").value.trim();
+  if (!name || !url) return;
+  await api("/api/blocklists", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, url, enabled: true }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("refresh-blocklists").addEventListener("click", async () => {
+  await api("/api/blocklists/refresh", { method: "POST" });
+  refreshAll();
+});
+
+document.getElementById("add-allow-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = document.getElementById("allow-domain").value.trim();
+  if (!domain) return;
+  await api("/api/rules/allow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-deny-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = document.getElementById("deny-domain").value.trim();
+  if (!domain) return;
+  await api("/api/rules/deny", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+refreshAll();
+setInterval(() => { loadStatusAndStats(); }, 10000);
+</script>
+</body>
+</html>

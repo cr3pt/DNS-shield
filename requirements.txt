@@ -1,0 +1,5 @@
+dnslib==0.9.26
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+PyYAML==6.0.2
+requests==2.32.3
