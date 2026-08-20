@@ -20,6 +20,7 @@ import uvicorn
 
 from app.blocklist import BlocklistManager
 from app.config import ConfigStore
+from app.dns_cache import DNSCache
 from app.dns_server import start_dns_servers
 from app.stats import Stats
 from app.web.server import create_app
@@ -44,9 +45,17 @@ def main() -> None:
     retention_days = float(config_store.get("logging", "retention_days", default=30))
     stats = Stats(DATA_DIR / "stats.db", retention_days=retention_days)
 
-    start_dns_servers(config_store, blocklist, stats)
+    cache = None
+    if config_store.get("dns", "cache_enabled", default=True):
+        cache = DNSCache(
+            max_entries=int(config_store.get("dns", "cache_max_entries", default=10000)),
+            min_ttl=int(config_store.get("dns", "cache_min_ttl_seconds", default=0)),
+            max_ttl=int(config_store.get("dns", "cache_max_ttl_seconds", default=3600)),
+        )
 
-    app = create_app(config_store, blocklist, stats, started_at)
+    start_dns_servers(config_store, blocklist, stats, cache=cache)
+
+    app = create_app(config_store, blocklist, stats, started_at, cache=cache)
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))
     logger.info("web UI listening on %s:%d", web_host, web_port)

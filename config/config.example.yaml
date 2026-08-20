@@ -18,6 +18,13 @@ dns:
   block_mode: "nxdomain"
   blocked_ipv4: "0.0.0.0"
   blocked_ipv6: "::"
+  # In-memory cache of upstream answers, keyed by (domain, qtype) and
+  # respecting each answer's own TTL. Cuts repeat-lookup latency and
+  # upstream traffic; purely local, nothing persisted to disk.
+  cache_enabled: true
+  cache_max_entries: 10000
+  cache_min_ttl_seconds: 0     # floor applied to cached TTLs
+  cache_max_ttl_seconds: 3600  # cap applied to cached TTLs
 
 blocklists:
   refresh_interval_hours: 24

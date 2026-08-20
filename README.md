@@ -98,6 +98,9 @@ dns:
   listen_port: 53
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # only servers DNS-shield forwards to
   block_mode: "nxdomain"                     # or "null_ip"
+  cache_enabled: true          # in-memory cache of upstream answers, per their own TTL
+  cache_max_entries: 10000
+  cache_max_ttl_seconds: 3600
 
 blocklists:
   refresh_interval_hours: 24
@@ -128,8 +131,10 @@ app/
   config.py       thread-safe YAML config store, mutated in place by the web UI
   blocklist.py    fetches + parses hosts/AdBlock-syntax lists, builds the block set,
                   refreshes on a timer, caches lists to disk for offline restarts
-  dns_server.py   dnslib-based UDP/TCP DNS server; blocks locally or forwards the
-                  raw request packet to your configured upstream resolvers
+  dns_server.py   dnslib-based UDP/TCP DNS server; blocks locally, serves cached
+                  answers, or forwards the raw request packet to your upstreams
+  dns_cache.py    in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
+                  nothing persisted to disk)
   stats.py        query log storage: SQLite database (data/stats.db), async writes,
                   hourly pruning by logging.retention_days
   web/server.py   FastAPI REST API + basic-auth, backing the dashboard
@@ -138,8 +143,22 @@ app/
 ```
 
 Request flow: client -> DNS-shield (UDP/TCP :53) -> blocklist match? ->
-NXDOMAIN/null-IP locally, or forward raw packet to an upstream resolver and
-relay the raw reply back. Every query is recorded to the local stats log.
+NXDOMAIN/null-IP locally; otherwise cache hit? -> answer from the local
+cache; otherwise forward the raw packet to an upstream resolver, relay the
+raw reply back, and cache it for its remaining TTL. Every query is recorded
+to the local stats log regardless of how it was answered.
+
+### Concurrency
+
+The DNS server handles each incoming query on its own thread (dnslib's
+`ThreadingMixIn` UDP/TCP servers) - there's no fixed connection limit, and
+since resolving is I/O-bound (waiting on the upstream socket, or on the
+in-memory cache/blocklist lookup) this comfortably handles the query bursts
+of a home or small-office network. It is not tuned for high sustained
+throughput: each forwarded query opens a fresh UDP socket to the upstream
+(no connection reuse/pooling), and thread-per-request has real overhead at
+very high query rates. The cache above absorbs most of the repeat traffic
+that would otherwise hit the upstream resolver.
 
 ## Security notes
 

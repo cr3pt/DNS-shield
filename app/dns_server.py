@@ -20,10 +20,11 @@ logger = logging.getLogger("dnsshield.dns")
 
 
 class FilteringResolver:
-    def __init__(self, blocklist, stats, config_store):
+    def __init__(self, blocklist, stats, config_store, cache=None):
         self._blocklist = blocklist
         self._stats = stats
         self._config = config_store
+        self._cache = cache
 
     def resolve(self, request, handler):
         qname = str(request.q.qname).rstrip(".").lower()
@@ -35,7 +36,16 @@ class FilteringResolver:
 
         if blocked:
             return self._blocked_reply(request)
-        return self._forward(request)
+
+        if self._cache is not None:
+            cached = self._cache.get(request)
+            if cached is not None:
+                return cached
+
+        response = self._forward(request)
+        if self._cache is not None:
+            self._cache.put(request, response)
+        return response
 
     def _blocked_reply(self, request: DNSRecord) -> DNSRecord:
         reply = request.reply()
@@ -106,8 +116,8 @@ class QuietLogger:
         pass
 
 
-def start_dns_servers(config_store, blocklist, stats) -> list[DNSServer]:
-    resolver = FilteringResolver(blocklist, stats, config_store)
+def start_dns_servers(config_store, blocklist, stats, cache=None) -> list[DNSServer]:
+    resolver = FilteringResolver(blocklist, stats, config_store, cache=cache)
     logger_ = QuietLogger()
     address = config_store.get("dns", "listen_address", default="0.0.0.0")
     port = int(config_store.get("dns", "listen_port", default=53))

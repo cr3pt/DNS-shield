@@ -32,7 +32,7 @@ class DomainIn(BaseModel):
     domain: str
 
 
-def create_app(config_store, blocklist, stats, started_at: float) -> FastAPI:
+def create_app(config_store, blocklist, stats, started_at: float, cache=None) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
     def require_auth(credentials: HTTPBasicCredentials = Depends(security)) -> None:
@@ -56,11 +56,19 @@ def create_app(config_store, blocklist, stats, started_at: float) -> FastAPI:
             "blocklist_domains": blocklist.total_count(),
             "blocklist_sources": blocklist.source_counts(),
             "blocklist_last_refresh": blocklist.last_refresh(),
+            "cache": cache.stats() if cache is not None else None,
         }
 
     @app.get("/api/stats")
     def get_stats(top_n: int = 25, log_n: int = 200, _: None = Depends(require_auth)) -> dict[str, Any]:
         return stats.snapshot(top_n=top_n, log_n=log_n)
+
+    @app.post("/api/cache/clear")
+    def clear_cache(_: None = Depends(require_auth)) -> dict[str, Any]:
+        if cache is None:
+            raise HTTPException(status_code=404, detail="Cache is disabled")
+        cache.clear()
+        return {"ok": True}
 
     @app.get("/api/blocklists")
     def list_blocklists(_: None = Depends(require_auth)) -> list[dict[str, Any]]:

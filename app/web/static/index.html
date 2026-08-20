@@ -137,6 +137,14 @@
     </section>
   </div>
 
+  <section id="cache-section" style="display:none">
+    <div class="row">
+      <h2>DNS answer cache</h2>
+      <button type="button" class="secondary" id="clear-cache">Clear cache</button>
+    </div>
+    <p class="muted">In-memory only, respects each answer's TTL - cleared automatically on restart.</p>
+  </section>
+
   <section>
     <h2>Top blocked domains</h2>
     <table>
@@ -207,6 +215,18 @@ async function loadStatusAndStats() {
   add("Block rate", pct + "%");
   add("Blocklist domains", status.blocklist_domains.toLocaleString());
 
+  const cacheSection = document.getElementById("cache-section");
+  if (status.cache) {
+    cacheSection.style.display = "";
+    const c = status.cache;
+    const cacheTotal = c.hits + c.misses;
+    const hitRate = cacheTotal ? ((c.hits / cacheTotal) * 100).toFixed(1) : "0.0";
+    add("Cache entries", c.entries.toLocaleString());
+    add("Cache hit rate", hitRate + "%");
+  } else {
+    cacheSection.style.display = "none";
+  }
+
   const topBlocked = document.getElementById("top-blocked-rows");
   topBlocked.innerHTML = "";
   for (const [domain, count] of stats.top_blocked_domains) {
@@ -273,6 +293,11 @@ async function refreshAll() {
   await loadBlocklists();
   await loadRules();
 }
+
+document.getElementById("clear-cache").addEventListener("click", async () => {
+  await api("/api/cache/clear", { method: "POST" });
+  refreshAll();
+});
 
 document.getElementById("add-blocklist-form").addEventListener("submit", async (e) => {
   e.preventDefault();
