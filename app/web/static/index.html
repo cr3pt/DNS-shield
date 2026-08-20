@@ -7,14 +7,17 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0f1420;
-    --panel: #171d2b;
-    --panel-border: #262e42;
-    --text: #e6e9f0;
-    --muted: #8a93a6;
-    --accent: #4fd1a5;
-    --danger: #f2555a;
-    --warn: #f0b429;
+    --bg: #0a1128;
+    --panel: #121b3a;
+    --panel-border: #26355f;
+    --text: #e8ecfb;
+    --muted: #8b96c4;
+    --accent: #4d9fff;
+    --accent-text: #051029;
+    --danger: #ff5d75;
+    --danger-text: #33040f;
+    --warn: #ffb454;
+    --input-bg: #0b1430;
   }
   * { box-sizing: border-box; }
   body {
@@ -66,11 +69,11 @@
   th { color: var(--muted); font-weight: 500; }
   tr:last-child td { border-bottom: none; }
   .tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; }
-  .tag.blocked { background: rgba(242,85,90,0.15); color: var(--danger); }
-  .tag.allowed { background: rgba(79,209,165,0.15); color: var(--accent); }
+  .tag.blocked { background: rgba(255,93,117,0.15); color: var(--danger); }
+  .tag.allowed { background: rgba(77,159,255,0.15); color: var(--accent); }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
-    background: #0c101a;
+    background: var(--input-bg);
     border: 1px solid var(--panel-border);
     color: var(--text);
     padding: 0.4rem 0.6rem;
@@ -89,7 +92,7 @@
   .settings-group:first-child h3 { margin-top: 0; }
   button {
     background: var(--accent);
-    color: #06231a;
+    color: var(--accent-text);
     border: none;
     padding: 0.4rem 0.8rem;
     border-radius: 6px;
@@ -98,13 +101,13 @@
     font-size: 0.82rem;
   }
   button.secondary { background: transparent; color: var(--text); border: 1px solid var(--panel-border); }
-  button.danger { background: var(--danger); color: #2a0b0c; }
+  button.danger { background: var(--danger); color: var(--danger-text); }
   .row { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
   .muted { color: var(--muted); }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
   @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
   .group-card {
-    background: #10151f;
+    background: var(--input-bg);
     border: 1px solid var(--panel-border);
     border-radius: 8px;
     padding: 0.75rem 1rem;
