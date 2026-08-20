@@ -185,6 +185,20 @@ current even for a server the strategy has stopped picking, and it can be
 picked again if it improves. This only ever probes the upstream hosts
 already in your config.
 
+### Upstream hostnames are always resolvable and never logged
+
+Whatever hostname a `dot://`/`doh://` upstream needs DNS to resolve (e.g.
+`dns.nextdns.io`) is automatically exempt from every blocking mechanism -
+above even a manual denylist entry - and left out of the query log by
+default. No configuration needed: this is derived straight from
+`dns.upstreams`, `domain_upstreams[].upstreams`, and
+`client_groups[].upstreams` every time it's checked, so it stays correct
+whenever your upstreams change. The point is to make it impossible to
+accidentally lock DNS-shield out of its own upstream (a coincidental
+blocklist match on that hostname would otherwise be a self-inflicted
+outage), and to keep this constant background lookup out of a log meant
+for what your devices are actually browsing to.
+
 ### Per-domain and per-client DNS routing
 
 `domain_upstreams` routes specific domains to specific resolvers,

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from app.netmatch import ip_matches
+from app.upstream import protected_hostnames
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS queries (
@@ -95,7 +96,14 @@ class Stats:
         if any(qname == d or qname.endswith("." + d) for d in ignored_domains):
             return True
         ignored_clients = self._config.get("logging", "ignored_clients", default=[]) or []
-        return any(ip_matches(client_ip, pattern) for pattern in ignored_clients)
+        if any(ip_matches(client_ip, pattern) for pattern in ignored_clients):
+            return True
+        # Hidden from the log by default, with no config needed: a query for
+        # an upstream resolver's own hostname (e.g. resolving "dns.nextdns.io"
+        # to reach a doh:// upstream) is DNS-shield's own traffic, not
+        # something a user browsed to.
+        protected = protected_hostnames(self._config)
+        return any(qname == h or qname.endswith("." + h) for h in protected)
 
     def _writer_loop(self) -> None:
         conn = self._connect()

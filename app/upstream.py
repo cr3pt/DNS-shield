@@ -14,6 +14,7 @@ plain DNS. Both verify the upstream's TLS certificate by default.
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import ssl
 import struct
@@ -101,3 +102,55 @@ def _recv_exact(sock, n: int) -> bytes:
             raise ConnectionError("upstream closed connection early")
         buf += chunk
     return buf
+
+
+def hostname_of(upstream: str) -> str | None:
+    """The bare hostname an upstream spec needs DNS to resolve, or None
+    if it's a literal IP (nothing to protect for those).
+    """
+    entry = upstream.strip()
+    for prefix in ("dot://", "doh://", "https://"):
+        if entry.startswith(prefix):
+            entry = entry[len(prefix) :]
+            break
+    entry = entry.split("/", 1)[0]  # drop a DoH path, if any
+
+    host = entry
+    if entry.count(":") == 1:  # "host:port" - but not an IPv6 literal
+        host, _, _port = entry.partition(":")
+    host = host.lower()
+    if not host:
+        return None
+
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        return host
+
+
+def protected_hostnames(config_store) -> set[str]:
+    """Hostnames of every configured upstream resolver (global, per-domain
+    routing, per-client-group) - domains DNS-shield itself must be able to
+    resolve to reach a DoT/DoH upstream at all. These are always exempt
+    from blocking (a coincidental blocklist match would otherwise cut
+    DNS-shield off from that upstream) and excluded from the query log by
+    default (it's DNS-shield's own traffic, not something a user browsed
+    to). Recomputed from the live config on every call, so it stays
+    correct the moment upstreams change - there is nothing to configure
+    separately.
+    """
+    hostnames: set[str] = set()
+
+    def _collect(entries) -> None:
+        for entry in entries or []:
+            host = hostname_of(entry)
+            if host:
+                hostnames.add(host)
+
+    _collect(config_store.get("dns", "upstreams", default=[]))
+    for rule in config_store.get("domain_upstreams", default=[]) or []:
+        _collect(rule.get("upstreams"))
+    for group in config_store.get("client_groups", default=[]) or []:
+        _collect(group.get("upstreams"))
+    return hostnames

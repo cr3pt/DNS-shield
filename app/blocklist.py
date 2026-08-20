@@ -23,6 +23,7 @@ from typing import Any, Iterable
 import requests
 
 from app.netmatch import ip_matches
+from app.upstream import protected_hostnames
 
 logger = logging.getLogger("dnsshield.blocklist")
 
@@ -120,10 +121,17 @@ class BlocklistManager:
         """Returns why a query would be blocked (for the query-log's info
         tooltip), or None if it isn't blocked.
 
-        Precedence: group deny > global deny > group allow > global allow >
-        allow-list sources > group disabled (pass-through) > non-Latin
-        script filter > blocklists. A client not matching any configured
-        group behaves exactly as if client_groups were empty.
+        Precedence: upstream resolver hostnames > group deny > global deny >
+        group allow > global allow > allow-list sources > group disabled
+        (pass-through) > non-Latin script filter > blocklists. A client not
+        matching any configured group behaves exactly as if client_groups
+        were empty.
+
+        The hostname of a configured upstream (e.g. "dns.nextdns.io" for a
+        doh:// upstream) is checked first and unconditionally allowed - a
+        coincidental blocklist/denylist match on it would otherwise cut
+        DNS-shield off from that upstream entirely, since it needs plain
+        DNS to resolve that hostname before it can even reach it.
 
         Deny (group or global) is checked before allow (group or global) so
         an explicit denylist entry is truly "always blocked", as the UI
@@ -137,6 +145,8 @@ class BlocklistManager:
         def matches(domains: Iterable[str] | None) -> bool:
             return any(qname == d or qname.endswith("." + d) for d in (domains or []))
 
+        if matches(protected_hostnames(self._config)):
+            return None
         if group and matches(group.get("denylist")):
             return f"Denylist (client group \"{group.get('name', '')}\")"
         if matches(self._config.get("denylist", default=[])):
