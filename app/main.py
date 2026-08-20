@@ -19,6 +19,7 @@ from pathlib import Path
 import uvicorn
 
 from app.blocklist import BlocklistManager
+from app.client_names import ClientNameResolver
 from app.config import ConfigStore
 from app.dns_cache import DNSCache
 from app.dns_server import start_dns_servers
@@ -53,9 +54,20 @@ def main() -> None:
             max_ttl=int(config_store.get("dns", "cache_max_ttl_seconds", default=3600)),
         )
 
-    start_dns_servers(config_store, blocklist, stats, cache=cache)
+    client_names = None
+    if config_store.get("dns", "resolve_client_names", default=False):
+        resolver_addr = config_store.get("dns", "client_name_resolver", default="")
+        if resolver_addr:
+            client_names = ClientNameResolver(
+                resolver_addr,
+                cache_ttl=float(config_store.get("dns", "client_name_cache_seconds", default=3600)),
+            )
+        else:
+            logger.warning("dns.resolve_client_names is true but dns.client_name_resolver is not set - skipping")
 
-    app = create_app(config_store, blocklist, stats, started_at, cache=cache)
+    start_dns_servers(config_store, blocklist, stats, cache=cache, client_names=client_names)
+
+    app = create_app(config_store, blocklist, stats, started_at, cache=cache, client_names=client_names)
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))
     logger.info("web UI listening on %s:%d", web_host, web_port)

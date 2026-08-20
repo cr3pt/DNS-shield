@@ -93,6 +93,22 @@
   .muted { color: var(--muted); }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
   @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+  .group-card {
+    background: #10151f;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .group-card h3 { margin: 0; font-size: 0.95rem; }
+  .rule-editor { margin: 0.5rem 0; }
+  .rule-editor .title { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.3rem; }
+  .rule-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem; }
+  .rule-tag { display: inline-flex; align-items: center; gap: 0.3rem; }
+  .rule-tag button {
+    background: none; border: none; color: inherit; cursor: pointer;
+    padding: 0; font-size: 0.85rem; line-height: 1;
+  }
 </style>
 </head>
 <body>
@@ -136,6 +152,20 @@
       <table><tbody id="deny-rows"></tbody></table>
     </section>
   </div>
+
+  <section>
+    <h2>Client groups</h2>
+    <p class="muted">Per-IP/CIDR overrides. First matching group wins; unmatched clients get the global policy above.</p>
+    <form class="inline" id="add-group-form">
+      <input type="text" id="group-name" placeholder="Name (e.g. Kids)" required>
+      <input type="text" id="group-match" placeholder="IPs/CIDRs, comma separated" required style="min-width:260px">
+      <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.85rem">
+        <input type="checkbox" id="group-enabled" checked> Filter this group
+      </label>
+      <button type="submit">Add group</button>
+    </form>
+    <div id="group-list"></div>
+  </section>
 
   <section id="cache-section" style="display:none">
     <div class="row">
@@ -182,6 +212,9 @@ async function api(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+let clientNames = {};
+const clientLabel = (ip) => (clientNames[ip] ? `${clientNames[ip]} (${ip})` : ip);
+
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -227,6 +260,8 @@ async function loadStatusAndStats() {
     cacheSection.style.display = "none";
   }
 
+  clientNames = stats.client_names || {};
+
   const topBlocked = document.getElementById("top-blocked-rows");
   topBlocked.innerHTML = "";
   for (const [domain, count] of stats.top_blocked_domains) {
@@ -243,7 +278,7 @@ async function loadStatusAndStats() {
       el("td", { text: fmtTime(q.ts) }),
       el("td", { text: q.domain }),
       el("td", { text: q.qtype }),
-      el("td", { text: q.client }),
+      el("td", { text: clientLabel(q.client) }),
       el("td", {}, [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })]),
     ]));
   }
@@ -288,11 +323,98 @@ async function loadRules() {
   }
 }
 
+function buildRuleEditor(title, items, onAdd, onRemove) {
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: title }));
+
+  const tags = el("div", { class: "rule-tags" });
+  for (const domain of items) {
+    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(domain)]);
+    const rm = el("button", { type: "button", text: "×" });
+    rm.onclick = () => onRemove(domain);
+    tag.appendChild(rm);
+    tags.appendChild(tag);
+  }
+  wrap.appendChild(tags);
+
+  const form = document.createElement("form");
+  form.className = "inline";
+  const input = el("input", { type: "text", placeholder: "domain" });
+  const submit = el("button", { type: "submit", text: "Add" });
+  form.appendChild(input);
+  form.appendChild(submit);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = input.value.trim();
+    if (!v) return;
+    onAdd(v);
+  });
+  wrap.appendChild(form);
+  return wrap;
+}
+
+async function loadClientGroups() {
+  const groups = await api("/api/client-groups");
+  const container = document.getElementById("group-list");
+  container.innerHTML = "";
+
+  groups.forEach((g, i) => {
+    const toggleBtn = el("button", { class: "secondary", text: g.enabled ? "Disable filtering" : "Enable filtering" });
+    toggleBtn.onclick = async () => { await api(`/api/client-groups/${i}/toggle`, { method: "POST" }); refreshAll(); };
+    const delBtn = el("button", { class: "danger", text: "Delete group" });
+    delBtn.onclick = async () => { await api(`/api/client-groups/${i}`, { method: "DELETE" }); refreshAll(); };
+
+    const header = el("div", { class: "row" }, [
+      el("div", {}, [
+        el("h3", { text: g.name }),
+        el("span", { class: "muted", text: (g.match || []).join(", ") }),
+      ]),
+      el("span", {
+        class: "tag " + (g.enabled ? "allowed" : "blocked"),
+        text: g.enabled ? "filtering on" : "filtering off",
+      }),
+    ]);
+
+    const actions = el("div", { class: "inline", style: "margin: 0.5rem 0 0;" }, [toggleBtn, delBtn]);
+
+    const allowEditor = buildRuleEditor(
+      "Allow (never blocked for this group)",
+      g.allowlist || [],
+      async (d) => { await api(`/api/client-groups/${i}/allow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+      async (d) => { await api(`/api/client-groups/${i}/allow/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+    );
+    const denyEditor = buildRuleEditor(
+      "Deny (always blocked for this group)",
+      g.denylist || [],
+      async (d) => { await api(`/api/client-groups/${i}/deny`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+      async (d) => { await api(`/api/client-groups/${i}/deny/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+    );
+
+    container.appendChild(el("div", { class: "group-card" }, [header, actions, allowEditor, denyEditor]));
+  });
+}
+
 async function refreshAll() {
   await loadStatusAndStats();
   await loadBlocklists();
   await loadRules();
+  await loadClientGroups();
 }
+
+document.getElementById("add-group-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("group-name").value.trim();
+  const match = document.getElementById("group-match").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const enabled = document.getElementById("group-enabled").checked;
+  if (!name || !match.length) return;
+  await api("/api/client-groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, match, enabled, allowlist: [], denylist: [] }),
+  });
+  e.target.reset();
+  refreshAll();
+});
 
 document.getElementById("clear-cache").addEventListener("click", async () => {
   await api("/api/cache/clear", { method: "POST" });

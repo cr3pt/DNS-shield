@@ -32,7 +32,15 @@ class DomainIn(BaseModel):
     domain: str
 
 
-def create_app(config_store, blocklist, stats, started_at: float, cache=None) -> FastAPI:
+class ClientGroupIn(BaseModel):
+    name: str
+    match: list[str] = []
+    enabled: bool = True
+    allowlist: list[str] = []
+    denylist: list[str] = []
+
+
+def create_app(config_store, blocklist, stats, started_at: float, cache=None, client_names=None) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
     def require_auth(credentials: HTTPBasicCredentials = Depends(security)) -> None:
@@ -61,7 +69,9 @@ def create_app(config_store, blocklist, stats, started_at: float, cache=None) ->
 
     @app.get("/api/stats")
     def get_stats(top_n: int = 25, log_n: int = 200, _: None = Depends(require_auth)) -> dict[str, Any]:
-        return stats.snapshot(top_n=top_n, log_n=log_n)
+        snapshot = stats.snapshot(top_n=top_n, log_n=log_n)
+        snapshot["client_names"] = client_names.snapshot() if client_names is not None else {}
+        return snapshot
 
     @app.post("/api/cache/clear")
     def clear_cache(_: None = Depends(require_auth)) -> dict[str, Any]:
@@ -162,5 +172,89 @@ def create_app(config_store, blocklist, stats, started_at: float, cache=None) ->
     @app.delete("/api/rules/deny/{domain}")
     def remove_deny(domain: str, _: None = Depends(require_auth)) -> list[str]:
         return _remove_rule("denylist", domain)
+
+    @app.get("/api/client-groups")
+    def list_client_groups(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        return config_store.get("client_groups", default=[]) or []
+
+    @app.post("/api/client-groups")
+    def add_client_group(group: ClientGroupIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            groups = data.setdefault("client_groups", [])
+            groups.append(group.model_dump())
+            return groups
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/client-groups/{index}")
+    def delete_client_group(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            groups = data.setdefault("client_groups", [])
+            if not 0 <= index < len(groups):
+                raise HTTPException(status_code=404, detail="No such client group")
+            groups.pop(index)
+            return groups
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/client-groups/{index}/toggle")
+    def toggle_client_group(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            groups = data.setdefault("client_groups", [])
+            if not 0 <= index < len(groups):
+                raise HTTPException(status_code=404, detail="No such client group")
+            groups[index]["enabled"] = not groups[index].get("enabled", True)
+            return groups
+
+        return config_store.mutate(_mutate)
+
+    def _group_mutate(index: int, fn) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            groups = data.setdefault("client_groups", [])
+            if not 0 <= index < len(groups):
+                raise HTTPException(status_code=404, detail="No such client group")
+            return fn(groups[index])
+
+        return config_store.mutate(_mutate)
+
+    def _add_group_rule(index: int, list_name: str, domain: str) -> dict[str, Any]:
+        domain = domain.strip().lower().rstrip(".")
+        if not domain:
+            raise HTTPException(status_code=400, detail="Empty domain")
+
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            items = group.setdefault(list_name, [])
+            if domain not in items:
+                items.append(domain)
+            return group
+
+        return _group_mutate(index, _fn)
+
+    def _remove_group_rule(index: int, list_name: str, domain: str) -> dict[str, Any]:
+        domain = domain.strip().lower().rstrip(".")
+
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            items = group.setdefault(list_name, [])
+            if domain in items:
+                items.remove(domain)
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.post("/api/client-groups/{index}/allow")
+    def add_group_allow(index: int, body: DomainIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        return _add_group_rule(index, "allowlist", body.domain)
+
+    @app.delete("/api/client-groups/{index}/allow/{domain}")
+    def remove_group_allow(index: int, domain: str, _: None = Depends(require_auth)) -> dict[str, Any]:
+        return _remove_group_rule(index, "allowlist", domain)
+
+    @app.post("/api/client-groups/{index}/deny")
+    def add_group_deny(index: int, body: DomainIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        return _add_group_rule(index, "denylist", body.domain)
+
+    @app.delete("/api/client-groups/{index}/deny/{domain}")
+    def remove_group_deny(index: int, domain: str, _: None = Depends(require_auth)) -> dict[str, Any]:
+        return _remove_group_rule(index, "denylist", domain)
 
     return app

@@ -10,6 +10,14 @@ dns:
   # Upstream resolvers queried for anything that is not blocked.
   # Only these hosts (and the blocklist URLs below) are ever contacted
   # by DNS-shield - nothing is sent anywhere else.
+  #
+  # Plain "host:port" is DNS over UDP/TCP (default). Prefix an entry with
+  # "dot://" for DNS-over-TLS or "doh://"/"https://" for DNS-over-HTTPS to
+  # encrypt queries between DNS-shield and that resolver - e.g.:
+  #   - "dot://1.1.1.1"
+  #   - "doh://cloudflare-dns.com/dns-query"
+  #   - "dot://9.9.9.9"
+  #   - "https://dns.quad9.net/dns-query"
   upstreams:
     - "1.1.1.1:53"
     - "9.9.9.9:53"
@@ -25,6 +33,13 @@ dns:
   cache_max_entries: 10000
   cache_min_ttl_seconds: 0     # floor applied to cached TTLs
   cache_max_ttl_seconds: 3600  # cap applied to cached TTLs
+  # Best-effort client hostnames on the dashboard, via reverse DNS (PTR).
+  # Point client_name_resolver at your router, NOT at the upstreams above -
+  # your router is what usually knows DHCP client names; public resolvers
+  # don't. Purely local and non-blocking: never delays answering a query.
+  resolve_client_names: false
+  client_name_resolver: ""     # e.g. "192.168.1.1:53"
+  client_name_cache_seconds: 3600
 
 blocklists:
   refresh_interval_hours: 24
@@ -38,6 +53,23 @@ allowlist: []
 
 # Domains that are always blocked, in addition to the blocklists.
 denylist: []
+
+# Per-client/group overrides, matched by source IP or CIDR. The first
+# matching group wins; a client matching no group just gets the global
+# policy above. Precedence for a matched client: group allowlist > global
+# allowlist > group denylist > global denylist > group "enabled: false"
+# (no filtering at all for that client) > the blocklists.
+#
+# client_groups:
+#   - name: "Kids"
+#     match: ["192.168.1.50", "192.168.1.0/28"]
+#     enabled: true
+#     allowlist: []
+#     denylist: ["some-adult-site.example"]
+#   - name: "Guests"
+#     match: ["192.168.1.200/29"]
+#     enabled: false   # pass-through, no ad/tracker blocking for guests
+client_groups: []
 
 web:
   listen_address: "0.0.0.0"

@@ -12,12 +12,13 @@ blocklist URL from your own config.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 import threading
 import time
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import requests
 
@@ -81,17 +82,30 @@ class BlocklistManager:
         self._thread: threading.Thread | None = None
 
     # -- matching -----------------------------------------------------
-    def is_blocked(self, qname: str) -> bool:
+    def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
+        """Precedence: group allow > global allow > group deny > global deny
+        > group disabled (pass-through) > blocklists. A client not matching
+        any configured group behaves exactly as if client_groups were empty.
+        """
         qname = qname.rstrip(".").lower()
-        allowlist = self._config.get("allowlist", default=[]) or []
-        if any(qname == d or qname.endswith("." + d) for d in allowlist):
+        group = self._find_group(client_ip)
+
+        def matches(domains: Iterable[str] | None) -> bool:
+            return any(qname == d or qname.endswith("." + d) for d in (domains or []))
+
+        if group and matches(group.get("allowlist")):
+            return False
+        if matches(self._config.get("allowlist", default=[])):
+            return False
+        if group and matches(group.get("denylist")):
+            return True
+        if matches(self._config.get("denylist", default=[])):
+            return True
+        if group is not None and not group.get("enabled", True):
             return False
 
         with self._lock:
             blocked = self._blocked
-        denylist = self._config.get("denylist", default=[]) or []
-        if any(qname == d or qname.endswith("." + d) for d in denylist):
-            return True
 
         if qname in blocked:
             return True
@@ -101,6 +115,25 @@ class BlocklistManager:
             if ".".join(labels[i:]) in blocked:
                 return True
         return False
+
+    def _find_group(self, client_ip: str | None) -> dict[str, Any] | None:
+        if not client_ip:
+            return None
+        groups = self._config.get("client_groups", default=[]) or []
+        for group in groups:
+            for pattern in group.get("match", []) or []:
+                if self._ip_matches(client_ip, pattern):
+                    return group
+        return None
+
+    @staticmethod
+    def _ip_matches(client_ip: str, pattern: str) -> bool:
+        try:
+            if "/" in pattern:
+                return ipaddress.ip_address(client_ip) in ipaddress.ip_network(pattern, strict=False)
+            return ipaddress.ip_address(client_ip) == ipaddress.ip_address(pattern)
+        except ValueError:
+            return client_ip == pattern
 
     # -- stats ----------------------------------------------------------
     def source_counts(self) -> dict[str, int]:

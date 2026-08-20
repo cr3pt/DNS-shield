@@ -11,27 +11,32 @@ record types without having to reimplement DNS semantics.
 from __future__ import annotations
 
 import logging
-import socket
 
 from dnslib import AAAA, QTYPE, RCODE, RR, A, DNSRecord
 from dnslib.server import DNSServer
+
+from app import upstream as upstream_transport
 
 logger = logging.getLogger("dnsshield.dns")
 
 
 class FilteringResolver:
-    def __init__(self, blocklist, stats, config_store, cache=None):
+    def __init__(self, blocklist, stats, config_store, cache=None, client_names=None):
         self._blocklist = blocklist
         self._stats = stats
         self._config = config_store
         self._cache = cache
+        self._client_names = client_names
 
     def resolve(self, request, handler):
         qname = str(request.q.qname).rstrip(".").lower()
         qtype_name = QTYPE.get(request.q.qtype, str(request.q.qtype))
         client_ip = handler.client_address[0] if handler is not None else "?"
 
-        blocked = bool(qname) and self._blocklist.is_blocked(qname)
+        if self._client_names is not None:
+            self._client_names.touch(client_ip)
+
+        blocked = bool(qname) and self._blocklist.is_blocked(qname, client_ip)
         self._stats.record(qname, blocked, client_ip, qtype_name)
 
         if blocked:
@@ -68,15 +73,10 @@ class FilteringResolver:
         upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
 
         for upstream in upstreams:
-            host, _, port_str = upstream.partition(":")
-            port = int(port_str) if port_str else 53
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                    sock.settimeout(timeout)
-                    sock.sendto(data, (host, port))
-                    resp, _ = sock.recvfrom(65535)
+                resp = upstream_transport.forward(data, upstream, timeout)
                 return DNSRecord.parse(resp)
-            except (socket.timeout, OSError) as exc:
+            except Exception as exc:  # noqa: BLE001 - socket/ssl/requests errors, any upstream can fail
                 logger.warning("upstream %s failed: %s", upstream, exc)
                 continue
 
@@ -116,8 +116,8 @@ class QuietLogger:
         pass
 
 
-def start_dns_servers(config_store, blocklist, stats, cache=None) -> list[DNSServer]:
-    resolver = FilteringResolver(blocklist, stats, config_store, cache=cache)
+def start_dns_servers(config_store, blocklist, stats, cache=None, client_names=None) -> list[DNSServer]:
+    resolver = FilteringResolver(blocklist, stats, config_store, cache=cache, client_names=client_names)
     logger_ = QuietLogger()
     address = config_store.get("dns", "listen_address", default="0.0.0.0")
     port = int(config_store.get("dns", "listen_port", default=53))

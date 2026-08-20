@@ -101,6 +101,8 @@ dns:
   cache_enabled: true          # in-memory cache of upstream answers, per their own TTL
   cache_max_entries: 10000
   cache_max_ttl_seconds: 3600
+  resolve_client_names: false  # reverse-DNS client IPs for display (see below)
+  client_name_resolver: ""     # e.g. "192.168.1.1:53" - your router, not an upstream
 
 blocklists:
   refresh_interval_hours: 24
@@ -111,6 +113,8 @@ blocklists:
 
 allowlist: []   # always resolved normally, even if a blocklist matches
 denylist: []    # always blocked, even if not on a blocklist
+
+client_groups: []   # per-IP/CIDR overrides, see below
 
 web:
   listen_port: 3000
@@ -124,6 +128,60 @@ logging:
 Add/remove blocklists and allow/deny entries either by editing this file or
 through the web UI (both write to the same file).
 
+### Encrypted upstream (DNS-over-TLS / DNS-over-HTTPS)
+
+Any `upstreams` entry can be prefixed to encrypt the hop between
+DNS-shield and that resolver, hiding query content from anything snooping
+the path in between (e.g. your ISP) - the upstream operator itself can
+still see what you ask it, same as with plain DNS:
+
+```yaml
+dns:
+  upstreams:
+    - "dot://1.1.1.1"                          # DNS-over-TLS
+    - "doh://cloudflare-dns.com/dns-query"     # DNS-over-HTTPS
+    - "https://dns.quad9.net/dns-query"        # DNS-over-HTTPS, full URL also works
+```
+
+Plain `host:port` entries use UDP with an automatic TCP retry if the reply
+is truncated. DNS-shield itself still only ever listens for plain DNS from
+your LAN clients on port 53 - there's no DoT/DoH/DoQ *listener*.
+
+### Client hostnames (reverse DNS)
+
+Set `dns.client_name_resolver` to your **router's** IP (not one of your
+ad-filtering upstreams - your router is what actually knows DHCP client
+names) and `dns.resolve_client_names: true`, and the dashboard's query log
+and client list will show e.g. `laptop-jan.lan (192.168.1.50)` instead of
+just the raw IP. Resolution happens in a background thread and is purely a
+display aid - it never delays answering a client's actual query, and
+nothing is written to disk (in-memory cache only, `dns.client_name_cache_seconds`).
+
+### Per-client/group policies
+
+`client_groups` lets you override the global policy for specific IPs or
+CIDR ranges - e.g. a stricter denylist for kids' devices, or turning
+filtering off entirely for a NAS/server that breaks when domains are
+blocked. First matching group wins; a client that matches no group just
+gets the global policy above:
+
+```yaml
+client_groups:
+  - name: "Kids"
+    match: ["192.168.1.50", "192.168.1.0/28"]
+    enabled: true
+    allowlist: []
+    denylist: ["some-adult-site.example"]
+  - name: "Guests"
+    match: ["192.168.1.200/29"]
+    enabled: false   # pass-through: no ad/tracker blocking for this group
+```
+
+Precedence for a query from a matched client: group allowlist > global
+allowlist > group denylist > global denylist > group `enabled: false`
+(no filtering at all) > the blocklists. Manage groups (and their per-group
+allow/deny lists) from the dashboard or by editing this list directly.
+
 ## Architecture
 
 ```
@@ -135,6 +193,8 @@ app/
                   answers, or forwards the raw request packet to your upstreams
   dns_cache.py    in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                   nothing persisted to disk)
+  upstream.py     upstream transports: plain UDP/TCP, DNS-over-TLS, DNS-over-HTTPS
+  client_names.py background reverse-DNS (PTR) resolver for dashboard display only
   stats.py        query log storage: SQLite database (data/stats.db), async writes,
                   hourly pruning by logging.retention_days
   web/server.py   FastAPI REST API + basic-auth, backing the dashboard
@@ -172,7 +232,9 @@ that would otherwise hit the upstream resolver.
 
 ## Limitations / roadmap
 
-- No DHCP server, no DoH/DoT/DoQ listener, no client-specific policies yet.
+- No DHCP server, no DoH/DoT/DoQ *listener* (only as an upstream transport -
+  see above), no parental control / safe browsing.
+- Client groups match by source IP/CIDR only, not MAC address or hostname.
 - No built-in HTTPS for the web UI - put a reverse proxy in front of it if
   you need TLS.
 - Blocklist matching is domain/subdomain based; it doesn't parse the full
