@@ -475,6 +475,23 @@
 
 <script>
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString();
+
+// Reads a numeric input as int/float, or undefined if left blank - never
+// NaN. JSON.stringify drops undefined keys entirely (unlike NaN, which it
+// silently turns into null), so a blank field is omitted from the PATCH
+// body instead of overwriting the stored value with null.
+function intField(id) {
+  const raw = document.getElementById(id).value.trim();
+  if (raw === "") return undefined;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? undefined : n;
+}
+function floatField(id) {
+  const raw = document.getElementById(id).value.trim();
+  if (raw === "") return undefined;
+  const n = parseFloat(raw);
+  return Number.isNaN(n) ? undefined : n;
+}
 const fmtDuration = (s) => {
   s = Math.floor(s);
   const d = Math.floor(s / 86400); s -= d * 86400;
@@ -878,22 +895,22 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       listen_address: document.getElementById("s-dns-listen-address").value.trim(),
-      listen_port: parseInt(document.getElementById("s-dns-listen-port").value, 10),
-      upstream_timeout_seconds: parseFloat(document.getElementById("s-dns-upstream-timeout").value),
+      listen_port: intField("s-dns-listen-port"),
+      upstream_timeout_seconds: floatField("s-dns-upstream-timeout"),
       block_mode: document.getElementById("s-dns-block-mode").value,
       blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
       blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
       block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
       block_non_latin: document.getElementById("s-dns-block-non-latin").checked,
       upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
-      upstream_stats_window_minutes: parseFloat(document.getElementById("s-dns-upstream-stats-window").value),
+      upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),
       cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
-      cache_max_entries: parseInt(document.getElementById("s-dns-cache-max-entries").value, 10),
-      cache_min_ttl_seconds: parseInt(document.getElementById("s-dns-cache-min-ttl").value, 10),
-      cache_max_ttl_seconds: parseInt(document.getElementById("s-dns-cache-max-ttl").value, 10),
+      cache_max_entries: intField("s-dns-cache-max-entries"),
+      cache_min_ttl_seconds: intField("s-dns-cache-min-ttl"),
+      cache_max_ttl_seconds: intField("s-dns-cache-max-ttl"),
       resolve_client_names: document.getElementById("s-dns-resolve-names").checked,
       client_name_resolver: document.getElementById("s-dns-name-resolver").value.trim(),
-      client_name_cache_seconds: parseInt(document.getElementById("s-dns-name-cache-seconds").value, 10),
+      client_name_cache_seconds: intField("s-dns-name-cache-seconds"),
     }),
   });
   refreshAll();
@@ -916,7 +933,7 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
   const theme = document.getElementById("s-web-theme").value;
   const body = {
     listen_address: document.getElementById("s-web-listen-address").value.trim(),
-    listen_port: parseInt(document.getElementById("s-web-listen-port").value, 10),
+    listen_port: intField("s-web-listen-port"),
     username: document.getElementById("s-web-username").value.trim(),
     theme,
   };
@@ -935,12 +952,12 @@ document.getElementById("misc-settings-form").addEventListener("submit", async (
   await api("/api/settings/logging", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ retention_days: parseFloat(document.getElementById("s-retention-days").value) }),
+    body: JSON.stringify({ retention_days: floatField("s-retention-days") }),
   });
   await api("/api/settings/blocklists", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_interval_hours: parseFloat(document.getElementById("s-refresh-interval").value) }),
+    body: JSON.stringify({ refresh_interval_hours: floatField("s-refresh-interval") }),
   });
   refreshAll();
 });

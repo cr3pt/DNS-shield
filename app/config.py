@@ -126,13 +126,20 @@ class ConfigStore:
             return copy.deepcopy(self._data)
 
     def get(self, *keys: str, default: Any = None) -> Any:
+        """A stored `None` is treated the same as a missing key: nothing in
+        this app's config ever means "explicitly nothing" - it's always
+        "use the default". This also self-heals a value that got nulled
+        out by a past bug (e.g. a form submitting an empty numeric field)
+        without needing a manual database fix - the next read just falls
+        back to the caller's default again.
+        """
         with self._lock:
             node: Any = self._data
             for key in keys:
                 if not isinstance(node, dict) or key not in node:
                     return default
                 node = node[key]
-            return node
+            return default if node is None else node
 
     def mutate(self, fn) -> Any:
         """Apply fn(data) under the lock, persist to the DB, and return fn's result."""

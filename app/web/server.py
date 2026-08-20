@@ -520,7 +520,11 @@ def create_app(
     def update_dns_settings(body: DnsSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             dns_cfg = data.setdefault("dns", {})
-            dns_cfg.update(body.model_dump(exclude_unset=True))
+            # None means "the client left this field blank" (e.g. a numeric
+            # input with no value serializes to null), never "clear this
+            # setting" - every field here has a real default, so a blank
+            # submission should leave the existing value alone.
+            dns_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
             return {k: v for k, v in dns_cfg.items() if k != "upstreams"}
 
         return config_store.mutate(_mutate)
@@ -537,7 +541,7 @@ def create_app(
     def update_web_settings(body: WebSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             web_cfg = data.setdefault("web", {})
-            payload = body.model_dump(exclude_unset=True)
+            payload = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
             password = payload.pop("password", None)
             web_cfg.update(payload)
             if password:
@@ -550,7 +554,7 @@ def create_app(
     def update_logging_settings(body: LoggingSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             logging_cfg = data.setdefault("logging", {})
-            logging_cfg.update(body.model_dump(exclude_unset=True))
+            logging_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
             return logging_cfg
 
         return config_store.mutate(_mutate)
@@ -559,7 +563,7 @@ def create_app(
     def update_blocklist_settings(body: BlocklistSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             bl_cfg = data.setdefault("blocklists", {})
-            bl_cfg.update(body.model_dump(exclude_unset=True))
+            bl_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
             return {k: v for k, v in bl_cfg.items() if k not in ("sources", "allow_sources")}
 
         return config_store.mutate(_mutate)

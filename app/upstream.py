@@ -19,8 +19,24 @@ import ssl
 import struct
 
 import requests
+from requests.adapters import HTTPAdapter
 
 DOH_CONTENT_TYPE = "application/dns-message"
+
+# One shared, connection-pooling Session for all DoH upstreams, reused
+# across every DNS query. requests.post() at module level (the original
+# implementation here) opens a brand-new connection every single call and
+# relies on the OS to eventually reclaim it (TCP TIME_WAIT can hold a
+# closed socket's file descriptor for a minute or more) - under real,
+# sustained query volume that exhausts the process's file descriptor
+# limit ("Too many open files") long before the OS catches up. A shared
+# Session's connection pool actually reuses the same open sockets instead.
+# pool_maxsize is generous because dnslib handles each query in its own
+# thread, so many DoH requests can be in flight at once.
+_doh_session = requests.Session()
+_doh_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100)
+_doh_session.mount("https://", _doh_adapter)
+_doh_session.mount("http://", _doh_adapter)
 
 
 def forward(data: bytes, upstream: str, timeout: float) -> bytes:
@@ -67,7 +83,7 @@ def _forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
 
 
 def _forward_doh(data: bytes, url: str, timeout: float) -> bytes:
-    resp = requests.post(
+    resp = _doh_session.post(
         url,
         data=data,
         headers={"Content-Type": DOH_CONTENT_TYPE, "Accept": DOH_CONTENT_TYPE},
