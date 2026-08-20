@@ -16,6 +16,7 @@ import logging
 import re
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -28,6 +29,32 @@ logger = logging.getLogger("dnsshield.blocklist")
 _HOSTS_PREFIXES = ("0.0.0.0 ", "127.0.0.1 ", "::1 ", "0.0.0.0\t", "127.0.0.1\t")
 _ADBLOCK_RE = re.compile(r"^\|\|([a-z0-9.\-_]+)\^")
 _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$")
+
+
+def is_non_latin_domain(domain: str) -> bool:
+    """True if the domain (once IDNA/punycode labels are decoded back to
+    Unicode) contains any letter outside the Latin script - i.e. Cyrillic,
+    Arabic, CJK, Hangul, Greek, Hebrew, Thai, Devanagari, and so on. Plain
+    ASCII and accented Latin (café.fr, münchen.de) are not flagged.
+    """
+    if "xn--" in domain:
+        decoded_labels = []
+        for label in domain.split("."):
+            if label.startswith("xn--"):
+                try:
+                    label = label.encode("ascii").decode("idna")
+                except (UnicodeError, UnicodeDecodeError):
+                    pass
+            decoded_labels.append(label)
+        domain = ".".join(decoded_labels)
+
+    for ch in domain:
+        if ch in ".-_" or ch.isdigit() or ch.isascii():
+            continue
+        name = unicodedata.name(ch, "")
+        if not name or (not name.startswith("LATIN") and "COMBINING" not in name):
+            return True
+    return False
 
 
 def _parse_line(line: str) -> str | None:
@@ -88,8 +115,8 @@ class BlocklistManager:
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
         """Precedence: group allow > global allow > allow-list sources >
         group deny > global deny > group disabled (pass-through) >
-        blocklists. A client not matching any configured group behaves
-        exactly as if client_groups were empty.
+        non-Latin script filter > blocklists. A client not matching any
+        configured group behaves exactly as if client_groups were empty.
         """
         qname = qname.rstrip(".").lower()
         group = self._find_group(client_ip)
@@ -113,6 +140,9 @@ class BlocklistManager:
             return True
         if group is not None and not group.get("enabled", True):
             return False
+
+        if self._config.get("dns", "block_non_latin", default=False) and is_non_latin_domain(qname):
+            return True
 
         return self._in_domain_set(qname, blocked)
 

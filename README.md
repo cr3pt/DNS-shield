@@ -104,9 +104,12 @@ once at every startup) purely as a human-readable backup/reference:
 dns:
   listen_address: "0.0.0.0"
   listen_port: 53
-  upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # only servers DNS-shield forwards to
+  upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # as many as you like - see below
+  upstream_strategy: "in_order"  # or "fastest" / "most_stable" - see below
+  upstream_stats_window_minutes: 15
   block_mode: "nxdomain"                     # or "null_ip"
   block_ipv6: false             # true: answer AAAA queries empty instead of forwarding
+  block_non_latin: false        # true: block Cyrillic/Arabic/CJK/etc. domains - see below
   cache_enabled: true            # in-memory cache of upstream answers, per their own TTL
   cache_max_entries: 10000
   cache_max_ttl_seconds: 3600
@@ -124,12 +127,15 @@ blocklists:
 allowlist: []   # always resolved normally, even if a blocklist matches
 denylist: []    # always blocked, even if not on a blocklist
 
+domain_upstreams: []   # route specific domains to specific resolvers - see below
+
 client_groups: []   # per-IP/CIDR overrides, see below
 
 web:
   listen_port: 3000
   username: "admin"
   password: "changeme"   # change this from the dashboard
+  theme: "navy"           # "navy", "slate", "forest", or "plum"
 
 logging:
   retention_days: 30       # how long query log entries are kept in stats.db
@@ -159,6 +165,45 @@ dns:
 Plain `host:port` entries use UDP with an automatic TCP retry if the reply
 is truncated. DNS-shield itself still only ever listens for plain DNS from
 your LAN clients on port 53 - there's no DoT/DoH/DoQ *listener*.
+
+### Multiple upstreams and selection strategy
+
+`dns.upstreams` takes as many resolvers as you want - all of them are
+always available as fallback if earlier ones fail. `dns.upstream_strategy`
+picks which one is tried *first* for each query:
+
+- `in_order` (default) - try them in the order listed, top to bottom.
+- `fastest` - try whichever has the lowest average response time over the
+  last `upstream_stats_window_minutes` (15 by default).
+- `most_stable` - try whichever has the fewest failures / most consistent
+  response time in that window, favoring reliability over raw speed.
+
+A background thread health-checks every configured upstream every 2
+minutes (regardless of which one traffic is actually using), so stats -
+visible in the dashboard's Settings -> Upstream DNS servers table - stay
+current even for a server the strategy has stopped picking, and it can be
+picked again if it improves. This only ever probes the upstream hosts
+already in your config.
+
+### Per-domain and per-client DNS routing
+
+`domain_upstreams` routes specific domains to specific resolvers,
+regardless of which client asks - e.g. internal/corporate domains that
+only your own DNS server knows about:
+
+```yaml
+domain_upstreams:
+  - name: "Internal network"
+    domains: ["corp.local", "internal.example"]
+    upstreams: ["192.168.1.1:53"]
+```
+
+A `client_groups` entry can also carry its own `upstreams` list, used for
+that client's queries instead of the global list (e.g. route a VPN
+client's DNS through a different resolver). Precedence when multiple
+could apply: a matching `domain_upstreams` rule wins first (domain routing
+is usually a hard technical requirement), then a matched client group's
+own `upstreams`, then the global `dns.upstreams`.
 
 ### Client hostnames (reverse DNS)
 
@@ -202,7 +247,20 @@ Settings -> DNS -> "Disable IPv6"). AAAA queries then get an empty
 `NOERROR` reply immediately - not NXDOMAIN, which would incorrectly tell a
 dual-stack client the whole name doesn't exist - so clients fall back to
 IPv4 right away instead of waiting out an IPv6 connection timeout first.
-This skips the blocklist and upstream entirely for AAAA queries.
+This skips the blocklist and upstream entirely for AAAA queries, and
+they're not written to the query log either - with IPv6 disabled, every
+device asks an AAAA query for everything, so logging them would just be
+noise on every single lookup.
+
+### Blocking non-Latin-script domains
+
+`dns.block_non_latin` (dashboard: Settings -> DNS -> "Block non-Latin-script
+domains") blocks domains that use Cyrillic, Arabic, CJK, Hangul, Greek,
+Hebrew, Thai, Devanagari, or similar scripts, once their punycode/IDNA
+labels are decoded back to Unicode. Plain ASCII and accented Latin domains
+(`café.fr`, `münchen.de`) are never affected - only characters outside the
+Latin script trigger it. The global/group allowlist always overrides this
+if you need a specific exception. Off by default.
 
 ### Query log browser and quick-block
 
@@ -221,6 +279,12 @@ as normal, this only controls what gets written to `stats.db`. Domain
 entries also cover their subdomains; clients accept an exact IP or a CIDR
 range.
 
+### Color themes
+
+Settings -> Web UI -> Color theme switches between four dark palettes -
+Navy & Azure (default), Slate & Cyan, Forest & Emerald, and Plum & Violet.
+Applies instantly, stored in `web.theme`.
+
 ### Editing the config file directly
 
 DNS-shield's live configuration lives in `./data/config.db`, not a YAML
@@ -234,26 +298,32 @@ edit (or replace) `./data/config.backup.yaml`, delete `./data/config.db`
 
 ## Importing from AdGuard Home
 
-If you're migrating an existing AdGuard Home setup, `app/import_adguard.py`
-converts its `AdGuardHome.yaml` into a DNS-shield config: filter and
-whitelist-filter subscriptions, `user_rules` (both block rules and `@@`
-exceptions), upstream resolvers (`tls://`/`https://` converted to
-`dot://`/`doh://`), listen address/port, blocking mode, and each
-`clients.persistent[].ids` entry (IPs/CIDRs only - MAC addresses aren't
-supported) as a `client_groups` entry:
+If you're migrating an existing AdGuard Home setup, both convert its
+`AdGuardHome.yaml` the same way: filter and whitelist-filter subscriptions,
+`user_rules` (both block rules and `@@` exceptions), upstream resolvers
+(`tls://`/`https://` converted to `dot://`/`doh://`), listen address/port,
+blocking mode, and each `clients.persistent[].ids` entry (IPs/CIDRs only -
+MAC addresses aren't supported) as a `client_groups` entry.
+
+**From the dashboard** (Settings -> "Import from AdGuard Home"): upload the
+file, it's merged directly into the running config and takes effect
+immediately - blocklists refresh right away. This **replaces** your current
+blocklists and client groups with AdGuard's, but keeps everything else,
+including your web login.
+
+**From the command line**, for a fresh setup or to produce a file to review
+before applying:
 
 ```bash
 docker compose exec dns-shield python -m app.import_adguard /path/to/AdGuardHome.yaml
 ```
 
-It only ever reads the two YAML files you point it at and writes one
+This only ever reads the two YAML files you point it at and writes one
 output file - prints a summary of what was imported and, importantly, what
 wasn't (parental control/safe browsing, DHCP, TLS termination, and your web
 UI password - AdGuard stores a bcrypt hash that can't be turned back into
 plaintext, so set that yourself from the dashboard). Full instructions for
-applying the result - which differ depending on whether you're setting up
-fresh or importing into an already-running instance - are printed at the
-end of the run.
+applying the result are printed at the end of the run.
 
 ## Architecture
 
@@ -269,6 +339,8 @@ app/
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)
   upstream.py          upstream transports: plain UDP/TCP, DNS-over-TLS, DNS-over-HTTPS
+  upstream_stats.py    rolling latency/success tracking + background health probing,
+                       backing the fastest/most_stable upstream selection strategies
   client_names.py      background reverse-DNS (PTR) resolver for dashboard display only
   stats.py             query log storage: SQLite database (data/stats.db), async writes,
                        hourly pruning, filterable search for the query-log browser

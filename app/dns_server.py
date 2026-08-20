@@ -11,22 +11,25 @@ record types without having to reimplement DNS semantics.
 from __future__ import annotations
 
 import logging
+import time
 
 from dnslib import AAAA, QTYPE, RCODE, RR, A, DNSRecord
 from dnslib.server import DNSServer
 
 from app import upstream as upstream_transport
+from app.netmatch import ip_matches
 
 logger = logging.getLogger("dnsshield.dns")
 
 
 class FilteringResolver:
-    def __init__(self, blocklist, stats, config_store, cache=None, client_names=None):
+    def __init__(self, blocklist, stats, config_store, cache=None, client_names=None, upstream_stats=None):
         self._blocklist = blocklist
         self._stats = stats
         self._config = config_store
         self._cache = cache
         self._client_names = client_names
+        self._upstream_stats = upstream_stats
 
     def resolve(self, request, handler):
         qname = str(request.q.qname).rstrip(".").lower()
@@ -42,7 +45,8 @@ class FilteringResolver:
             # tells the client "this name has no IPv6 address", which makes
             # a dual-stack client fall straight back to A/IPv4 instead of
             # waiting out a timeout or treating the whole name as missing.
-            self._stats.record(qname, True, client_ip, qtype_name)
+            # Not logged at all - with IPv6 disabled, every single query
+            # would otherwise get a noise entry here, which isn't useful.
             return request.reply()
 
         blocked = bool(qname) and self._blocklist.is_blocked(qname, client_ip)
@@ -56,7 +60,7 @@ class FilteringResolver:
             if cached is not None:
                 return cached
 
-        response = self._forward(request)
+        response = self._forward(request, qname, client_ip)
         if self._cache is not None:
             self._cache.put(request, response)
         return response
@@ -76,16 +80,49 @@ class FilteringResolver:
             reply.header.rcode = RCODE.NXDOMAIN
         return reply
 
-    def _forward(self, request: DNSRecord) -> DNSRecord:
+    def _select_upstreams(self, qname: str, client_ip: str) -> list[str]:
+        """Precedence: per-domain routing rule > matched client group's own
+        upstreams > the global list. A domain rule wins even for a client
+        whose group has its own upstreams, since domain routing is usually
+        a hard technical requirement (e.g. "*.corp.local must go to the
+        internal resolver") rather than a per-client preference.
+        """
+        for rule in self._config.get("domain_upstreams", default=[]) or []:
+            domains = rule.get("domains") or []
+            if any(qname == d or qname.endswith("." + d) for d in domains):
+                upstreams = rule.get("upstreams") or []
+                if upstreams:
+                    return upstreams
+
+        if client_ip:
+            for group in self._config.get("client_groups", default=[]) or []:
+                if any(ip_matches(client_ip, pattern) for pattern in group.get("match", []) or []):
+                    upstreams = group.get("upstreams") or []
+                    if upstreams:
+                        return upstreams
+                    break
+
+        return self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
+
+    def _forward(self, request: DNSRecord, qname: str, client_ip: str) -> DNSRecord:
         data = request.pack()
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
-        upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
+        upstreams = self._select_upstreams(qname, client_ip)
+
+        strategy = self._config.get("dns", "upstream_strategy", default="in_order")
+        if self._upstream_stats is not None:
+            upstreams = self._upstream_stats.rank(upstreams, strategy)
 
         for upstream in upstreams:
+            start = time.monotonic()
             try:
                 resp = upstream_transport.forward(data, upstream, timeout)
+                if self._upstream_stats is not None:
+                    self._upstream_stats.record(upstream, time.monotonic() - start, True)
                 return DNSRecord.parse(resp)
             except Exception as exc:  # noqa: BLE001 - socket/ssl/requests errors, any upstream can fail
+                if self._upstream_stats is not None:
+                    self._upstream_stats.record(upstream, time.monotonic() - start, False)
                 logger.warning("upstream %s failed: %s", upstream, exc)
                 continue
 
@@ -125,8 +162,10 @@ class QuietLogger:
         pass
 
 
-def start_dns_servers(config_store, blocklist, stats, cache=None, client_names=None) -> list[DNSServer]:
-    resolver = FilteringResolver(blocklist, stats, config_store, cache=cache, client_names=client_names)
+def start_dns_servers(config_store, blocklist, stats, cache=None, client_names=None, upstream_stats=None) -> list[DNSServer]:
+    resolver = FilteringResolver(
+        blocklist, stats, config_store, cache=cache, client_names=client_names, upstream_stats=upstream_stats
+    )
     logger_ = QuietLogger()
     address = config_store.get("dns", "listen_address", default="0.0.0.0")
     port = int(config_store.get("dns", "listen_port", default=53))

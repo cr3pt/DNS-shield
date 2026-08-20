@@ -19,6 +19,45 @@
     --warn: #ffb454;
     --input-bg: #0b1430;
   }
+  :root[data-theme="slate"] {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #39c5cf;
+    --accent-text: #04282b;
+    --danger: #f85149;
+    --danger-text: #3d0c0a;
+    --warn: #d29922;
+    --input-bg: #0d1117;
+  }
+  :root[data-theme="forest"] {
+    --bg: #0a1410;
+    --panel: #0f1f18;
+    --panel-border: #1f3a2c;
+    --text: #e6f4ec;
+    --muted: #85a897;
+    --accent: #34d399;
+    --accent-text: #032018;
+    --danger: #f2555a;
+    --danger-text: #33040a;
+    --warn: #f0b429;
+    --input-bg: #081109;
+  }
+  :root[data-theme="plum"] {
+    --bg: #150f24;
+    --panel: #201735;
+    --panel-border: #3a2b5c;
+    --text: #ede8fb;
+    --muted: #a599c7;
+    --accent: #c084fc;
+    --accent-text: #240a3d;
+    --danger: #ff6b81;
+    --danger-text: #33040f;
+    --warn: #ffb454;
+    --input-bg: #130c22;
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -152,7 +191,17 @@
           </div>
           <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
           <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries)</label></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
+          <div class="field">
+            <label>Upstream selection strategy</label>
+            <select id="s-dns-upstream-strategy">
+              <option value="in_order">In order (as listed below)</option>
+              <option value="fastest">Fastest (lowest average latency)</option>
+              <option value="most_stable">Most stable (fewest failures)</option>
+            </select>
+          </div>
+          <div class="field"><label>Strategy averaging window (minutes)</label><input type="number" id="s-dns-upstream-stats-window"></div>
           <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled">Answer cache enabled</label></div>
           <div class="field"><label>Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
           <div class="field"><label>Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
@@ -167,11 +216,31 @@
     </div>
 
     <div class="settings-group">
-      <h3>Upstream resolvers</h3>
+      <h3>Upstream DNS servers</h3>
+      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first.</p>
       <form id="upstreams-form">
-        <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query"></textarea>
+        <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query"></textarea>
         <div style="margin-top:0.5rem;"><button type="submit">Save upstreams</button></div>
       </form>
+      <table style="margin-top:0.75rem;">
+        <thead><tr><th>Upstream</th><th>Avg latency</th><th>Success rate</th><th>Samples</th></tr></thead>
+        <tbody id="upstream-health-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="settings-group">
+      <h3>Per-domain DNS routing</h3>
+      <p class="muted">Route specific domains to specific resolvers regardless of client (e.g. internal/corporate domains) - takes priority over everything else.</p>
+      <form class="inline" id="add-domain-upstream-form">
+        <input type="text" id="du-name" placeholder="Name">
+        <input type="text" id="du-domains" placeholder="domains, comma separated" required>
+        <input type="text" id="du-upstreams" placeholder="upstreams, comma separated" required>
+        <button type="submit">Add</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>Domains</th><th>Upstreams</th><th></th></tr></thead>
+        <tbody id="domain-upstream-rows"></tbody>
+      </table>
     </div>
 
     <div class="settings-group">
@@ -180,6 +249,15 @@
         <div class="field-grid">
           <div class="field"><label>Listen address</label><input type="text" id="s-web-listen-address"></div>
           <div class="field"><label>Listen port</label><input type="number" id="s-web-listen-port"></div>
+          <div class="field">
+            <label>Color theme</label>
+            <select id="s-web-theme">
+              <option value="navy">Navy &amp; Azure</option>
+              <option value="slate">Slate &amp; Cyan</option>
+              <option value="forest">Forest &amp; Emerald</option>
+              <option value="plum">Plum &amp; Violet</option>
+            </select>
+          </div>
           <div class="field"><label>Username</label><input type="text" id="s-web-username"></div>
           <div class="field"><label>New password</label><input type="password" id="s-web-password" placeholder="leave blank to keep current"></div>
         </div>
@@ -201,6 +279,16 @@
       <div id="log-ignore-domains"></div>
       <div id="log-ignore-clients"></div>
     </div>
+  </section>
+
+  <section>
+    <h2>Import from AdGuard Home</h2>
+    <p class="muted">Upload an AdGuardHome.yaml to import its filters, whitelist filters, user rules, upstreams, blocking mode, and per-client IPs/CIDRs. This replaces your current blocklists and client groups with AdGuard's, but keeps everything else (including your web login). Parental control, safe browsing, DHCP, TLS, and your AdGuard password are never imported.</p>
+    <form class="inline" id="import-adguard-form">
+      <input type="file" id="adguard-file" accept=".yaml,.yml" required>
+      <button type="submit">Import</button>
+    </form>
+    <div id="import-adguard-result"></div>
   </section>
 
   <section>
@@ -519,7 +607,20 @@ async function loadClientGroups() {
       async (d) => { await api(`/api/client-groups/${i}/deny/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
     );
 
-    container.appendChild(el("div", { class: "group-card" }, [header, actions, allowEditor, denyEditor]));
+    const upstreamsForm = document.createElement("form");
+    upstreamsForm.className = "rule-editor";
+    upstreamsForm.appendChild(el("div", { class: "title", text: "Upstreams override (blank = use global upstreams)" }));
+    const upstreamsInput = el("input", { type: "text", placeholder: "e.g. 9.9.9.9:53, dot://1.1.1.1", value: (g.upstreams || []).join(", "), style: "width:100%; margin-bottom:0.4rem;" });
+    upstreamsForm.appendChild(upstreamsInput);
+    upstreamsForm.appendChild(el("button", { type: "submit", text: "Save upstreams" }));
+    upstreamsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const upstreams = upstreamsInput.value.split(",").map((s) => s.trim()).filter(Boolean);
+      await api(`/api/client-groups/${i}/upstreams`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upstreams }) });
+      refreshAll();
+    });
+
+    container.appendChild(el("div", { class: "group-card" }, [header, actions, allowEditor, denyEditor, upstreamsForm]));
   });
 }
 
@@ -533,6 +634,9 @@ async function loadSettings() {
   document.getElementById("s-dns-blocked-ipv4").value = s.dns.blocked_ipv4 ?? "";
   document.getElementById("s-dns-blocked-ipv6").value = s.dns.blocked_ipv6 ?? "";
   document.getElementById("s-dns-block-ipv6").checked = !!s.dns.block_ipv6;
+  document.getElementById("s-dns-block-non-latin").checked = !!s.dns.block_non_latin;
+  document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
+  document.getElementById("s-dns-upstream-stats-window").value = s.dns.upstream_stats_window_minutes ?? "";
   document.getElementById("s-dns-cache-enabled").checked = !!s.dns.cache_enabled;
   document.getElementById("s-dns-cache-max-entries").value = s.dns.cache_max_entries ?? "";
   document.getElementById("s-dns-cache-min-ttl").value = s.dns.cache_min_ttl_seconds ?? "";
@@ -547,6 +651,8 @@ async function loadSettings() {
   document.getElementById("s-web-listen-port").value = s.web.listen_port ?? "";
   document.getElementById("s-web-username").value = s.web.username ?? "";
   document.getElementById("s-web-password").value = "";
+  document.getElementById("s-web-theme").value = s.web.theme ?? "navy";
+  document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
 
   document.getElementById("s-retention-days").value = s.logging.retention_days ?? "";
   document.getElementById("s-refresh-interval").value = s.blocklists_refresh_interval_hours ?? "";
@@ -574,6 +680,37 @@ async function loadLogIgnore() {
   const clientsEl = document.getElementById("log-ignore-clients");
   clientsEl.innerHTML = "";
   clientsEl.appendChild(clientsEditor);
+}
+
+async function loadUpstreamHealth() {
+  const status = await api("/api/status");
+  const health = status.upstream_stats || {};
+  const rows = document.getElementById("upstream-health-rows");
+  rows.innerHTML = "";
+  for (const [upstream, h] of Object.entries(health)) {
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: upstream }),
+      el("td", { text: h.avg_latency_ms != null ? h.avg_latency_ms + " ms" : "-" }),
+      el("td", { text: (h.success_rate * 100).toFixed(0) + "%" }),
+      el("td", { text: h.samples.toString() }),
+    ]));
+  }
+}
+
+async function loadDomainUpstreams() {
+  const rules = await api("/api/domain-upstreams");
+  const rows = document.getElementById("domain-upstream-rows");
+  rows.innerHTML = "";
+  rules.forEach((r, i) => {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/domain-upstreams/${i}`, { method: "DELETE" }); refreshAll(); };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: r.name || "-" }),
+      el("td", { text: (r.domains || []).join(", ") }),
+      el("td", { text: (r.upstreams || []).join(", ") }),
+      el("td", {}, [delBtn]),
+    ]));
+  });
 }
 
 let queryLogOffset = 0;
@@ -643,6 +780,8 @@ async function refreshAll() {
   await loadClientGroups();
   await loadSettings();
   await loadLogIgnore();
+  await loadUpstreamHealth();
+  await loadDomainUpstreams();
   await loadQueryLog(true);
 }
 
@@ -659,6 +798,9 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
       blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
       blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
       block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
+      block_non_latin: document.getElementById("s-dns-block-non-latin").checked,
+      upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
+      upstream_stats_window_minutes: parseFloat(document.getElementById("s-dns-upstream-stats-window").value),
       cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
       cache_max_entries: parseInt(document.getElementById("s-dns-cache-max-entries").value, 10),
       cache_min_ttl_seconds: parseInt(document.getElementById("s-dns-cache-min-ttl").value, 10),
@@ -685,12 +827,15 @@ document.getElementById("upstreams-form").addEventListener("submit", async (e) =
 document.getElementById("web-settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const password = document.getElementById("s-web-password").value;
+  const theme = document.getElementById("s-web-theme").value;
   const body = {
     listen_address: document.getElementById("s-web-listen-address").value.trim(),
     listen_port: parseInt(document.getElementById("s-web-listen-port").value, 10),
     username: document.getElementById("s-web-username").value.trim(),
+    theme,
   };
   if (password) body.password = password;
+  document.documentElement.setAttribute("data-theme", theme);
   await api("/api/settings/web", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -726,6 +871,63 @@ document.getElementById("add-allow-source-form").addEventListener("submit", asyn
   });
   e.target.reset();
   refreshAll();
+});
+
+document.getElementById("add-domain-upstream-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("du-name").value.trim();
+  const domains = document.getElementById("du-domains").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const upstreams = document.getElementById("du-upstreams").value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!domains.length || !upstreams.length) return;
+  await api("/api/domain-upstreams", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: name || domains[0], domains, upstreams }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("import-adguard-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById("adguard-file");
+  const resultEl = document.getElementById("import-adguard-result");
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  resultEl.innerHTML = "";
+  resultEl.appendChild(el("p", { class: "muted", text: "Importing..." }));
+
+  try {
+    const res = await fetch("/api/import/adguard", { method: "POST", body: formData });
+    if (res.status === 401) {
+      document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+      return;
+    }
+    const data = await res.json();
+    resultEl.innerHTML = "";
+    if (!res.ok) {
+      resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + (data.detail || "unknown error"))]));
+      return;
+    }
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag allowed", text: "Imported" })]));
+    if (data.warnings && data.warnings.length) {
+      const list = document.createElement("ul");
+      for (const w of data.warnings) {
+        const li = document.createElement("li");
+        li.textContent = w;
+        list.appendChild(li);
+      }
+      resultEl.appendChild(list);
+    }
+    fileInput.value = "";
+    refreshAll();
+  } catch (err) {
+    resultEl.innerHTML = "";
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + err.message)]));
+  }
 });
 
 document.getElementById("add-group-form").addEventListener("submit", async (e) => {

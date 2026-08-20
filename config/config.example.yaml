@@ -25,6 +25,17 @@ dns:
     - "1.1.1.1:53"
     - "9.9.9.9:53"
   upstream_timeout_seconds: 3.0
+  # How to choose among multiple upstreams above, based on a rolling
+  # average over the last upstream_stats_window_minutes (a background
+  # thread also health-checks every upstream every 2 minutes, so stats
+  # stay current even for servers that aren't currently being picked):
+  #   "in_order"     try them in the order listed, first to last (default)
+  #   "fastest"      try whichever has the lowest average response time
+  #   "most_stable"  try whichever has the fewest failures / most consistent
+  #                  response time (favors reliability over raw speed)
+  # Whichever is tried first, the others are still used as fallback if it fails.
+  upstream_strategy: "in_order"
+  upstream_stats_window_minutes: 15
   # "nxdomain" replies with NXDOMAIN, "null_ip" replies with blocked_ipv4/::
   block_mode: "nxdomain"
   blocked_ipv4: "0.0.0.0"
@@ -34,6 +45,12 @@ dns:
   # upstream entirely) instead of a real IPv6 address, so dual-stack
   # clients fall back to IPv4 immediately instead of trying IPv6 first.
   block_ipv6: false
+  # Block domains that use non-Latin scripts (Cyrillic, Arabic, CJK, Hangul,
+  # Greek, Hebrew, Thai, Devanagari, etc.) once their punycode/IDNA labels
+  # are decoded back to Unicode. Plain ASCII and accented Latin domains
+  # (e.g. café.fr) are never affected. Off by default; the global/group
+  # allowlist always overrides this if you need a specific exception.
+  block_non_latin: false
   # In-memory cache of upstream answers, keyed by (domain, qtype) and
   # respecting each answer's own TTL. Cuts repeat-lookup latency and
   # upstream traffic; purely local, nothing persisted to disk.
@@ -67,11 +84,23 @@ allowlist: []
 # Domains that are always blocked, in addition to the blocklists.
 denylist: []
 
+# Route specific domains to specific upstream resolvers, regardless of
+# which client asked (e.g. internal/corporate domains that only your own
+# DNS server knows about) - takes priority over everything below.
+#
+# domain_upstreams:
+#   - name: "Internal network"
+#     domains: ["corp.local", "internal.example"]
+#     upstreams: ["192.168.1.1:53"]
+domain_upstreams: []
+
 # Per-client/group overrides, matched by source IP or CIDR. The first
 # matching group wins; a client matching no group just gets the global
 # policy above. Precedence for a matched client: group allowlist > global
 # allowlist > group denylist > global denylist > group "enabled: false"
-# (no filtering at all for that client) > the blocklists.
+# (no filtering at all for that client) > the blocklists. A group's own
+# `upstreams` (if set) is used for that client's queries instead of the
+# global dns.upstreams list, unless a domain_upstreams rule above matches first.
 #
 # client_groups:
 #   - name: "Kids"
@@ -79,9 +108,11 @@ denylist: []
 #     enabled: true
 #     allowlist: []
 #     denylist: ["some-adult-site.example"]
+#     upstreams: []
 #   - name: "Guests"
 #     match: ["192.168.1.200/29"]
 #     enabled: false   # pass-through, no ad/tracker blocking for guests
+#     upstreams: ["9.9.9.9:53"]   # e.g. route guests through a different resolver
 client_groups: []
 
 web:
@@ -90,6 +121,8 @@ web:
   username: "admin"
   # CHANGE THIS before exposing the web UI beyond your own machine.
   password: "changeme"
+  # Dashboard color theme: "navy", "slate", "forest", or "plum".
+  theme: "navy"
 
 logging:
   level: "INFO"

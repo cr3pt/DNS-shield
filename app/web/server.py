@@ -12,10 +12,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+import yaml
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+
+from app.import_adguard import import_config
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -42,16 +45,20 @@ class ClientGroupIn(BaseModel):
     enabled: bool = True
     allowlist: list[str] = []
     denylist: list[str] = []
+    upstreams: list[str] = []
 
 
 class DnsSettingsIn(BaseModel):
     listen_address: str | None = None
     listen_port: int | None = None
     upstream_timeout_seconds: float | None = None
+    upstream_strategy: str | None = None
+    upstream_stats_window_minutes: float | None = None
     block_mode: str | None = None
     blocked_ipv4: str | None = None
     blocked_ipv6: str | None = None
     block_ipv6: bool | None = None
+    block_non_latin: bool | None = None
     cache_enabled: bool | None = None
     cache_max_entries: int | None = None
     cache_min_ttl_seconds: int | None = None
@@ -65,11 +72,18 @@ class UpstreamsIn(BaseModel):
     upstreams: list[str]
 
 
+class DomainUpstreamIn(BaseModel):
+    name: str
+    domains: list[str] = []
+    upstreams: list[str] = []
+
+
 class WebSettingsIn(BaseModel):
     listen_address: str | None = None
     listen_port: int | None = None
     username: str | None = None
     password: str | None = None  # blank/omitted = keep current password
+    theme: str | None = None
 
 
 class LoggingSettingsIn(BaseModel):
@@ -80,7 +94,9 @@ class BlocklistSettingsIn(BaseModel):
     refresh_interval_hours: float | None = None
 
 
-def create_app(config_store, blocklist, stats, started_at: float, cache=None, client_names=None) -> FastAPI:
+def create_app(
+    config_store, blocklist, stats, started_at: float, cache=None, client_names=None, upstream_stats=None
+) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
     def require_auth(credentials: HTTPBasicCredentials = Depends(security)) -> None:
@@ -107,6 +123,7 @@ def create_app(config_store, blocklist, stats, started_at: float, cache=None, cl
             "allowlist_domains": blocklist.allowed_count(),
             "allowlist_sources": blocklist.allow_source_counts(),
             "cache": cache.stats() if cache is not None else None,
+            "upstream_stats": upstream_stats.snapshot() if upstream_stats is not None else {},
         }
 
     @app.get("/api/stats")
@@ -413,6 +430,61 @@ def create_app(config_store, blocklist, stats, started_at: float, cache=None, cl
     def remove_group_deny(index: int, domain: str, _: None = Depends(require_auth)) -> dict[str, Any]:
         return _remove_group_rule(index, "denylist", domain)
 
+    @app.put("/api/client-groups/{index}/upstreams")
+    def set_group_upstreams(index: int, body: UpstreamsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            group["upstreams"] = body.upstreams
+            return group
+
+        return _group_mutate(index, _fn)
+
+    # -- per-domain upstream routing: [/domain/] -> specific resolvers, AdGuard-style --
+    @app.get("/api/domain-upstreams")
+    def list_domain_upstreams(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        return config_store.get("domain_upstreams", default=[]) or []
+
+    @app.post("/api/domain-upstreams")
+    def add_domain_upstream(rule: DomainUpstreamIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            rules = data.setdefault("domain_upstreams", [])
+            rules.append(rule.model_dump())
+            return rules
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/domain-upstreams/{index}")
+    def delete_domain_upstream(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            rules = data.setdefault("domain_upstreams", [])
+            if not 0 <= index < len(rules):
+                raise HTTPException(status_code=404, detail="No such rule")
+            rules.pop(index)
+            return rules
+
+        return config_store.mutate(_mutate)
+
+    # -- import an existing AdGuard Home config, from the browser -------
+    @app.post("/api/import/adguard")
+    async def import_adguard(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
+        raw = await file.read()
+        try:
+            adguard = yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            raise HTTPException(status_code=400, detail=f"Not valid YAML: {exc}") from exc
+        if not isinstance(adguard, dict):
+            raise HTTPException(status_code=400, detail="Doesn't look like an AdGuardHome.yaml (not a YAML mapping)")
+
+        result, warnings = import_config(adguard, config_store.snapshot())
+
+        def _mutate(data: dict[str, Any]) -> None:
+            data.clear()
+            data.update(result)
+
+        config_store.mutate(_mutate)
+        blocklist.refresh()
+
+        return {"ok": True, "warnings": warnings}
+
     # -- full settings: everything not covered by the CRUD endpoints above -
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
 
@@ -429,6 +501,7 @@ def create_app(config_store, blocklist, stats, started_at: float, cache=None, cl
                 "listen_address": web_cfg.get("listen_address"),
                 "listen_port": web_cfg.get("listen_port"),
                 "username": web_cfg.get("username"),
+                "theme": web_cfg.get("theme", "navy"),
             },
             "logging": snap.get("logging", {}),
             "blocklists_refresh_interval_hours": snap.get("blocklists", {}).get("refresh_interval_hours", 24),
