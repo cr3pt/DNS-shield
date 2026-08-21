@@ -436,8 +436,12 @@ very informative for whoever hit it. Turn on `dns.block_page_enabled` and
 DNS-shield itself serves a small "this domain is blocked" page instead:
 point `blocked_ipv4` at this host's own reachable LAN IP, and a
 plain-HTTP request for a blocked domain lands on `dns.block_page_port`
-(80 by default) and gets a page naming the domain, read straight from the
-request's own `Host` header - no lookup, no state.
+(80 by default) and gets a page naming the domain (read straight from the
+request's own `Host` header) **and why it's blocked** - which blocklist
+subscription matched, a manual denylist entry, or the client itself being
+blocked - looked up the same way as the query log's (i) icon, against
+your *current* config rather than whatever was true when the DNS answer
+was originally given.
 
 This only ever works for plain HTTP. **HTTPS can't be shown a page this
 way** - the browser fails the certificate check before it ever sends the

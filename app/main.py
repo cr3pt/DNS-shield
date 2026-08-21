@@ -70,7 +70,7 @@ def main() -> None:
         bp_address = config_store.get("dns", "listen_address", default="0.0.0.0")
         bp_port = int(config_store.get("dns", "block_page_port", default=80))
         try:
-            start_block_page_server(bp_address, bp_port)
+            start_block_page_server(bp_address, bp_port, blocklist)
         except OSError as exc:
             logger.warning("could not start block page server on %s:%d: %s", bp_address, bp_port, exc)
 
