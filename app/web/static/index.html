@@ -300,18 +300,47 @@
     .pause-controls { justify-content: flex-start; }
     .tabs { width: 100%; }
     .tab-btn { flex: 1 1 0; padding: 0.5rem 0.4rem; }
-    /* A wide table (query log, stats breakdowns, allow/deny/blocked-client
-       lists) no longer forces the *entire page* to scroll horizontally -
-       only the table itself does, staying put within its section. Table
-       children keep their own table-context display values (table-row-group
-       etc.) from the UA stylesheet regardless of the table element's own
-       display, so this still renders as a normal table, just in a
-       block box that can scroll on its own. */
+    /* A simple 2-3 short-column table (allow/deny lists, blocked clients,
+       blocklist sources, rewrites, query types...) still just scrolls
+       horizontally within its own box rather than forcing the whole page
+       to - table children keep their own table-context display values
+       (table-row-group etc.) from the UA stylesheet regardless of the
+       table element's own display, so this still renders as a normal
+       table, just in a block box that can scroll on its own. */
     table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    /* .card-table (query log, Stats' domain/client breakdowns) goes further:
+       these have enough columns - several carrying a wrapped address plus a
+       cluster of buttons - that even a horizontally-scrollable table left
+       most of a row's content permanently off-screen. Each row becomes its
+       own card instead, cells stacked top-to-bottom with a small caption
+       (from the cell's data-label, set in JS) standing in for the column
+       header that a card layout has no header row for. */
+    .card-table { overflow-x: visible; }
+    .card-table, .card-table tbody, .card-table tr, .card-table td { display: block; width: 100%; }
+    .card-table thead { display: none; }
+    .card-table tr {
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      margin-bottom: 0.6rem;
+      background: var(--input-bg);
+    }
+    .card-table tr:last-child { margin-bottom: 0; }
+    .card-table td { border-bottom: none; padding: 0.3rem 0; }
+    .card-table td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 0.15rem;
+    }
     /* Query type is almost always "A" in practice and the least useful
-       column here - drop it first to fit more of the row (domain, client,
-       result, actions) in view before a horizontal swipe is needed. */
-    .col-qtype { display: none; }
+       column here - drop it, card or not, to keep the row focused on what
+       actually varies (domain, client, result, actions). */
+    .col-qtype, .card-table .col-qtype { display: none; }
   }
   .trend-legend { display: flex; gap: 1.1rem; margin-bottom: 0.6rem; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
   .trend-legend .swatch { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -394,7 +423,7 @@
 
   <section>
     <h2>Top blocked domains</h2>
-    <table>
+    <table class="card-table">
       <thead><tr><th>Domain</th><th>Count</th><th></th></tr></thead>
       <tbody id="top-blocked-rows"></tbody>
     </table>
@@ -404,14 +433,14 @@
     <section>
       <h2>Top queried domains</h2>
       <p class="muted">All queries, blocked and allowed.</p>
-      <table>
+      <table class="card-table">
         <thead><tr><th>Domain</th><th>Count</th><th></th></tr></thead>
         <tbody id="top-domains-rows"></tbody>
       </table>
     </section>
     <section>
       <h2>Top querying clients</h2>
-      <table>
+      <table class="card-table">
         <thead><tr><th>Client</th><th>Count</th><th></th></tr></thead>
         <tbody id="top-clients-rows"></tbody>
       </table>
@@ -770,7 +799,7 @@
       <button type="button" class="secondary" id="query-log-clear">Clear</button>
     </form>
     <p class="muted" id="query-log-summary"></p>
-    <table>
+    <table class="card-table">
       <thead><tr><th>Time</th><th>Domain</th><th class="col-qtype">Type</th><th>Client</th><th>Result</th><th></th></tr></thead>
       <tbody id="query-log-rows"></tbody>
     </table>
@@ -898,9 +927,10 @@ function copyButton(text) {
   return btn;
 }
 
-function addressCell(displayText, extra = [], copyValue = null) {
+function addressCell(displayText, extra = [], copyValue = null, label = null) {
   const value = copyValue ?? displayText;
-  return el("td", {}, [el("div", { class: "addr-cell" }, [el("span", { text: displayText }), copyButton(value), ...extra])]);
+  const attrs = label ? { "data-label": label } : {};
+  return el("td", attrs, [el("div", { class: "addr-cell" }, [el("span", { text: displayText }), copyButton(value), ...extra])]);
 }
 
 // Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX) - only
@@ -1199,8 +1229,8 @@ async function loadStatusAndStats() {
   topBlocked.innerHTML = "";
   for (const [domain, count] of stats.top_blocked_domains) {
     topBlocked.appendChild(el("tr", {}, [
-      addressCell(domain, [enrichButton(domain, "domain")]),
-      el("td", { text: count }),
+      addressCell(domain, [enrichButton(domain, "domain")], null, "Domain"),
+      el("td", { text: count, "data-label": "Count" }),
     ]));
   }
 
@@ -1208,8 +1238,8 @@ async function loadStatusAndStats() {
   topDomains.innerHTML = "";
   for (const [domain, count] of stats.top_domains) {
     topDomains.appendChild(el("tr", {}, [
-      addressCell(domain, [enrichButton(domain, "domain")]),
-      el("td", { text: count }),
+      addressCell(domain, [enrichButton(domain, "domain")], null, "Domain"),
+      el("td", { text: count, "data-label": "Count" }),
     ]));
   }
 
@@ -1217,8 +1247,8 @@ async function loadStatusAndStats() {
   topClients.innerHTML = "";
   for (const [client, count] of stats.top_clients) {
     topClients.appendChild(el("tr", {}, [
-      addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip"), clientBlockButton(client)] : [], client),
-      el("td", { text: count }),
+      addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip"), clientBlockButton(client)] : [], client, "Client"),
+      el("td", { text: count, "data-label": "Count" }),
     ]));
   }
 
@@ -1754,12 +1784,12 @@ function renderQueryLogRow(q) {
     resultCell.push(el("span", { class: "info-icon", title: q.reason, text: "i" }));
   }
   return el("tr", { "data-domain": q.domain }, [
-    el("td", { text: fmtTime(q.ts) }),
-    addressCell(q.domain, [enrichButton(q.domain, "domain")]),
-    el("td", { text: q.qtype, class: "col-qtype" }),
-    addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip"), clientBlockButton(q.client)] : [], q.client),
-    el("td", {}, resultCell),
-    el("td", {}, [blockBtn, hideBtn]),
+    el("td", { text: fmtTime(q.ts), "data-label": "Time" }),
+    addressCell(q.domain, [enrichButton(q.domain, "domain")], null, "Domain"),
+    el("td", { text: q.qtype, class: "col-qtype", "data-label": "Type" }),
+    addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip"), clientBlockButton(q.client)] : [], q.client, "Client"),
+    el("td", { "data-label": "Result" }, resultCell),
+    el("td", { "data-label": "Actions" }, [blockBtn, hideBtn]),
   ]);
 }
 
