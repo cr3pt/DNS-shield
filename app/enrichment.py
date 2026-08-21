@@ -92,12 +92,18 @@ def query_virustotal(target: str, target_type: str, api_key: str) -> dict[str, A
         suspicious = stats.get("suspicious", 0)
         total = sum(stats.values()) or 1
 
-        if malicious >= 5:
+        # VirusTotal engines number in the dozens (usually 70-90) - a single
+        # "malicious" hit out of that many is a weak, often false-positive
+        # signal, not "high" severity on its own. These thresholds are
+        # counts of engines flagging it, not percentages.
+        if malicious >= 10:
             verdict = "critical"
-        elif malicious >= 1:
+        elif malicious >= 5:
             verdict = "high"
-        elif suspicious >= 1:
+        elif malicious >= 2:
             verdict = "medium"
+        elif malicious >= 1 or suspicious >= 2:
+            verdict = "low"
         else:
             verdict = "safe"
 
@@ -168,12 +174,17 @@ def query_otx(target: str, target_type: str, api_key: str) -> dict[str, Any]:
         data = resp.json()
         pulse_count = data.get("pulse_info", {}).get("count", 0)
 
+        # A single pulse can be a broad/low-confidence community report, not
+        # confirmation of anything - give it its own "low" tier instead of
+        # jumping straight to "medium" the moment any pulse exists at all.
         if pulse_count >= 20:
             verdict = "critical"
-        elif pulse_count >= 5:
+        elif pulse_count >= 10:
             verdict = "high"
-        elif pulse_count >= 1:
+        elif pulse_count >= 3:
             verdict = "medium"
+        elif pulse_count >= 1:
+            verdict = "low"
         else:
             verdict = "safe"
 
