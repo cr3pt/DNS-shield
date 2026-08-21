@@ -135,7 +135,7 @@ the top is always visible regardless of tab.
 
 Every setting is editable from the dashboard's **Settings** section - no
 file editing needed for day-to-day use. Settings is split into its own
-sub-tabs by topic: **General** (web UI), **DNS** (core resolver, upstream
+sub-tabs by topic: **General** (web UI, config backup), **DNS** (core resolver, upstream
 servers, per-domain routing, custom records), **Logging** (retention,
 excluded domains/clients), **Threat intelligence**, **Import** (AdGuard
 Home / Pi-hole), **Blocklists** (sources, suggested lists, allow-list
@@ -740,6 +740,21 @@ fresh database (an empty data volume's first boot, or after you delete
 `config.db` to reset). To hand-edit config as YAML: stop the container,
 edit (or replace) `./data/config.backup.yaml`, delete `./data/config.db`
 (and its `-wal`/`-shm` files, if present), and start it again.
+
+### Downloading a backup
+
+Settings -> General -> **Download backup (.zip)** gives you the same full
+config snapshot as `data/config.backup.yaml` above, but as a file your
+browser downloads to your own machine - built entirely in memory and sent
+straight back, nothing written to disk on the server beyond what's already
+in `config.db`. The zip has `config.yaml` (restore it the same way as
+`config.backup.yaml` above - a `README.txt` alongside it spells out both
+the fresh-instance and existing-instance cases) plus that `README.txt`.
+
+Like `config.backup.yaml`, this is a full, unmasked snapshot - any
+threat-intel API keys and your web login password come out in plain text.
+Treat the downloaded file like you would a password: back it up somewhere
+you'd store a password, not somewhere public.
 
 ## Importing from AdGuard Home or Pi-hole
 

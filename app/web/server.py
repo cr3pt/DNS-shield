@@ -9,17 +9,19 @@ looks up a domain/IP's reputation via VirusTotal/AbuseIPDB/AlienVault OTX
 
 from __future__ import annotations
 
+import io
 import re
 import secrets
 import sqlite3
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 
 import yaml
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
@@ -706,6 +708,52 @@ def create_app(
         blocklist.refresh()
 
         return {"ok": True, "warnings": warnings}
+
+    # -- config backup: a full snapshot the browser downloads as a .zip ----
+    # This is your own config leaving the container for your own local
+    # machine, at your own request (a button click) - nothing is sent
+    # anywhere else. It's a full, unmasked snapshot (same as
+    # config.backup.yaml already on disk), including any threat-intel API
+    # keys and your web login password in plain text, so the README.txt
+    # bundled alongside it says the same: treat the download like you would
+    # a password.
+    _EXPORT_README = """DNS-shield configuration backup
+================================
+
+config.yaml is a full snapshot of this instance's config.db at the time of
+export: blocklists, allow/deny rules, client groups, DNS/web settings,
+custom DNS records - and yes, any threat-intel API keys and your web login
+password, all in plain text (same as data/config.backup.yaml already on
+disk). Treat this file like a password: back it up somewhere you'd store
+a password, not somewhere public.
+
+To restore into a FRESH instance (no data/config.db yet):
+  cp config.yaml <your data volume>/config.backup.yaml
+  # then start the container as usual - it seeds config.db from that file
+
+To restore into an EXISTING instance (data/config.db already exists):
+  docker compose down
+  cp config.yaml <your data volume>/config.backup.yaml
+  rm <your data volume>/config.db <your data volume>/config.db-wal <your data volume>/config.db-shm
+  docker compose up -d
+"""
+
+    @app.get("/api/export")
+    def export_config(_: None = Depends(require_auth)) -> Response:
+        snap = config_store.snapshot()
+        config_yaml = yaml.safe_dump(snap, sort_keys=False)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("config.yaml", config_yaml)
+            zf.writestr("README.txt", _EXPORT_README)
+
+        filename = f"dnsshield-backup-{time.strftime('%Y%m%d-%H%M%S')}.zip"
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     # -- full settings: everything not covered by the CRUD endpoints above -
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
