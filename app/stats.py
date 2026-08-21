@@ -55,7 +55,7 @@ class Stats:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._config = config_store
         self._flush_interval = flush_interval
-        self._queue: "queue.Queue[tuple[float, str, str, str, int]]" = queue.Queue()
+        self._queue: "queue.Queue[tuple[float, str, str, str, int, str | None, str | None]]" = queue.Queue()
         self._started_at = time.time()
         self._stop_event = threading.Event()
 
@@ -83,22 +83,39 @@ class Stats:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(queries)")}
             if "reason" not in columns:
                 conn.execute("ALTER TABLE queries ADD COLUMN reason TEXT")
+            if "answer_ip" not in columns:
+                conn.execute("ALTER TABLE queries ADD COLUMN answer_ip TEXT")
             conn.commit()
         finally:
             conn.close()
 
     # -- writing ------------------------------------------------------
-    def record(self, qname: str, blocked: bool, client_ip: str, qtype: str, reason: str | None = None) -> None:
+    def record(
+        self,
+        qname: str,
+        blocked: bool,
+        client_ip: str,
+        qtype: str,
+        reason: str | None = None,
+        answer_ip: str | None = None,
+    ) -> None:
         """Non-blocking: just hands the row to the writer thread.
 
         A domain/client on logging.ignored_domains/ignored_clients is
         simply never written here - resolution and blocking already
         happened before this is called, so this only affects what shows
         up in the query log, not how the query itself was answered.
+
+        answer_ip is whatever A/AAAA address was actually handed back to
+        the client - the null IP for a null_ip-blocked query, a rewrite's
+        IP, a cache hit's IP, or the first A/AAAA record in a real
+        upstream reply (skipping any CNAME hops). None for NXDOMAIN
+        blocks, non-A/AAAA query types, and anything else with no address
+        in the answer.
         """
         if self._is_ignored(qname, client_ip):
             return
-        self._queue.put((time.time(), qname, qtype, client_ip, int(blocked), reason))
+        self._queue.put((time.time(), qname, qtype, client_ip, int(blocked), reason, answer_ip))
 
     def _is_ignored(self, qname: str, client_ip: str) -> bool:
         ignored_domains = self._config.get("logging", "ignored_domains", default=[]) or []
@@ -128,7 +145,8 @@ class Stats:
                     except queue.Empty:
                         break
                 conn.executemany(
-                    "INSERT INTO queries (ts, domain, qtype, client, blocked, reason) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO queries (ts, domain, qtype, client, blocked, reason, answer_ip) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     batch,
                 )
                 conn.commit()
@@ -196,7 +214,8 @@ class Stats:
                 (top_n,),
             ).fetchall()
             recent = conn.execute(
-                "SELECT ts, domain, qtype, client, blocked, reason FROM queries ORDER BY id DESC LIMIT ?",
+                "SELECT ts, domain, qtype, client, blocked, reason, answer_ip FROM queries "
+                "ORDER BY id DESC LIMIT ?",
                 (log_n,),
             ).fetchall()
         finally:
@@ -219,6 +238,7 @@ class Stats:
                     "client": row["client"],
                     "blocked": bool(row["blocked"]),
                     "reason": row["reason"],
+                    "answer_ip": row["answer_ip"],
                 }
                 for row in recent
             ],
@@ -282,7 +302,7 @@ class Stats:
             conn.row_factory = sqlite3.Row
             total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_sql}", params).fetchone()["c"]
             rows = conn.execute(
-                f"SELECT ts, domain, qtype, client, blocked, reason FROM queries {where_sql} "
+                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip FROM queries {where_sql} "
                 "ORDER BY id DESC LIMIT ? OFFSET ?",
                 params + [limit, offset],
             ).fetchall()
@@ -298,6 +318,7 @@ class Stats:
                     "client": row["client"],
                     "blocked": bool(row["blocked"]),
                     "reason": row["reason"],
+                    "answer_ip": row["answer_ip"],
                 }
                 for row in rows
             ],

@@ -55,24 +55,34 @@ class FilteringResolver:
 
         reason = self._blocklist.block_reason(qname, client_ip) if qname else None
         blocked = reason is not None
-        self._stats.record(qname, blocked, client_ip, qtype_name, reason)
 
         if blocked:
-            return self._blocked_reply(request)
+            response = self._blocked_reply(request)
+        else:
+            rewrite_ip = find_rewrite(qname, qtype_name, self._config) if qname else None
+            if rewrite_ip is not None:
+                response = self._rewrite_reply(request, qtype, rewrite_ip)
+            else:
+                response = self._cache.get(request) if self._cache is not None else None
+                if response is None:
+                    response = self._forward(request, qname, client_ip)
+                    if self._cache is not None:
+                        self._cache.put(request, response)
 
-        rewrite_ip = find_rewrite(qname, qtype_name, self._config) if qname else None
-        if rewrite_ip is not None:
-            return self._rewrite_reply(request, qtype, rewrite_ip)
-
-        if self._cache is not None:
-            cached = self._cache.get(request)
-            if cached is not None:
-                return cached
-
-        response = self._forward(request, qname, client_ip)
-        if self._cache is not None:
-            self._cache.put(request, response)
+        self._stats.record(qname, blocked, client_ip, qtype_name, reason, self._answer_ip(response))
         return response
+
+    @staticmethod
+    def _answer_ip(response: DNSRecord) -> str | None:
+        """The first A/AAAA address actually handed back to the client -
+        skipping any CNAME hops - for the query log's "resolved to" display.
+        None for NXDOMAIN blocks, non-address query types, and anything
+        else with no address record in the answer.
+        """
+        for rr in response.rr:
+            if rr.rtype in (QTYPE.A, QTYPE.AAAA):
+                return str(rr.rdata)
+        return None
 
     def _blocked_reply(self, request: DNSRecord) -> DNSRecord:
         reply = request.reply()

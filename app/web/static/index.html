@@ -206,6 +206,19 @@
      narrow/mobile screens where that column has little room to spare. */
   .addr-cell > span { overflow-wrap: anywhere; min-width: 0; }
   .addr-cell-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .resolved-ip { margin-top: 0.35rem; }
+  /* A table's Enable/Disable + Remove action cell: "Enable" and "Disable"
+     are different widths, so without a fixed min-width on the toggle
+     button, Remove drifts left/right from row to row - .row-actions
+     gives consistent spacing between the two buttons, .toggle-btn gives
+     the toggle a fixed width so Remove lines up down the whole column. */
+  .row-actions { display: flex; align-items: center; gap: 0.5rem; }
+  .toggle-btn { min-width: 5rem; text-align: center; }
+  /* A long blocklist/upstream URL is otherwise one unbreakable "word",
+     forcing its table column - and the whole table - wider than the
+     page; this lets it wrap onto a second line within its own cell
+     instead, same reasoning as .addr-cell > span above. */
+  .url-cell { overflow-wrap: anywhere; word-break: break-all; }
   .icon-btn {
     background: transparent;
     border: 1px solid var(--panel-border);
@@ -251,6 +264,21 @@
   .tab-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .tab-panel { display: none; flex-direction: column; gap: 1.5rem; }
   .tab-panel.active { display: flex; }
+  .subtabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.25rem; }
+  .subtab-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--panel-border);
+    padding: 0.4rem 0.85rem;
+    border-radius: 7px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+  }
+  .subtab-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .subtab-panel { display: none; flex-direction: column; gap: 1.5rem; }
+  .subtab-panel.active { display: flex; }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
     background: var(--input-bg);
@@ -305,6 +333,7 @@
     .pause-controls { justify-content: flex-start; }
     .tabs { width: 100%; }
     .tab-btn { flex: 1 1 0; padding: 0.5rem 0.4rem; }
+    .subtab-btn { padding: 0.4rem 0.6rem; font-size: 0.76rem; }
     /* A simple 2-3 short-column table (allow/deny lists, blocked clients,
        blocklist sources, rewrites, query types...) still just scrolls
        horizontally within its own box rather than forcing the whole page
@@ -473,111 +502,22 @@
 
   <div id="tab-settings" class="tab-panel">
 
-  <section>
-    <h2>Settings</h2>
+  <div class="subtabs" id="settings-subtabs">
+    <button type="button" class="subtab-btn" data-subtab="general">General</button>
+    <button type="button" class="subtab-btn" data-subtab="dns">DNS</button>
+    <button type="button" class="subtab-btn" data-subtab="logging">Logging</button>
+    <button type="button" class="subtab-btn" data-subtab="threat-intel">Threat intelligence</button>
+    <button type="button" class="subtab-btn" data-subtab="import">Import</button>
+    <button type="button" class="subtab-btn" data-subtab="blocklists">Blocklists</button>
+    <button type="button" class="subtab-btn" data-subtab="ownlists">Own lists</button>
+    <button type="button" class="subtab-btn" data-subtab="clients">Clients</button>
+    <button type="button" class="subtab-btn" data-subtab="cleans">Cleans</button>
+  </div>
 
-    <div class="settings-group">
-      <h3>DNS</h3>
-      <form id="dns-settings-form">
-        <div class="field-grid">
-          <div class="field"><label>Listen address</label><input type="text" id="s-dns-listen-address"></div>
-          <div class="field"><label>Listen port</label><input type="number" id="s-dns-listen-port"></div>
-          <div class="field"><label>Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
-          <div class="field">
-            <label>Block mode</label>
-            <select id="s-dns-block-mode">
-              <option value="nxdomain">nxdomain</option>
-              <option value="null_ip">null_ip</option>
-            </select>
-          </div>
-          <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
-          <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
-          <div class="field checkbox">
-            <input type="checkbox" id="s-dns-block-page-enabled">
-            <label for="s-dns-block-page-enabled">Serve a local "blocked" page for null_ip (HTTP only, requires restart)</label>
-          </div>
-          <div class="field"><label>Block page port</label><input type="number" id="s-dns-block-page-port"></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
-          <div class="field checkbox">
-            <input type="checkbox" id="s-dns-regex-denylist-enabled">
-            <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern below; CPU cost grows with the pattern list, keep it short)</label>
-          </div>
-          <div class="field">
-            <label>Upstream selection strategy</label>
-            <select id="s-dns-upstream-strategy">
-              <option value="in_order">In order (as listed below)</option>
-              <option value="fastest">Fastest (lowest average latency)</option>
-              <option value="most_stable">Most stable (fewest failures)</option>
-              <option value="race">All at once - FIFO (first response wins)</option>
-            </select>
-          </div>
-          <div class="field"><label>Strategy averaging window (minutes)</label><input type="number" id="s-dns-upstream-stats-window"></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled">Answer cache enabled</label></div>
-          <div class="field"><label>Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
-          <div class="field"><label>Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
-          <div class="field"><label>Cache max TTL (seconds)</label><input type="number" id="s-dns-cache-max-ttl"></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-resolve-names"><label for="s-dns-resolve-names">Resolve client hostnames</label></div>
-          <div class="field"><label>Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
-          <div class="field"><label>Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
-        </div>
-        <p class="hint">Listen address/port and block page settings require restarting the container (docker compose restart). Everything else here applies immediately.</p>
-        <button type="submit">Save DNS settings</button>
-      </form>
-    </div>
-
-    <div class="settings-group">
-      <h3>Upstream DNS servers</h3>
-      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is disabled - kept in the list but never used - same as the Disable button in the table below.</p>
-      <form id="upstreams-form">
-        <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query&#10;# disabled for now:&#10;# 8.8.8.8:53"></textarea>
-        <div style="margin-top:0.5rem;"><button type="submit">Save upstreams</button></div>
-      </form>
-      <table style="margin-top:0.75rem;">
-        <thead><tr><th>Upstream</th><th>Status</th><th></th></tr></thead>
-        <tbody id="upstream-rows"></tbody>
-      </table>
-      <table style="margin-top:0.75rem;">
-        <thead><tr><th>Upstream</th><th>Avg latency</th><th>Success rate</th><th>Samples</th></tr></thead>
-        <tbody id="upstream-health-rows"></tbody>
-      </table>
-    </div>
-
-    <div class="settings-group">
-      <h3>Per-domain DNS routing</h3>
-      <p class="muted">Route specific domains to specific resolvers regardless of client (e.g. internal/corporate domains) - takes priority over everything else.</p>
-      <form class="inline" id="add-domain-upstream-form">
-        <input type="text" id="du-name" placeholder="Name">
-        <input type="text" id="du-domains" placeholder="domains, comma separated" required>
-        <input type="text" id="du-upstreams" placeholder="upstreams, comma separated" required>
-        <button type="submit">Add</button>
-      </form>
-      <table>
-        <thead><tr><th>Name</th><th>Domains</th><th>Upstreams</th><th></th></tr></thead>
-        <tbody id="domain-upstream-rows"></tbody>
-      </table>
-    </div>
-
-    <div class="settings-group">
-      <h3>Custom DNS records</h3>
-      <p class="muted">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. Matches the name and its subdomains. A/AAAA only.</p>
-      <form class="inline" id="add-rewrite-form">
-        <input type="text" id="rw-name" placeholder="nas.home" required>
-        <select id="rw-type">
-          <option value="A">A (IPv4)</option>
-          <option value="AAAA">AAAA (IPv6)</option>
-        </select>
-        <input type="text" id="rw-value" placeholder="192.168.1.10" required>
-        <button type="submit">Add</button>
-      </form>
-      <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead>
-        <tbody id="rewrite-rows"></tbody>
-      </table>
-    </div>
-
-    <div class="settings-group">
-      <h3>Web UI</h3>
+  <div id="subtab-general" class="subtab-panel">
+    <section>
+      <h2>Web UI</h2>
+      <p class="muted">The dashboard you're looking at right now - its own listen address/port, login, and look.</p>
       <form id="web-settings-form">
         <div class="field-grid">
           <div class="field"><label>Listen address</label><input type="text" id="s-web-listen-address"></div>
@@ -601,29 +541,141 @@
         <p class="hint">Listen address/port changes require restarting the container. Username/password apply immediately.</p>
         <button type="submit">Save web settings</button>
       </form>
-    </div>
+    </section>
+  </div>
 
-    <div class="settings-group">
-      <h3>Logging &amp; blocklist refresh</h3>
-      <form id="misc-settings-form">
+  <div id="subtab-dns" class="subtab-panel">
+    <section>
+      <h2>DNS</h2>
+      <p class="muted">Core resolver behavior - listen address, blocking mode, caching, and the client-hostname/regex-denylist toggles.</p>
+      <form id="dns-settings-form">
+        <div class="field-grid">
+          <div class="field"><label>Listen address</label><input type="text" id="s-dns-listen-address"></div>
+          <div class="field"><label>Listen port</label><input type="number" id="s-dns-listen-port"></div>
+          <div class="field"><label>Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
+          <div class="field">
+            <label>Block mode</label>
+            <select id="s-dns-block-mode">
+              <option value="nxdomain">nxdomain</option>
+              <option value="null_ip">null_ip</option>
+            </select>
+          </div>
+          <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
+          <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-block-page-enabled">
+            <label for="s-dns-block-page-enabled">Serve a local "blocked" page for null_ip (HTTP only, requires restart)</label>
+          </div>
+          <div class="field"><label>Block page port</label><input type="number" id="s-dns-block-page-port"></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-regex-denylist-enabled">
+            <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern in Own lists -> Regex denylist; CPU cost grows with the pattern list, keep it short)</label>
+          </div>
+          <div class="field">
+            <label>Upstream selection strategy</label>
+            <select id="s-dns-upstream-strategy">
+              <option value="in_order">In order (as listed below)</option>
+              <option value="fastest">Fastest (lowest average latency)</option>
+              <option value="most_stable">Most stable (fewest failures)</option>
+              <option value="race">All at once - FIFO (first response wins)</option>
+            </select>
+          </div>
+          <div class="field"><label>Strategy averaging window (minutes)</label><input type="number" id="s-dns-upstream-stats-window"></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled">Answer cache enabled</label></div>
+          <div class="field"><label>Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
+          <div class="field"><label>Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
+          <div class="field"><label>Cache max TTL (seconds)</label><input type="number" id="s-dns-cache-max-ttl"></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-resolve-names"><label for="s-dns-resolve-names">Resolve client hostnames</label></div>
+          <div class="field"><label>Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
+          <div class="field"><label>Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
+        </div>
+        <p class="hint">Listen address/port and block page settings require restarting the container (docker compose restart). Everything else here applies immediately.</p>
+        <button type="submit">Save DNS settings</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Upstream DNS servers</h2>
+      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is disabled - kept in the list but never used - same as the Disable button in the table below.</p>
+      <form id="upstreams-form">
+        <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query&#10;# disabled for now:&#10;# 8.8.8.8:53"></textarea>
+        <div style="margin-top:0.5rem;"><button type="submit">Save upstreams</button></div>
+      </form>
+      <table style="margin-top:0.75rem;">
+        <thead><tr><th>Upstream</th><th>Status</th><th></th></tr></thead>
+        <tbody id="upstream-rows"></tbody>
+      </table>
+      <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);margin:1.25rem 0 0.6rem;">Health</h3>
+      <table>
+        <thead><tr><th>Upstream</th><th>Avg latency</th><th>Success rate</th><th>Samples</th></tr></thead>
+        <tbody id="upstream-health-rows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Per-domain DNS routing</h2>
+      <p class="muted">Route specific domains to specific resolvers regardless of client (e.g. internal/corporate domains) - takes priority over everything else.</p>
+      <form class="inline" id="add-domain-upstream-form">
+        <input type="text" id="du-name" placeholder="Name">
+        <input type="text" id="du-domains" placeholder="domains, comma separated" required>
+        <input type="text" id="du-upstreams" placeholder="upstreams, comma separated" required>
+        <button type="submit">Add</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>Domains</th><th>Upstreams</th><th></th></tr></thead>
+        <tbody id="domain-upstream-rows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Custom DNS records</h2>
+      <p class="muted">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. Matches the name and its subdomains. A/AAAA only.</p>
+      <form class="inline" id="add-rewrite-form">
+        <input type="text" id="rw-name" placeholder="nas.home" required>
+        <select id="rw-type">
+          <option value="A">A (IPv4)</option>
+          <option value="AAAA">AAAA (IPv6)</option>
+        </select>
+        <input type="text" id="rw-value" placeholder="192.168.1.10" required>
+        <button type="submit">Add</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead>
+        <tbody id="rewrite-rows"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div id="subtab-logging" class="subtab-panel">
+    <section>
+      <h2>Query log retention</h2>
+      <p class="muted">How long entries stay in the query log before being pruned automatically, hourly. Lower this if the log is taking up more disk space than you'd like; it never affects resolution/blocking, only how far back you can browse.</p>
+      <form id="logging-settings-form">
         <div class="field-grid">
           <div class="field"><label>Query log retention (days)</label><input type="number" id="s-retention-days"></div>
-          <div class="field"><label>Blocklist refresh interval (hours)</label><input type="number" id="s-refresh-interval"></div>
         </div>
         <button type="submit">Save</button>
       </form>
-      <p class="hint" style="color:var(--muted);">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log.</p>
+    </section>
+
+    <section>
+      <h2>Excluded from the log</h2>
+      <p class="muted">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log. Handy for noisy background traffic (NTP, telemetry you've already decided to allow) that would otherwise bury what you actually want to see.</p>
       <div id="log-ignore-domains"></div>
       <div id="log-ignore-clients"></div>
-      <p class="hint" style="margin-top:1rem;">Irreversible - wipes every row already logged, regardless of retention.</p>
-      <button type="button" class="danger" id="query-log-purge">Delete all logged queries</button>
-    </div>
+    </section>
+  </div>
 
-    <div class="settings-group">
-      <h3>Threat intelligence</h3>
+  <div id="subtab-threat-intel" class="subtab-panel">
+    <section>
+      <h2>Threat intelligence</h2>
       <p class="hint" style="color:var(--muted);">
         Powers the "Enrich" button in Logs/Stats - a domain/IP reputation lookup that only
-        ever runs when you click it, never automatically.
+        ever runs when you click it, never automatically. A saved key's status line shows its
+        first and last character (e.g. <code>a***********f</code>) so you can tell which key
+        is saved without it ever being sent back to your browser in full.
       </p>
       <form id="enrichment-settings-form">
         <div class="field checkbox">
@@ -679,132 +731,186 @@
 
         <button type="submit">Save threat-intel settings</button>
       </form>
-    </div>
-  </section>
-
-  <section>
-    <h2>Import from AdGuard Home</h2>
-    <p class="muted">Upload an AdGuardHome.yaml to import its filters, whitelist filters, user rules, upstreams, blocking mode, and per-client IPs/CIDRs. This replaces your current blocklists and client groups with AdGuard's, but keeps everything else (including your web login). Parental control, safe browsing, DHCP, TLS, and your AdGuard password are never imported.</p>
-    <form class="inline" id="import-adguard-form">
-      <input type="file" id="adguard-file" accept=".yaml,.yml" required>
-      <button type="submit">Import</button>
-    </form>
-    <div id="import-adguard-result"></div>
-  </section>
-
-  <section>
-    <h2>Blocklists</h2>
-    <form class="inline" id="add-blocklist-form">
-      <input type="text" id="bl-name" placeholder="Name" required>
-      <input type="url" id="bl-url" placeholder="https://.../hosts" required>
-      <button type="submit">Add</button>
-      <button type="button" class="secondary" id="refresh-blocklists">Refresh now</button>
-    </form>
-    <table>
-      <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
-      <tbody id="blocklist-rows"></tbody>
-    </table>
-
-    <h3 style="margin-top:1.25rem;">Suggested lists</h3>
-    <p class="muted">
-      A short list of well-known public blocklists - StevenBlack's Unified Hosts plus a
-      few of <a href="https://firebog.net" target="_blank" rel="noopener">Firebog</a>'s
-      recommended ("ticked") lists. Adding one just fills in the form above for you and
-      fetches it like any other source - format is auto-detected either way, and you can
-      Disable or Remove it afterwards the same as anything you'd typed in by hand.
-    </p>
-    <table>
-      <thead><tr><th>Name</th><th>Category</th><th></th></tr></thead>
-      <tbody id="blocklist-catalog-rows"></tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>Allow-list sources</h2>
-    <p class="muted">Same format as blocklists, but any domain fetched here is never blocked - overrides the blocklists above.</p>
-    <form class="inline" id="add-allow-source-form">
-      <input type="text" id="as-name" placeholder="Name" required>
-      <input type="url" id="as-url" placeholder="https://.../allowlist.txt" required>
-      <button type="submit">Add</button>
-    </form>
-    <table>
-      <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
-      <tbody id="allow-source-rows"></tbody>
-    </table>
-  </section>
-
-  <div class="two-col">
-    <section class="section-allow">
-      <h2>Allowlist (never blocked)</h2>
-      <form class="inline" id="add-allow-form">
-        <input type="text" id="allow-domain" placeholder="example.com" required>
-        <button type="submit">Add</button>
-      </form>
-      <table><tbody id="allow-rows"></tbody></table>
-    </section>
-    <section class="section-deny">
-      <h2>Denylist (always blocked)</h2>
-      <form class="inline" id="add-deny-form">
-        <input type="text" id="deny-domain" placeholder="tracker.example.com" required>
-        <button type="submit">Add</button>
-      </form>
-      <table><tbody id="deny-rows"></tbody></table>
     </section>
   </div>
 
-  <section>
-    <h2>Regex denylist <span class="tag" style="background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)">experimental</span></h2>
-    <p class="muted">
-      Blocks any query name matching one of these Python regular expressions - e.g.
-      <code>^ads?[0-9]*\.</code> catches ad/ad1/ads2 subdomains across every domain at once.
-      Off by default (toggle above, under DNS settings), since every enabled pattern here is
-      checked against every single query - keep the list short. Patterns are compiled once
-      and cached in memory, not recompiled per query, but matching itself is still real CPU
-      work per query - this is meant for a handful of hand-picked rules, not a full list.
-    </p>
-    <form class="inline" id="add-deny-regex-form">
-      <input type="text" id="deny-regex" placeholder="^ads?[0-9]*\.example\.com$" required style="min-width:280px">
-      <button type="submit">Add</button>
-    </form>
-    <table><tbody id="deny-regex-rows"></tbody></table>
-  </section>
+  <div id="subtab-import" class="subtab-panel">
+    <section>
+      <h2>Import from AdGuard Home</h2>
+      <p class="muted">Upload an AdGuardHome.yaml to import its filters, whitelist filters, user rules, upstreams, blocking mode, and per-client IPs/CIDRs. This replaces your current blocklists and client groups with AdGuard's, but keeps everything else (including your web login). Parental control, safe browsing, DHCP, TLS, and your AdGuard password are never imported.</p>
+      <form class="inline" id="import-adguard-form">
+        <input type="file" id="adguard-file" accept=".yaml,.yml" required>
+        <button type="submit">Import</button>
+      </form>
+      <div id="import-adguard-result"></div>
+    </section>
 
-  <section>
-    <h2>Blocked clients (no communication allowed)</h2>
-    <p class="muted">
-      Every query from these IPs/CIDRs is blocked, for every domain - stronger than a domain
-      denylist entry, and takes priority over client groups below. Usually populated via the
-      "Block host" button next to a client's address in Logs, Stats, or the Enrich popup;
-      add one by hand here too if you'd rather.
-    </p>
-    <form class="inline" id="add-blocked-client-form">
-      <input type="text" id="blocked-client-value" placeholder="192.168.1.50 or 192.168.1.0/24" required>
-      <button type="submit">Block</button>
-    </form>
-    <table><tbody id="blocked-client-rows"></tbody></table>
-  </section>
+    <section>
+      <h2>Import from Pi-hole</h2>
+      <p class="muted">
+        Upload a <code>gravity.db</code> file - Pi-hole's own SQLite database, included in a
+        "Teleporter" backup or copyable directly from <code>/etc/pihole/gravity.db</code> on the
+        Pi-hole host. Imports blocklist (and, on newer gravity.db versions, allow-list) subscription
+        URLs, enabled allow/deny domains, enabled regex-deny patterns (mapped to DNS-shield's own
+        experimental regex denylist, which gets turned on for you), and client IPs as client groups.
+      </p>
+      <p class="muted">
+        Not in gravity.db, so not imported this way: upstream DNS servers, listen address/port,
+        blocking mode (these live in Pi-hole's setupVars.conf/pihole.toml, a different file), regex
+        ALLOW entries (no DNS-shield equivalent), per-client group list assignments, and your web
+        login. The import result lists exactly what was and wasn't carried over.
+      </p>
+      <form class="inline" id="import-pihole-form">
+        <input type="file" id="pihole-file" accept=".db,.sqlite,.sqlite3" required>
+        <button type="submit">Import</button>
+      </form>
+      <div id="import-pihole-result"></div>
+    </section>
+  </div>
 
-  <section>
-    <h2>Client groups</h2>
-    <p class="muted">Per-IP/CIDR overrides. First matching group wins; unmatched clients get the global policy above.</p>
-    <form class="inline" id="add-group-form">
-      <input type="text" id="group-name" placeholder="Name (e.g. Kids)" required>
-      <input type="text" id="group-match" placeholder="IPs/CIDRs, comma separated" required style="min-width:260px">
-      <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.85rem">
-        <input type="checkbox" id="group-enabled" checked> Filter this group
-      </label>
-      <button type="submit">Add group</button>
-    </form>
-    <div id="group-list"></div>
-  </section>
+  <div id="subtab-blocklists" class="subtab-panel">
+    <section>
+      <h2>Blocklists</h2>
+      <form class="inline" id="add-blocklist-form">
+        <input type="text" id="bl-name" placeholder="Name" required>
+        <input type="url" id="bl-url" placeholder="https://.../hosts" required>
+        <button type="submit">Add</button>
+        <button type="button" class="secondary" id="refresh-blocklists">Refresh now</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
+        <tbody id="blocklist-rows"></tbody>
+      </table>
 
-  <section id="cache-section" style="display:none">
-    <div class="row">
-      <h2>DNS answer cache</h2>
-      <button type="button" class="secondary" id="clear-cache">Clear cache</button>
+      <h3 style="margin-top:1.25rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);">Suggested lists</h3>
+      <p class="muted">
+        Well-known public blocklists - StevenBlack's Unified Hosts, AdGuard's own DNS filter, and
+        several of <a href="https://firebog.net" target="_blank" rel="noopener">Firebog</a>'s
+        recommended ("ticked") lists. Adding one just fills in the form above for you and fetches
+        it like any other source - format is auto-detected either way, and you can Disable or
+        Remove it afterwards the same as anything you'd typed in by hand. An entry drops off this
+        list once you've added it, since there's nothing left here to suggest.
+      </p>
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th></th></tr></thead>
+        <tbody id="blocklist-catalog-rows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Allow-list sources</h2>
+      <p class="muted">Same format as blocklists, but any domain fetched here is never blocked - overrides the blocklists above.</p>
+      <form class="inline" id="add-allow-source-form">
+        <input type="text" id="as-name" placeholder="Name" required>
+        <input type="url" id="as-url" placeholder="https://.../allowlist.txt" required>
+        <button type="submit">Add</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
+        <tbody id="allow-source-rows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Refresh schedule</h2>
+      <p class="muted">How often every enabled blocklist/allow-list source above is re-fetched in the background. "Refresh now" next to Blocklists always fetches immediately regardless of this.</p>
+      <form id="blocklist-refresh-form">
+        <div class="field-grid">
+          <div class="field"><label>Blocklist refresh interval (hours)</label><input type="number" id="s-refresh-interval"></div>
+        </div>
+        <button type="submit">Save</button>
+      </form>
+    </section>
+  </div>
+
+  <div id="subtab-ownlists" class="subtab-panel">
+    <div class="two-col">
+      <section class="section-allow">
+        <h2>Allowlist (never blocked)</h2>
+        <p class="muted">Always resolved normally, even if a blocklist matches - takes priority over the blocklists, but a denylist entry still wins over this.</p>
+        <form class="inline" id="add-allow-form">
+          <input type="text" id="allow-domain" placeholder="example.com" required>
+          <button type="submit">Add</button>
+        </form>
+        <table><tbody id="allow-rows"></tbody></table>
+      </section>
+      <section class="section-deny">
+        <h2>Denylist (always blocked)</h2>
+        <p class="muted">Always blocked, even if not on any blocklist - and even if the same domain is also on the allowlist above.</p>
+        <form class="inline" id="add-deny-form">
+          <input type="text" id="deny-domain" placeholder="tracker.example.com" required>
+          <button type="submit">Add</button>
+        </form>
+        <table><tbody id="deny-rows"></tbody></table>
+      </section>
     </div>
-    <p class="muted">In-memory only, respects each answer's TTL - cleared automatically on restart.</p>
-  </section>
+
+    <section>
+      <h2>Regex denylist <span class="tag" style="background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)">experimental</span></h2>
+      <p class="muted">
+        Blocks any query name matching one of these Python regular expressions - e.g.
+        <code>^ads?[0-9]*\.</code> catches ad/ad1/ads2 subdomains across every domain at once,
+        something a plain domain/subdomain denylist entry above can't express. Off by default -
+        toggle "Enable regex denylist" in Settings -> DNS - since every enabled pattern here is
+        checked against every single query - keep the list short. Patterns are compiled once
+        and cached in memory, not recompiled per query, but matching itself is still real CPU
+        work per query - this is meant for a handful of hand-picked rules, not a full list.
+      </p>
+      <form class="inline" id="add-deny-regex-form">
+        <input type="text" id="deny-regex" placeholder="^ads?[0-9]*\.example\.com$" required style="min-width:280px">
+        <button type="submit">Add</button>
+      </form>
+      <table><tbody id="deny-regex-rows"></tbody></table>
+    </section>
+  </div>
+
+  <div id="subtab-clients" class="subtab-panel">
+    <section>
+      <h2>Blocked clients (no communication allowed)</h2>
+      <p class="muted">
+        Every query from these IPs/CIDRs is blocked, for every domain - stronger than a domain
+        denylist entry, and takes priority over client groups below. Usually populated via the
+        "Block host" button next to a client's address in Logs, Stats, or the Enrich popup;
+        add one by hand here too if you'd rather.
+      </p>
+      <form class="inline" id="add-blocked-client-form">
+        <input type="text" id="blocked-client-value" placeholder="192.168.1.50 or 192.168.1.0/24" required>
+        <button type="submit">Block</button>
+      </form>
+      <table><tbody id="blocked-client-rows"></tbody></table>
+    </section>
+
+    <section>
+      <h2>Client groups</h2>
+      <p class="muted">Per-IP/CIDR overrides. First matching group wins; unmatched clients get the global policy above.</p>
+      <form class="inline" id="add-group-form">
+        <input type="text" id="group-name" placeholder="Name (e.g. Kids)" required>
+        <input type="text" id="group-match" placeholder="IPs/CIDRs, comma separated" required style="min-width:260px">
+        <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.85rem">
+          <input type="checkbox" id="group-enabled" checked> Filter this group
+        </label>
+        <button type="submit">Add group</button>
+      </form>
+      <div id="group-list"></div>
+    </section>
+  </div>
+
+  <div id="subtab-cleans" class="subtab-panel">
+    <section id="cache-section" style="display:none">
+      <div class="row">
+        <h2>DNS answer cache</h2>
+        <button type="button" class="secondary" id="clear-cache">Clear cache</button>
+      </div>
+      <p class="muted">In-memory only, respects each answer's TTL - cleared automatically on restart.</p>
+    </section>
+
+    <section>
+      <h2>Query log</h2>
+      <p class="muted">Irreversible - wipes every row already logged, regardless of retention. Resolution/blocking is unaffected; this only clears history, not policy.</p>
+      <button type="button" class="danger" id="query-log-purge">Delete all logged queries</button>
+    </section>
+  </div>
+
   </div>
 
   <div id="tab-logs" class="tab-panel">
@@ -977,6 +1083,28 @@ function addressCell(displayText, extra = [], copyValue = null, label = null) {
     el("span", { text: displayText }),
     el("div", { class: "addr-cell-actions" }, [copyButton(value), ...extra]),
   ])]);
+}
+
+// Query log's Domain column: the domain itself, plus - when known - the
+// actual A/AAAA address that was handed back to the client for that one
+// query (skipped for NXDOMAIN blocks and non-address query types, where
+// there's nothing to show). Enrich works on either independently, since
+// they're two different lookup targets (a domain's reputation isn't the
+// same question as the IP it happened to resolve to just now).
+function domainCell(domain, answerIp) {
+  const rows = [
+    el("div", { class: "addr-cell" }, [
+      el("span", { text: domain }),
+      el("div", { class: "addr-cell-actions" }, [copyButton(domain), enrichButton(domain, "domain")]),
+    ]),
+  ];
+  if (answerIp) {
+    rows.push(el("div", { class: "addr-cell resolved-ip" }, [
+      el("span", { class: "muted", text: "→ " + answerIp }),
+      el("div", { class: "addr-cell-actions" }, [copyButton(answerIp), enrichButton(answerIp, "ip")]),
+    ]));
+  }
+  return el("td", { "data-label": "Domain" }, rows);
 }
 
 // Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX) - only
@@ -1514,7 +1642,7 @@ async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
   const rows = document.getElementById(rowsElId);
   rows.innerHTML = "";
   sources.forEach((s, i) => {
-    const toggleBtn = el("button", { class: "secondary", text: s.enabled ? "Disable" : "Enable" });
+    const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? "Disable" : "Enable" });
     toggleBtn.onclick = async () => { await api(`${apiPath}/${i}/toggle`, { method: "POST" }); refreshAll(); };
     const delBtn = el("button", { class: "danger", text: "Remove" });
     delBtn.onclick = async () => { await api(`${apiPath}/${i}`, { method: "DELETE" }); refreshAll(); };
@@ -1524,10 +1652,10 @@ async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
     }
     rows.appendChild(el("tr", {}, [
       el("td", { text: s.name }),
-      el("td", { text: s.url }),
+      el("td", { text: s.url, class: "url-cell" }),
       domainsCell,
       el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? "enabled" : "disabled" })]),
-      el("td", {}, [toggleBtn, delBtn]),
+      el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
     ]));
   });
 }
@@ -1541,12 +1669,14 @@ async function loadAllowSources() {
 }
 
 async function loadBlocklistCatalog() {
+  // The API already excludes anything matching a currently-configured
+  // blocklist URL - once you've added a suggestion, it has nothing left
+  // to suggest, so it just doesn't come back in this list.
   const catalog = await api("/api/blocklists/catalog");
   const rows = document.getElementById("blocklist-catalog-rows");
   rows.innerHTML = "";
   for (const entry of catalog) {
-    const addBtn = el("button", { class: "secondary", text: entry.already_added ? "Added" : "Add" });
-    if (entry.already_added) addBtn.disabled = true;
+    const addBtn = el("button", { class: "secondary", text: "Add" });
     addBtn.onclick = async () => {
       await api("/api/blocklists", {
         method: "POST",
@@ -1728,10 +1858,11 @@ async function loadSettings() {
   document.getElementById("s-otx-key").value = "";
   document.getElementById("s-enrich-local-key").value = "";
   const enr = s.enrichment || {};
-  document.getElementById("vt-key-status").textContent = enr.virustotal_api_key_set ? "(configured)" : "(not set)";
-  document.getElementById("abuseipdb-key-status").textContent = enr.abuseipdb_api_key_set ? "(configured)" : "(not set)";
-  document.getElementById("otx-key-status").textContent = enr.otx_api_key_set ? "(configured)" : "(not set)";
-  document.getElementById("local-key-status").textContent = enr.local_api_key_set ? "(configured)" : "(not set)";
+  const keyStatusText = (set, preview) => (set ? `(configured: ${preview}) ` : "(not set)");
+  document.getElementById("vt-key-status").textContent = keyStatusText(enr.virustotal_api_key_set, enr.virustotal_api_key_preview);
+  document.getElementById("abuseipdb-key-status").textContent = keyStatusText(enr.abuseipdb_api_key_set, enr.abuseipdb_api_key_preview);
+  document.getElementById("otx-key-status").textContent = keyStatusText(enr.otx_api_key_set, enr.otx_api_key_preview);
+  document.getElementById("local-key-status").textContent = keyStatusText(enr.local_api_key_set, enr.local_api_key_preview);
   document.getElementById("s-enrich-public-enabled").checked = !!enr.public_enabled;
   document.getElementById("s-enrich-local-enabled").checked = !!enr.local_enabled;
   document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
@@ -1772,14 +1903,14 @@ function renderUpstreamRows(upstreams) {
   upstreams.forEach((entry, i) => {
     const disabled = entry.trim().startsWith("#");
     const address = entry.trim().replace(/^#+\s*/, "");
-    const toggleBtn = el("button", { class: "secondary", text: disabled ? "Enable" : "Disable" });
+    const toggleBtn = el("button", { class: "secondary toggle-btn", text: disabled ? "Enable" : "Disable" });
     toggleBtn.onclick = async () => { await api(`/api/settings/upstreams/${i}/toggle`, { method: "POST" }); refreshAll(); };
     const delBtn = el("button", { class: "danger", text: "Remove" });
     delBtn.onclick = async () => { await api(`/api/settings/upstreams/${i}`, { method: "DELETE" }); refreshAll(); };
     rows.appendChild(el("tr", {}, [
-      el("td", { text: address }),
+      el("td", { text: address, class: "url-cell" }),
       el("td", {}, [el("span", { class: "tag " + (disabled ? "blocked" : "allowed"), text: disabled ? "disabled" : "enabled" })]),
-      el("td", {}, [toggleBtn, delBtn]),
+      el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
     ]));
   });
 }
@@ -1890,7 +2021,7 @@ function renderQueryLogRow(q) {
   }
   return el("tr", { "data-domain": q.domain }, [
     el("td", { text: fmtTime(q.ts), "data-label": "Time" }),
-    addressCell(q.domain, [enrichButton(q.domain, "domain")], null, "Domain"),
+    domainCell(q.domain, q.answer_ip),
     el("td", { text: q.qtype, class: "col-qtype", "data-label": "Type" }),
     addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip"), clientBlockButton(q.client)] : [], q.client, "Client"),
     el("td", { "data-label": "Result" }, resultCell),
@@ -1997,13 +2128,18 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
   refreshAll();
 });
 
-document.getElementById("misc-settings-form").addEventListener("submit", async (e) => {
+document.getElementById("logging-settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   await api("/api/settings/logging", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ retention_days: floatField("s-retention-days") }),
   });
+  refreshAll();
+});
+
+document.getElementById("blocklist-refresh-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
   await api("/api/settings/blocklists", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -2093,6 +2229,48 @@ document.getElementById("import-adguard-form").addEventListener("submit", async 
 
   try {
     const res = await fetch("/api/import/adguard", { method: "POST", body: formData });
+    if (res.status === 401) {
+      document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+      return;
+    }
+    const data = await res.json();
+    resultEl.innerHTML = "";
+    if (!res.ok) {
+      resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + (data.detail || "unknown error"))]));
+      return;
+    }
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag allowed", text: "Imported" })]));
+    if (data.warnings && data.warnings.length) {
+      const list = document.createElement("ul");
+      for (const w of data.warnings) {
+        const li = document.createElement("li");
+        li.textContent = w;
+        list.appendChild(li);
+      }
+      resultEl.appendChild(list);
+    }
+    fileInput.value = "";
+    refreshAll();
+  } catch (err) {
+    resultEl.innerHTML = "";
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + err.message)]));
+  }
+});
+
+document.getElementById("import-pihole-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById("pihole-file");
+  const resultEl = document.getElementById("import-pihole-result");
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  resultEl.innerHTML = "";
+  resultEl.appendChild(el("p", { class: "muted", text: "Importing..." }));
+
+  try {
+    const res = await fetch("/api/import/pihole", { method: "POST", body: formData });
     if (res.status === 401) {
       document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
       return;
@@ -2272,6 +2450,24 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
   btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
 }
 setActiveTab(localStorage.getItem("dnsshield-tab"));
+
+const SUBTAB_NAMES = ["general", "dns", "logging", "threat-intel", "import", "blocklists", "ownlists", "clients", "cleans"];
+
+function setActiveSubtab(subtab) {
+  if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";
+  for (const btn of document.querySelectorAll(".subtab-btn")) {
+    btn.classList.toggle("active", btn.dataset.subtab === subtab);
+  }
+  for (const name of SUBTAB_NAMES) {
+    document.getElementById("subtab-" + name).classList.toggle("active", name === subtab);
+  }
+  localStorage.setItem("dnsshield-settings-subtab", subtab);
+}
+
+for (const btn of document.querySelectorAll(".subtab-btn")) {
+  btn.addEventListener("click", () => setActiveSubtab(btn.dataset.subtab));
+}
+setActiveSubtab(localStorage.getItem("dnsshield-settings-subtab"));
 
 document.getElementById("stats-range").value = trendRange;
 document.getElementById("stats-range").addEventListener("change", (e) => {

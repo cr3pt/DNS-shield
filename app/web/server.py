@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import re
 import secrets
+import sqlite3
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,7 @@ from pydantic import BaseModel
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app.enrichment import enrich as run_enrichment
 from app.import_adguard import import_config
+from app.import_pihole import import_config as import_pihole_config
 from app.netmatch import ip_matches
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
@@ -31,6 +34,20 @@ from app.upstream import is_disabled as upstream_is_disabled
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 security = HTTPBasic()
+
+
+def _masked_key_preview(key: str | None) -> str:
+    """First and last character of a saved API key, e.g. "a***********f" -
+    enough for a user to recognize *which* key is saved (in case they keep
+    more than one VirusTotal/AbuseIPDB/OTX account, say) without the full
+    value ever being sent back to the browser. Empty string if no key is
+    saved, or the key itself if it's a single character (nothing to mask).
+    """
+    if not key:
+        return ""
+    if len(key) <= 2:
+        return key
+    return f"{key[0]}{'*' * min(len(key) - 2, 12)}{key[-1]}"
 
 
 class BlocklistSourceIn(BaseModel):
@@ -335,8 +352,11 @@ def create_app(
 
     @app.get("/api/blocklists/catalog")
     def get_blocklist_catalog(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        # An entry already present as a configured source has nothing left
+        # to suggest, so it's dropped from the list entirely rather than
+        # shown disabled - "added" is a one-way trip out of Suggested lists.
         existing_urls = {s.get("url") for s in _list_sources("sources")}
-        return [dict(entry, already_added=entry["url"] in existing_urls) for entry in BLOCKLIST_CATALOG]
+        return [entry for entry in BLOCKLIST_CATALOG if entry["url"] not in existing_urls]
 
     @app.post("/api/blocklists/refresh")
     def refresh_blocklists(_: None = Depends(require_auth)) -> dict[str, Any]:
@@ -662,6 +682,29 @@ def create_app(
 
         return {"ok": True, "warnings": warnings}
 
+    # -- import an existing Pi-hole gravity.db, from the browser --------
+    # Same sync-def reasoning as import_adguard above: blocklist.refresh()
+    # makes blocking HTTP calls for every configured source.
+    @app.post("/api/import/pihole")
+    def import_pihole(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
+        raw = file.file.read()
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            tmp.write(raw)
+            tmp.flush()
+            try:
+                result, warnings = import_pihole_config(Path(tmp.name), config_store.snapshot())
+            except sqlite3.DatabaseError as exc:
+                raise HTTPException(status_code=400, detail=f"Not a valid gravity.db (SQLite file): {exc}") from exc
+
+        def _mutate(data: dict[str, Any]) -> None:
+            data.clear()
+            data.update(result)
+
+        config_store.mutate(_mutate)
+        blocklist.refresh()
+
+        return {"ok": True, "warnings": warnings}
+
     # -- full settings: everything not covered by the CRUD endpoints above -
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
 
@@ -684,12 +727,16 @@ def create_app(
             "blocklists_refresh_interval_hours": snap.get("blocklists", {}).get("refresh_interval_hours", 24),
             "enrichment": {
                 "virustotal_api_key_set": bool(snap.get("enrichment", {}).get("virustotal_api_key")),
+                "virustotal_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("virustotal_api_key")),
                 "abuseipdb_api_key_set": bool(snap.get("enrichment", {}).get("abuseipdb_api_key")),
+                "abuseipdb_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("abuseipdb_api_key")),
                 "otx_api_key_set": bool(snap.get("enrichment", {}).get("otx_api_key")),
+                "otx_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("otx_api_key")),
                 "public_enabled": bool(snap.get("enrichment", {}).get("public_enabled", False)),
                 "local_enabled": bool(snap.get("enrichment", {}).get("local_enabled", False)),
                 "local_url": snap.get("enrichment", {}).get("local_url", "") or "",
                 "local_api_key_set": bool(snap.get("enrichment", {}).get("local_api_key")),
+                "local_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("local_api_key")),
             },
             "restart_required": [
                 "dns.listen_address",
@@ -802,12 +849,16 @@ def create_app(
             enr = data["enrichment"]
             return {
                 "virustotal_api_key_set": bool(enr.get("virustotal_api_key")),
+                "virustotal_api_key_preview": _masked_key_preview(enr.get("virustotal_api_key")),
                 "abuseipdb_api_key_set": bool(enr.get("abuseipdb_api_key")),
+                "abuseipdb_api_key_preview": _masked_key_preview(enr.get("abuseipdb_api_key")),
                 "otx_api_key_set": bool(enr.get("otx_api_key")),
+                "otx_api_key_preview": _masked_key_preview(enr.get("otx_api_key")),
                 "public_enabled": bool(enr.get("public_enabled", False)),
                 "local_enabled": bool(enr.get("local_enabled", False)),
                 "local_url": enr.get("local_url", "") or "",
                 "local_api_key_set": bool(enr.get("local_api_key")),
+                "local_api_key_preview": _masked_key_preview(enr.get("local_api_key")),
             }
 
         return config_store.mutate(_mutate)

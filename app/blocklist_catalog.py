@@ -9,14 +9,16 @@ typing them in by hand; DNS-shield then fetches that URL on the next
 refresh like any other configured source, complete with the same format
 auto-detection, fetch-failure handling, and disable/remove controls.
 
-Every entry here is one of Firebog's (https://firebog.net) "ticked"
-lists - the subset their own picker marks safe for a default setup, as
-opposed to the site's more aggressive or narrowly-scoped options - plus
-StevenBlack's Unified Hosts, the general-purpose list this project's own
-example config has shipped with since day one. Firebog's tick/cross
-status can change over time; if a list here stops looking right for you,
-Disable or Remove it from the Blocklists table like any other source -
-nothing about picking it from this catalog is special or hard to undo.
+Every Firebog entry here is one of that site's (https://firebog.net)
+"ticked" lists - the subset their own picker marks safe for a default
+setup, as opposed to the site's more aggressive or narrowly-scoped
+options - plus StevenBlack's Unified Hosts (this project's own example
+config has shipped with it since day one) and AdGuard's own DNS filter
+straight from AdGuard's registry. Tick/cross status and exact URLs can
+change over time on any of these upstream projects; if a list here stops
+looking right for you, Disable or Remove it from the Blocklists table
+like any other source - nothing about picking it from this catalog is
+special or hard to undo.
 """
 
 from __future__ import annotations
@@ -27,6 +29,12 @@ BLOCKLIST_CATALOG: list[dict[str, str]] = [
         "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
         "category": "Ads, tracking & malware",
         "description": "General-purpose, widely used hosts-file merge of several ad/tracking/malware sources.",
+    },
+    {
+        "name": "AdGuard DNS filter",
+        "url": "https://raw.githubusercontent.com/AdguardTeam/HostlistsRegistry/master/assets/filter_1.txt",
+        "category": "Ads, tracking & malware",
+        "description": "AdGuard's own general-purpose DNS filter, straight from their HostlistsRegistry - the default list AdGuard Home itself ships with.",
     },
     {
         "name": "Firebog - AdguardDNS",
@@ -57,6 +65,12 @@ BLOCKLIST_CATALOG: list[dict[str, str]] = [
         "url": "https://v.firebog.net/hosts/Prigent-Malware.txt",
         "category": "Malicious",
         "description": "Known malware-distribution and command-and-control domains.",
+    },
+    {
+        "name": "Firebog - Prigent-Crypto",
+        "url": "https://v.firebog.net/hosts/Prigent-Crypto.txt",
+        "category": "Malicious",
+        "description": "Cryptojacking and malicious cryptomining domains.",
     },
     {
         "name": "Firebog - W3KBL",

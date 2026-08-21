@@ -131,10 +131,15 @@ the top is always visible regardless of tab.
 
 ## Configuration
 
-Every setting is editable from the dashboard's **Settings** section (DNS,
-upstreams, web UI, logging, blocklists) and its dedicated pages (blocklists,
-allow-list sources, allow/deny rules, client groups, log-ignore list) - no
-file editing needed for day-to-day use.
+Every setting is editable from the dashboard's **Settings** section - no
+file editing needed for day-to-day use. Settings is split into its own
+sub-tabs by topic: **General** (web UI), **DNS** (core resolver, upstream
+servers, per-domain routing, custom records), **Logging** (retention,
+excluded domains/clients), **Threat intelligence**, **Import** (AdGuard
+Home / Pi-hole), **Blocklists** (sources, suggested lists, allow-list
+sources, refresh schedule), **Own lists** (allowlist, denylist, regex
+denylist), **Clients** (blocked clients, client groups), and **Cleans**
+(DNS answer cache, delete all logged queries).
 
 Under the hood, the live config lives in `./data/config.db` (SQLite), and a
 full copy is exported to `./data/config.backup.yaml` every 12 hours (and
@@ -355,10 +360,13 @@ count - only a real mix is reported that way).
 
 The Blocklists section also has a **Suggested lists** table: a short,
 fixed list baked into DNS-shield itself (nothing fetched to build it) -
-StevenBlack's Unified Hosts plus a handful of [Firebog](https://firebog.net)'s
-recommended ("ticked") lists. Clicking Add just fills in the normal
-add-a-source form for you; the list is then fetched, disabled, and
-removed exactly like any source you'd typed in by hand.
+StevenBlack's Unified Hosts, AdGuard's own DNS filter, and a handful of
+[Firebog](https://firebog.net)'s recommended ("ticked") lists. Clicking Add
+just fills in the normal add-a-source form for you; the list is then
+fetched, and from there can be disabled or removed exactly like any source
+you'd typed in by hand. An entry drops off Suggested lists once you've
+added it - there's nothing left to suggest - so the list only ever shows
+what you haven't already picked up.
 
 ### Regex denylist (experimental)
 
@@ -529,9 +537,9 @@ stop being logged - Hide doesn't delete anything already written to
 `stats.db`, and doesn't affect resolution/blocking, only what shows up in
 this log.
 
-**Delete all logged queries** wipes every row from `stats.db` - a full
-reset of the query log, not a filtered delete. Irreversible; the
-dashboard asks for confirmation first.
+**Delete all logged queries** (Settings -> Cleans) wipes every row from
+`stats.db` - a full reset of the query log, not a filtered delete.
+Irreversible; the dashboard asks for confirmation first.
 
 A blocked row also shows an (i) icon - hover it to see exactly why that
 query was blocked: which blocklist subscription matched (by name), a
@@ -545,6 +553,18 @@ to it, for grabbing the exact value onto your clipboard (e.g. to paste into
 a search, a firewall rule, or a ticket) without having to select the text
 by hand. A client's address also gets a **Block host** button - see
 [Blocking a client entirely](#blocking-a-client-entirely) above.
+
+When known, the actual A/AAAA address handed back to the client for that
+query shows right under its domain (e.g. `→ 93.184.216.34`), with its own
+Copy and Enrich buttons - a different lookup target from the domain itself,
+so its Enrich result is independent (a domain's reputation isn't the same
+question as whatever IP it happened to resolve to just now). This is the
+null IP for a `null_ip`-blocked query, a rewrite's IP, a cache hit's IP, or
+the first A/AAAA record in a real upstream reply (any CNAME hops are
+skipped) - and is left out entirely for an NXDOMAIN block or a non-address
+query type (MX, TXT, ...), where there's nothing to show. Stored per row
+(an `answer_ip` column on `stats.db`, backfilled as `null` for rows logged
+before this existed - nothing shows for those).
 
 ### Stats tab
 
@@ -604,6 +624,12 @@ than "not configured", so you can prepare it ahead of time and flip the
 switch when you're ready. AbuseIPDB has no domain-lookup endpoint, so it's
 skipped (not treated as an error) for domain targets and only ever
 queried for IP targets; VirusTotal and OTX support both.
+
+A saved key's status line in Settings shows its first and last character
+(e.g. `a***********f`) rather than just "configured" - enough to recognize
+*which* key is saved (say, if you keep more than one VirusTotal account)
+without the full value ever being sent back to your browser; the key
+itself is masked server-side and never round-trips in full once saved.
 
 **Your own local service** has no such switch - it's not a third-party
 call, it's infrastructure you run and pointed this at yourself. Turn on
@@ -699,20 +725,25 @@ fresh database (an empty data volume's first boot, or after you delete
 edit (or replace) `./data/config.backup.yaml`, delete `./data/config.db`
 (and its `-wal`/`-shm` files, if present), and start it again.
 
-## Importing from AdGuard Home
+## Importing from AdGuard Home or Pi-hole
 
-If you're migrating an existing AdGuard Home setup, both convert its
-`AdGuardHome.yaml` the same way: filter and whitelist-filter subscriptions,
+Both importers live in the dashboard's **Settings -> Import** tab (or as a
+one-off command-line script), and both work the same way: read one file
+from your existing setup, merge what's supported into DNS-shield's config,
+and print a summary of exactly what was and wasn't carried over.
+
+### AdGuard Home
+
+Converts `AdGuardHome.yaml`: filter and whitelist-filter subscriptions,
 `user_rules` (both block rules and `@@` exceptions), upstream resolvers
 (`tls://`/`https://` converted to `dot://`/`doh://`), listen address/port,
 blocking mode, and each `clients.persistent[].ids` entry (IPs/CIDRs only -
 MAC addresses aren't supported) as a `client_groups` entry.
 
-**From the dashboard** (Settings -> "Import from AdGuard Home"): upload the
-file, it's merged directly into the running config and takes effect
-immediately - blocklists refresh right away. This **replaces** your current
-blocklists and client groups with AdGuard's, but keeps everything else,
-including your web login.
+**From the dashboard**: upload the file, it's merged directly into the
+running config and takes effect immediately - blocklists refresh right
+away. This **replaces** your current blocklists and client groups with
+AdGuard's, but keeps everything else, including your web login.
 
 **From the command line**, for a fresh setup or to produce a file to review
 before applying:
@@ -721,12 +752,36 @@ before applying:
 docker compose exec dns-shield python -m app.import_adguard /path/to/AdGuardHome.yaml
 ```
 
-This only ever reads the two YAML files you point it at and writes one
-output file - prints a summary of what was imported and, importantly, what
-wasn't (parental control/safe browsing, DHCP, TLS termination, and your web
-UI password - AdGuard stores a bcrypt hash that can't be turned back into
-plaintext, so set that yourself from the dashboard). Full instructions for
-applying the result are printed at the end of the run.
+Not imported: parental control/safe browsing, DHCP, TLS termination, and
+your web UI password - AdGuard stores a bcrypt hash that can't be turned
+back into plaintext, so set that yourself from the dashboard.
+
+### Pi-hole
+
+Converts `gravity.db` - Pi-hole's own SQLite database, included in a
+"Teleporter" backup or copyable directly from `/etc/pihole/gravity.db` on
+the Pi-hole host: `adlist` (blocklist, and on newer schemas allow-list,
+subscription URLs, enabled state preserved), enabled `domainlist` exact
+allow/deny entries, enabled `domainlist` regex-deny entries (mapped to
+DNS-shield's own [experimental regex denylist](#regex-denylist-experimental),
+which gets turned on for you), and `client` IPs as `client_groups`.
+
+**From the dashboard**: upload `gravity.db`, same merge-and-apply-immediately
+behavior as the AdGuard Home import above.
+
+**From the command line**:
+
+```bash
+docker compose exec dns-shield python -m app.import_pihole /path/to/gravity.db
+```
+
+Not imported: upstream DNS servers, listen address/port, and blocking mode
+(these live in Pi-hole's `setupVars.conf`/`pihole.toml`/dnsmasq config, a
+different file this importer never reads), regex ALLOW entries (DNS-shield
+has no regex allowlist, only a regex denylist), per-client/per-group list
+assignments (gravity.db's group-membership tables vary across Pi-hole
+versions, so an imported client gets DNS-shield's default global policy,
+not whichever Pi-hole group it belonged to), and your web UI password.
 
 ## Architecture
 
@@ -755,6 +810,7 @@ app/
   stats.py             query log storage: SQLite database (data/stats.db), async writes,
                        hourly pruning, filterable search for the query-log browser
   import_adguard.py    one-off AdGuard Home -> DNS-shield config converter (see above)
+  import_pihole.py      one-off Pi-hole gravity.db -> DNS-shield config converter (see above)
   enrichment.py         VirusTotal/AbuseIPDB/OTX reputation lookups - only ever called from
                         the "Enrich" button's endpoint, never on its own (see above)
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
