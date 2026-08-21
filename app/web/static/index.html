@@ -776,6 +776,23 @@
   </div>
 
   <div id="subtab-import" class="subtab-panel">
+    <section class="section-deny">
+      <h2>Restore from backup</h2>
+      <p class="muted">
+        Upload a .zip from Settings -> General -> Download backup. Unlike the two importers
+        below, this is DNS-shield's own native config, so there's nothing to convert or merge -
+        it <strong>replaces your entire current configuration outright</strong> with exactly
+        what was in that backup: blocklists, allow/deny rules, client groups, DNS/web settings,
+        custom DNS records, and your web login. Irreversible unless you've also backed up the
+        config you're about to overwrite.
+      </p>
+      <form class="inline" id="import-backup-form">
+        <input type="file" id="backup-file" accept=".zip" required>
+        <button type="submit" class="danger">Restore</button>
+      </form>
+      <div id="import-backup-result"></div>
+    </section>
+
     <section>
       <h2>Import from AdGuard Home</h2>
       <p class="muted">Upload an AdGuardHome.yaml to import its filters, whitelist filters, user rules, upstreams, blocking mode, and per-client IPs/CIDRs. This replaces your current blocklists and client groups with AdGuard's, but keeps everything else (including your web login). Parental control, safe browsing, DHCP, TLS, and your AdGuard password are never imported.</p>
@@ -2304,6 +2321,40 @@ document.getElementById("add-rewrite-form").addEventListener("submit", async (e)
   });
   e.target.reset();
   refreshAll();
+});
+
+document.getElementById("import-backup-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById("backup-file");
+  const resultEl = document.getElementById("import-backup-result");
+  if (!fileInput.files.length) return;
+  if (!confirm("Replace your ENTIRE current configuration with this backup? This cannot be undone.")) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  resultEl.innerHTML = "";
+  resultEl.appendChild(el("p", { class: "muted", text: "Restoring..." }));
+
+  try {
+    const res = await fetch("/api/import/backup", { method: "POST", body: formData });
+    if (res.status === 401) {
+      document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+      return;
+    }
+    const data = await res.json();
+    resultEl.innerHTML = "";
+    if (!res.ok) {
+      resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Restore failed" }), document.createTextNode(" " + (data.detail || "unknown error"))]));
+      return;
+    }
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag allowed", text: "Restored" })]));
+    fileInput.value = "";
+    refreshAll();
+  } catch (err) {
+    resultEl.innerHTML = "";
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Restore failed" }), document.createTextNode(" " + err.message)]));
+  }
 });
 
 document.getElementById("import-adguard-form").addEventListener("submit", async (e) => {

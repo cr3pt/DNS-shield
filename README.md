@@ -748,13 +748,21 @@ config snapshot as `data/config.backup.yaml` above, but as a file your
 browser downloads to your own machine - built entirely in memory and sent
 straight back, nothing written to disk on the server beyond what's already
 in `config.db`. The zip has `config.yaml` (restore it the same way as
-`config.backup.yaml` above - a `README.txt` alongside it spells out both
-the fresh-instance and existing-instance cases) plus that `README.txt`.
+`config.backup.yaml` above, or see the dashboard restore below) plus a
+`README.txt` spelling out both the fresh-instance and existing-instance
+manual-restore cases.
 
 Like `config.backup.yaml`, this is a full, unmasked snapshot - any
 threat-intel API keys and your web login password come out in plain text.
 Treat the downloaded file like you would a password: back it up somewhere
 you'd store a password, not somewhere public.
+
+**Settings -> Import -> Restore from backup** applies one of these zips
+without leaving the dashboard or touching the container - upload it and
+your entire current configuration is replaced outright with whatever was
+in the backup (no merging, since it's DNS-shield's own native format with
+nothing to convert). Irreversible unless you've also backed up the config
+you're about to overwrite - the dashboard asks for confirmation first.
 
 ## Importing from AdGuard Home or Pi-hole
 

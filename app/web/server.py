@@ -755,6 +755,41 @@ To restore into an EXISTING instance (data/config.db already exists):
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
+    # -- config restore: the other end of /api/export above. Unlike the
+    # AdGuard/Pi-hole importers, this is DNS-shield's own native format, so
+    # there's no lossy conversion and nothing to merge onto the current
+    # config - a restore replaces it outright, exactly reproducing whatever
+    # was true at export time. blocklist.refresh() below makes blocking
+    # HTTP calls, same sync-def reasoning as the other importers above.
+    @app.post("/api/import/backup")
+    def import_backup(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
+        raw = file.file.read()
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                config_yaml = zf.read("config.yaml")
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(status_code=400, detail=f"Not a valid zip file: {exc}") from exc
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=400, detail="Not a DNS-shield backup - no config.yaml inside this zip"
+            ) from exc
+
+        try:
+            result = yaml.safe_load(config_yaml)
+        except yaml.YAMLError as exc:
+            raise HTTPException(status_code=400, detail=f"config.yaml in this backup isn't valid YAML: {exc}") from exc
+        if not isinstance(result, dict):
+            raise HTTPException(status_code=400, detail="config.yaml in this backup isn't a YAML mapping")
+
+        def _mutate(data: dict[str, Any]) -> None:
+            data.clear()
+            data.update(result)
+
+        config_store.mutate(_mutate)
+        blocklist.refresh()
+
+        return {"ok": True}
+
     # -- full settings: everything not covered by the CRUD endpoints above -
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
 
