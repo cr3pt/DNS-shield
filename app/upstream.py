@@ -23,6 +23,8 @@ from urllib.parse import urlparse
 import requests
 from requests.adapters import HTTPAdapter
 
+from app.enrichment import THREAT_INTEL_HOSTNAMES
+
 DOH_CONTENT_TYPE = "application/dns-message"
 
 # One shared, connection-pooling Session for all DoH upstreams, reused
@@ -133,19 +135,39 @@ def hostname_of(upstream: str) -> str | None:
 def protected_hostnames(config_store) -> set[str]:
     """Hostnames DNS-shield must always be able to resolve to keep working
     at all: every configured upstream resolver (global, per-domain routing,
-    per-client-group) and every blocklist/allow-list subscription URL.
-    Blocking or hiding either would be self-defeating - a coincidental
-    blocklist match on an upstream's hostname would cut DNS-shield off from
-    that resolver, and one on a blocklist source's hostname would stop
-    blocklists from ever refreshing.
+    per-client-group), every blocklist/allow-list subscription URL, and -
+    only once you've turned on `enrichment.public_enabled` in Settings ->
+    Threat intelligence - the three fixed public threat-intel API hosts
+    (VirusTotal/AbuseIPDB/OTX), plus your own local enrichment endpoint's
+    host if you've enabled and set one. Blocking or hiding any of these
+    would be self-defeating - a coincidental blocklist match on an
+    upstream's hostname would cut DNS-shield off from that resolver, one
+    on a blocklist source's hostname would stop blocklists from ever
+    refreshing, and one on an enrichment host would make the "Enrich"
+    button silently fail.
 
-    These are always exempt from blocking and excluded from the query log
-    by default (it's DNS-shield's own background traffic, not something a
-    user browsed to). Recomputed from the live config on every call, so it
-    stays correct the moment upstreams or list sources change - there is
-    nothing to configure separately.
+    The public threat-intel hosts are deliberately *not* exempted while
+    that switch is off: there is no reason for DNS-shield to reach them
+    yet, so there is no standing blocklist hole for them either - the
+    same "nothing calls out unless you asked it to" reasoning as the
+    switch itself (see app/enrichment.py).
+
+    These are always excluded from the query log by default when
+    protected (it's DNS-shield's own background traffic, not something a
+    user browsed to). Recomputed from the live config on every call, so
+    it stays correct the moment settings change - there is nothing to
+    configure separately.
     """
     hostnames: set[str] = set()
+
+    if config_store.get("enrichment", "public_enabled", default=False):
+        hostnames |= THREAT_INTEL_HOSTNAMES
+
+    if config_store.get("enrichment", "local_enabled", default=False):
+        local_url = config_store.get("enrichment", "local_url", default="") or ""
+        local_host = urlparse(local_url).hostname if local_url else None
+        if local_host:
+            hostnames.add(local_host.lower())
 
     def _collect_upstreams(entries) -> None:
         for entry in entries or []:

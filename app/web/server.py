@@ -105,6 +105,10 @@ class EnrichmentSettingsIn(BaseModel):
     virustotal_api_key: str | None = None  # blank/omitted = keep current key
     abuseipdb_api_key: str | None = None
     otx_api_key: str | None = None
+    public_enabled: bool | None = None  # master on/off for the three cloud services above
+    local_enabled: bool | None = None
+    local_url: str | None = None  # not a secret - blank clears it, unlike the API key fields
+    local_api_key: str | None = None  # blank/omitted = keep current key
 
 
 class EnrichIn(BaseModel):
@@ -570,6 +574,10 @@ def create_app(
                 "virustotal_api_key_set": bool(snap.get("enrichment", {}).get("virustotal_api_key")),
                 "abuseipdb_api_key_set": bool(snap.get("enrichment", {}).get("abuseipdb_api_key")),
                 "otx_api_key_set": bool(snap.get("enrichment", {}).get("otx_api_key")),
+                "public_enabled": bool(snap.get("enrichment", {}).get("public_enabled", False)),
+                "local_enabled": bool(snap.get("enrichment", {}).get("local_enabled", False)),
+                "local_url": snap.get("enrichment", {}).get("local_url", "") or "",
+                "local_api_key_set": bool(snap.get("enrichment", {}).get("local_api_key")),
             },
             "restart_required": ["dns.listen_address", "dns.listen_port", "web.listen_address", "web.listen_port"],
             "restart_note": RESTART_NOTE,
@@ -631,14 +639,28 @@ def create_app(
 
     @app.patch("/api/settings/enrichment")
     def update_enrichment_settings(body: EnrichmentSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
-        payload = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v}
+        # API-key-shaped fields: blank/omitted means "keep the current
+        # value" (these are masked password inputs - the form never shows
+        # the real key back, so an empty field must not overwrite it).
+        # Everything else (the two on/off switches, and local_url which is
+        # a plain, unmasked field) is applied exactly as sent, including
+        # false/blank, so a switch can actually be turned off and a saved
+        # local_url can actually be cleared.
+        keep_if_blank = {"virustotal_api_key", "abuseipdb_api_key", "otx_api_key", "local_api_key"}
+        data_in = body.model_dump(exclude_unset=True)
+        payload = {k: v for k, v in data_in.items() if (v if k in keep_if_blank else v is not None)}
 
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             data.setdefault("enrichment", {}).update(payload)
+            enr = data["enrichment"]
             return {
-                "virustotal_api_key_set": bool(data["enrichment"].get("virustotal_api_key")),
-                "abuseipdb_api_key_set": bool(data["enrichment"].get("abuseipdb_api_key")),
-                "otx_api_key_set": bool(data["enrichment"].get("otx_api_key")),
+                "virustotal_api_key_set": bool(enr.get("virustotal_api_key")),
+                "abuseipdb_api_key_set": bool(enr.get("abuseipdb_api_key")),
+                "otx_api_key_set": bool(enr.get("otx_api_key")),
+                "public_enabled": bool(enr.get("public_enabled", False)),
+                "local_enabled": bool(enr.get("local_enabled", False)),
+                "local_url": enr.get("local_url", "") or "",
+                "local_api_key_set": bool(enr.get("local_api_key")),
             }
 
         return config_store.mutate(_mutate)

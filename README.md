@@ -70,11 +70,13 @@ web UI) but keeps it **local-only by construction**:
 - The only outbound network calls it ever makes are (a) to the blocklist
   URLs *you* configure, (b) to the upstream resolvers *you* configure, and
   (c) a threat-intel reputation lookup (VirusTotal/AbuseIPDB/AlienVault
-  OTX) - but only to a service you've configured an API key for, and only
-  the instant you click "Enrich" on a specific domain/IP; see
-  [Threat-intel enrichment](#threat-intel-enrichment-virustotal--abuseipdb--alienvault-otx)
-  below. There is no default AdGuard-operated endpoint, and nothing calls
-  out on its own.
+  OTX) - gated by an API key *and* a separate "Enable public lookups"
+  switch that's off by default, and even then only the instant you click
+  "Enrich" on a specific domain/IP; see
+  [Threat-intel enrichment](#threat-intel-enrichment-virustotal--abuseipdb--alienvault-otx--your-own)
+  below, including the option to point Enrich at a reputation service you
+  run yourself instead. There is no default AdGuard-operated endpoint,
+  and nothing calls out on its own.
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
 - All state - config, cached blocklists, query stats/log, enrichment
@@ -179,10 +181,14 @@ logging:
   ignored_domains: []      # never logged, but still resolved/blocked normally
   ignored_clients: []      # same, by client IP/CIDR
 
-enrichment:                    # threat-intel API keys - see Threat-intel enrichment below
+enrichment:                    # threat-intel settings - see Threat-intel enrichment below
+  public_enabled: false         # master switch for the 3 keys below - off by default
   virustotal_api_key: ""
   abuseipdb_api_key: ""
   otx_api_key: ""
+  local_enabled: false           # your own reputation service - see below
+  local_url: ""
+  local_api_key: ""
 ```
 
 This example file (`config/config.example.yaml`) only matters for a *fresh*
@@ -256,6 +262,15 @@ hostname would otherwise be a self-inflicted outage - blocking your own
 blocklist source is a particularly nasty one, since it would silently
 stop all list refreshes), and to keep this constant background lookup out
 of a log meant for what your devices are actually browsing to.
+
+The three public threat-intel hosts (VirusTotal/AbuseIPDB/OTX - see
+[Threat-intel enrichment](#threat-intel-enrichment-virustotal--abuseipdb--alienvault-otx--your-own)
+below) get the same treatment, but **only once you've turned on
+`enrichment.public_enabled`** - while that switch is off there is no
+reason for DNS-shield to talk to them, so there's deliberately no
+standing exemption for them either. Your own local enrichment endpoint's
+host is exempted independently, whenever `enrichment.local_enabled` is on
+and a URL is set.
 
 ### Per-domain and per-client DNS routing
 
@@ -410,37 +425,65 @@ aggregated). All of it updates live every 10 seconds alongside the rest
 of the dashboard. Like the query log, the domain/client tables have a
 **Copy** button on each row.
 
-### Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX)
+### Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX / your own)
 
 Every domain and IP address shown in the Query log and Stats tabs also has
 an **Enrich** button, which looks up that indicator's reputation via
 [VirusTotal](https://www.virustotal.com/), [AbuseIPDB](https://www.abuseipdb.com/),
-and [AlienVault OTX](https://otx.alienvault.com/) - whichever of those
-three you've configured an API key for in Settings -> Threat intelligence.
-Free-tier keys work fine; DNS-shield only ever calls the one lookup
-endpoint per service.
+[AlienVault OTX](https://otx.alienvault.com/), and/or a reputation service
+of your own - configured in Settings -> Threat intelligence.
 
 **This only ever runs when you click it.** There is no background
 scanning, no automatic lookup of every query, no schedule, and no lookup
 triggered by loading the dashboard or a DNS query resolving - clicking
-Enrich is the only way an outbound call to any of these three services is
-ever made, and only for the single indicator you clicked on. AbuseIPDB has
-no domain-lookup endpoint, so it's skipped (not treated as an error) for
-domain targets and only ever queried for IP targets; VirusTotal and OTX
-support both.
+Enrich is the only way an outbound call to any of these is ever made, and
+only for the single indicator you clicked on.
+
+The button itself is greyed out and unclickable, with a tooltip
+explaining why, until at least one source is actually usable - so there's
+nothing to accidentally click before you've set anything up.
+
+**Public services (VirusTotal/AbuseIPDB/OTX)** need two things before
+Enrich will call any of them: an API key (free-tier keys work fine), *and*
+the **"Enable public lookups"** switch in Settings, which is **off by
+default**. This is a deliberate second gate on top of the key - these
+three are the one category of outbound call in this project that leaves
+your own network, and DNS-shield exists specifically because another DNS
+blocker made exactly that kind of call without asking (see
+[Why not just use AdGuard Home?](#why-not-just-use-adguard-home) above) -
+so saving a key alone never starts sending anything anywhere; you have to
+flip the switch too. Configuring a key while the switch is off isn't
+wasted, though: the popup still shows that source as "disabled" rather
+than "not configured", so you can prepare it ahead of time and flip the
+switch when you're ready. AbuseIPDB has no domain-lookup endpoint, so it's
+skipped (not treated as an error) for domain targets and only ever
+queried for IP targets; VirusTotal and OTX support both.
+
+**Your own local service** has no such switch - it's not a third-party
+call, it's infrastructure you run and pointed this at yourself. Turn on
+**"Enable your own (local) reputation service"** and give it a URL (e.g.
+something on your own LAN or a self-hosted tool); DNS-shield `POST`s
+`{"target": "<domain-or-ip>", "type": "domain"|"ip"}` as JSON to that URL
+(with `Authorization: Bearer <key>` if you set one) and expects back
+`{"verdict": "safe"|"low"|"medium"|"high"|"critical", "score": 0-100,
+"summary": "..."}` (`score`/`summary` optional) - a small enough contract
+to put in front of anything: a script, an internal tool, even a different
+open-source feed you already trust more. A response missing/mangling
+`verdict` is treated as a failed lookup, not guessed at.
 
 The result opens in a **new browser window**, with the background color
-set by the worst verdict across the configured sources - a calm green for
-a clean/safe result, escalating through yellow and orange to red for
-something flagged as malicious - along with each source's own verdict and
-a short summary (engines flagging it, abuse confidence score, pulse count,
-etc.). A source you haven't configured a key for just shows as "not
-configured"; a failed lookup (bad key, rate limit, no data on record, or a
-network error) shows the reason instead of crashing the popup.
+set by the worst verdict across every source that actually returned one -
+a calm green for a clean/safe result, escalating through yellow and
+orange to red for something flagged as malicious - along with each
+source's own verdict and a short summary (engines flagging it, abuse
+confidence score, pulse count, your local service's own summary, etc.). A
+source that's unconfigured, disabled (public switch off), or failed (bad
+key, rate limit, no data on record, unreachable, malformed response)
+shows why instead of crashing the popup.
 
-Every result - including "not configured" and failed lookups - is
-recorded locally in `data/enrichment.db`, purely so you have a record of
-past lookups; nothing in that database is ever sent anywhere.
+Every result - including unconfigured/disabled/failed ones - is recorded
+locally in `data/enrichment.db`, purely so you have a record of past
+lookups; nothing in that database is ever sent anywhere.
 
 The popup also shows a **lookup history** table for that same target -
 every past time you've clicked Enrich on it, newest first, with the
@@ -575,11 +618,18 @@ that would otherwise hit the upstream resolver.
   provided image runs as root for this (same approach as the official
   AdGuard Home / Pi-hole images). Run rootless via a compose override with
   `cap_add: [NET_BIND_SERVICE]` and a non-root `user:` if you need that.
-- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX) are stored in
-  `config.db`/`config.backup.yaml` like any other setting - anyone with
-  access to the web UI or `./data` volume can read or use them. The
-  Settings page and `GET /api/settings` never echo a key back, only
-  whether one is set.
+- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/your own local service)
+  are stored in `config.db`/`config.backup.yaml` like any other setting -
+  anyone with access to the web UI or `./data` volume can read or use
+  them. The Settings page and `GET /api/settings` never echo a key back,
+  only whether one is set. `local_url` is stored and shown in plain text
+  (it's a URL, not a secret) - don't put credentials in it, use the
+  separate local API key field for that.
+- `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
+  public lookups") is off by default and is the actual gate on whether
+  VirusTotal/AbuseIPDB/OTX are ever contacted - saving a key for one of
+  them does not turn this on by itself. Anyone with dashboard access can
+  flip it, same as any other setting.
 
 ## Limitations / roadmap
 

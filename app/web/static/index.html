@@ -210,7 +210,8 @@
   .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
   .icon-btn.copy-btn.copied { border-color: var(--accent); color: var(--accent); }
   .icon-btn.enrich-btn:hover { border-color: var(--warn); color: var(--warn); }
-  .icon-btn.enrich-btn:disabled { opacity: 0.5; cursor: wait; }
+  .icon-btn.enrich-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .icon-btn.enrich-btn:disabled[data-busy="1"] { cursor: wait; }
   .pause-bar {
     background: var(--panel);
     border: 1px solid var(--panel-border);
@@ -493,10 +494,18 @@
       <h3>Threat intelligence</h3>
       <p class="hint" style="color:var(--muted);">
         Powers the "Enrich" button in Logs/Stats - a domain/IP reputation lookup that only
-        ever runs when you click it, never automatically. Leave a key blank to skip that
-        service. AbuseIPDB only supports IP lookups, so it's skipped for domains regardless.
+        ever runs when you click it, never automatically.
       </p>
       <form id="enrichment-settings-form">
+        <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-public-enabled">
+          <label for="s-enrich-public-enabled">Enable public lookups (VirusTotal / AbuseIPDB / AlienVault OTX)</label>
+        </div>
+        <p class="hint" style="color:var(--muted); margin-top:-0.3rem;">
+          Off by default. This is the one thing in DNS-shield that calls out beyond your own
+          network - saving an API key below does <strong>not</strong> turn it on by itself, and
+          Enrich will report each of these three as disabled until this box is checked too.
+        </p>
         <div class="field-grid">
           <div class="field">
             <label>VirusTotal API key <span id="vt-key-status" class="muted"></span></label>
@@ -511,7 +520,35 @@
             <input type="password" id="s-otx-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
-        <button type="submit">Save API keys</button>
+        <p class="hint" style="color:var(--muted);">
+          Leave a key blank to skip that service. AbuseIPDB only supports IP lookups, so it's
+          skipped for domains regardless.
+        </p>
+
+        <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-local-enabled">
+          <label for="s-enrich-local-enabled">Enable your own (local) reputation service</label>
+        </div>
+        <p class="hint" style="color:var(--muted); margin-top:-0.3rem;">
+          Point this at infrastructure you run instead of (or alongside) the public services
+          above - not subject to the switch above, since it's not a third-party call. DNS-shield
+          POSTs <code>{"target": "&lt;domain-or-ip&gt;", "type": "domain"|"ip"}</code> as JSON to
+          the URL below and expects back
+          <code>{"verdict": "safe"|"low"|"medium"|"high"|"critical", "score": 0-100, "summary": "..."}</code>
+          (score/summary optional).
+        </p>
+        <div class="field-grid">
+          <div class="field">
+            <label>Local service URL</label>
+            <input type="text" id="s-enrich-local-url" placeholder="https://reputation.internal.example/check" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>Local service API key (optional) <span id="local-key-status" class="muted"></span></label>
+            <input type="password" id="s-enrich-local-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+        </div>
+
+        <button type="submit">Save threat-intel settings</button>
       </form>
     </div>
   </section>
@@ -689,6 +726,22 @@ async function api(path, options = {}) {
 }
 
 let clientNames = {};
+// Whether at least one enrichment source is actually usable right now (public
+// lookups switched on with a key, and/or a local service switched on with a
+// URL) - set by loadSettings(), read by every enrichButton() to decide
+// whether that button is clickable. Starts false so a button created before
+// the first loadSettings() response lands is disabled, not clickable-but-broken.
+let enrichmentAvailable = false;
+
+function updateEnrichButtons() {
+  for (const btn of document.querySelectorAll(".enrich-btn")) {
+    if (btn.dataset.busy === "1") continue;
+    btn.disabled = !enrichmentAvailable;
+    btn.title = enrichmentAvailable
+      ? "Check reputation via your configured threat-intel service(s) (manual only)"
+      : "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
+  }
+}
 const clientLabel = (ip) => (clientNames[ip] ? `${clientNames[ip]} (${ip})` : ip);
 
 function el(tag, attrs = {}, children = []) {
@@ -767,6 +820,9 @@ function openEnrichmentWindow(result) {
   const sourceHtml = Object.entries(result.sources)
     .filter(([, src]) => src !== null)
     .map(([name, src]) => {
+      if (src.enabled === false) {
+        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Public lookups are turned off - enable them in Settings -> Threat intelligence.</p></div>`;
+      }
       if (!src.configured) {
         return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Not configured - add an API key in Settings -> Threat intelligence.</p></div>`;
       }
@@ -825,9 +881,15 @@ function openEnrichmentWindow(result) {
 }
 
 function enrichButton(target, type) {
-  const btn = el("button", { class: "icon-btn enrich-btn", type: "button", title: "Check reputation via VirusTotal/AbuseIPDB/OTX (manual only)", text: "Enrich" });
+  const btn = el("button", { class: "icon-btn enrich-btn", type: "button", text: "Enrich" });
+  btn.disabled = !enrichmentAvailable;
+  btn.title = enrichmentAvailable
+    ? "Check reputation via your configured threat-intel service(s) (manual only)"
+    : "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
   btn.onclick = async (e) => {
     e.stopPropagation();
+    if (!enrichmentAvailable) return;
+    btn.dataset.busy = "1";
     btn.disabled = true;
     const original = btn.textContent;
     btn.textContent = "...";
@@ -841,7 +903,8 @@ function enrichButton(target, type) {
     } catch (err) {
       alert("Enrichment failed: " + err.message);
     } finally {
-      btn.disabled = false;
+      delete btn.dataset.busy;
+      btn.disabled = !enrichmentAvailable;
       btn.textContent = original;
     }
   };
@@ -1131,10 +1194,20 @@ async function loadSettings() {
   document.getElementById("s-vt-key").value = "";
   document.getElementById("s-abuseipdb-key").value = "";
   document.getElementById("s-otx-key").value = "";
+  document.getElementById("s-enrich-local-key").value = "";
   const enr = s.enrichment || {};
   document.getElementById("vt-key-status").textContent = enr.virustotal_api_key_set ? "(configured)" : "(not set)";
   document.getElementById("abuseipdb-key-status").textContent = enr.abuseipdb_api_key_set ? "(configured)" : "(not set)";
   document.getElementById("otx-key-status").textContent = enr.otx_api_key_set ? "(configured)" : "(not set)";
+  document.getElementById("local-key-status").textContent = enr.local_api_key_set ? "(configured)" : "(not set)";
+  document.getElementById("s-enrich-public-enabled").checked = !!enr.public_enabled;
+  document.getElementById("s-enrich-local-enabled").checked = !!enr.local_enabled;
+  document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
+
+  const publicReady = !!enr.public_enabled && (enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set);
+  const localReady = !!enr.local_enabled && !!enr.local_url;
+  enrichmentAvailable = publicReady || localReady;
+  updateEnrichButtons();
 }
 
 async function loadLogIgnore() {
@@ -1369,13 +1442,19 @@ document.getElementById("misc-settings-form").addEventListener("submit", async (
 
 document.getElementById("enrichment-settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const body = {};
+  const body = {
+    public_enabled: document.getElementById("s-enrich-public-enabled").checked,
+    local_enabled: document.getElementById("s-enrich-local-enabled").checked,
+    local_url: document.getElementById("s-enrich-local-url").value.trim(),
+  };
   const vt = document.getElementById("s-vt-key").value.trim();
   const abuse = document.getElementById("s-abuseipdb-key").value.trim();
   const otx = document.getElementById("s-otx-key").value.trim();
+  const localKey = document.getElementById("s-enrich-local-key").value.trim();
   if (vt) body.virustotal_api_key = vt;
   if (abuse) body.abuseipdb_api_key = abuse;
   if (otx) body.otx_api_key = otx;
+  if (localKey) body.local_api_key = localKey;
   await api("/api/settings/enrichment", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

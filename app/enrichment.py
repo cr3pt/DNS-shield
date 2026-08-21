@@ -1,15 +1,27 @@
 """Manual, opt-in threat-intelligence enrichment: VirusTotal, AbuseIPDB,
-and AlienVault OTX domain/IP reputation lookups.
+AlienVault OTX, and an optional self-hosted/local reputation service.
 
 Every call here happens *only* because a user clicked "Enrich" in the
 dashboard - nothing in this module is ever invoked automatically, on a
-timer, or as a side effect of resolving a DNS query. It only talks to a
-given service if you've configured that service's API key yourself in
-Settings -> Threat intelligence; skipping a service you haven't
-configured a key for is not an error, just a "not configured" result.
+timer, or as a side effect of resolving a DNS query.
+
+The three public cloud services are gated by a second, explicit switch on
+top of having an API key configured: `enrichment.public_enabled` in
+Settings -> Threat intelligence, off by default. Saving an API key alone
+does not start sending anything anywhere - a user has to deliberately
+flip that switch too, since these are the one category of outbound call
+in this project that leaves the local network, and this project exists
+specifically because another DNS blocker made exactly that kind of call
+without asking (see the README). While the switch is off, a configured
+key still shows in Settings, but enrich() reports each public source as
+"disabled" rather than calling it.
 
 AbuseIPDB has no domain-lookup endpoint - it's only ever queried for an
 IP target, per its own API (see enrich()).
+
+The local option (`enrichment.local_enabled` + `enrichment.local_url`) has
+no such switch, since it's a service *you* run and pointed this at
+yourself - see query_local() for the request/response contract.
 """
 
 from __future__ import annotations
@@ -29,6 +41,13 @@ _TIMEOUT = 10.0
 # DoH session) - enrichment is low-frequency (manual clicks only) but there's
 # no reason to open a fresh connection every time either.
 _session = requests.Session()
+
+# The fixed hostnames the three public services live at - imported into
+# app.upstream.protected_hostnames(), which only actually exempts them from
+# blocking once enrichment.public_enabled is turned on (see that function):
+# no standing blocklist hole for hosts DNS-shield has no reason to talk to
+# while the switch is off.
+THREAT_INTEL_HOSTNAMES = frozenset({"www.virustotal.com", "api.abuseipdb.com", "otx.alienvault.com"})
 
 
 def _severity_max(a: str, b: str) -> str:
@@ -161,32 +180,86 @@ def query_otx(target: str, target_type: str, api_key: str) -> dict[str, Any]:
         return {"configured": True, "ok": False, "error": str(exc)}
 
 
+def query_local(target: str, target_type: str, url: str, api_key: str) -> dict[str, Any]:
+    """Query a self-hosted reputation service at a user-supplied URL.
+
+    Contract: DNS-shield POSTs {"target": <domain-or-ip>, "type": "domain"|"ip"}
+    as JSON (plus "Authorization: Bearer <api_key>" if a key is set), and
+    expects a JSON response {"verdict": "safe"|"low"|"medium"|"high"|"critical",
+    "score": <0-100, optional>, "summary": "<string, optional>"}. Anything
+    else (unreachable, non-2xx, missing/unrecognized verdict) is reported as
+    a failed lookup rather than guessed at.
+    """
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        resp = _session.post(url, json={"target": target, "type": target_type}, headers=headers, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        verdict = data.get("verdict")
+        if verdict not in _SEVERITY_ORDER:
+            return {"configured": True, "ok": False, "error": "local service returned an unrecognized verdict"}
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": verdict,
+            "score": data.get("score"),
+            "summary": data.get("summary") or f"local verdict: {verdict}",
+            "details": data,
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Local enrichment lookup failed for %s: %s", target, exc)
+        return {"configured": True, "ok": False, "error": str(exc)}
+
+
 def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
     """target_type is "domain" or "ip". AbuseIPDB is only ever queried for
     an IP target - it has no domain-lookup endpoint, so it's reported as
     inapplicable (None) rather than "not configured" for a domain target.
+
+    The three public sources are additionally gated by
+    enrichment.public_enabled (default off) - see the module docstring.
     """
     target = target.strip()
     sources: dict[str, Any] = {}
+    public_enabled = bool(config_store.get("enrichment", "public_enabled", default=False))
+
+    def _public(name: str, key: str, run) -> dict[str, Any]:
+        if not public_enabled:
+            return {"configured": bool(key), "enabled": False}
+        if not key:
+            return {"configured": False}
+        return run()
 
     vt_key = config_store.get("enrichment", "virustotal_api_key", default="") or ""
-    sources["virustotal"] = query_virustotal(target, target_type, vt_key) if vt_key else {"configured": False}
+    sources["virustotal"] = _public("virustotal", vt_key, lambda: query_virustotal(target, target_type, vt_key))
 
     otx_key = config_store.get("enrichment", "otx_api_key", default="") or ""
-    sources["otx"] = query_otx(target, target_type, otx_key) if otx_key else {"configured": False}
+    sources["otx"] = _public("otx", otx_key, lambda: query_otx(target, target_type, otx_key))
 
     if target_type == "ip":
         abuse_key = config_store.get("enrichment", "abuseipdb_api_key", default="") or ""
-        sources["abuseipdb"] = query_abuseipdb(target, abuse_key) if abuse_key else {"configured": False}
+        sources["abuseipdb"] = _public("abuseipdb", abuse_key, lambda: query_abuseipdb(target, abuse_key))
     else:
         sources["abuseipdb"] = None
+
+    local_enabled = bool(config_store.get("enrichment", "local_enabled", default=False))
+    local_url = config_store.get("enrichment", "local_url", default="") or ""
+    if local_enabled and local_url:
+        local_key = config_store.get("enrichment", "local_api_key", default="") or ""
+        sources["local"] = query_local(target, target_type, local_url, local_key)
+    else:
+        sources["local"] = {"configured": False}
 
     overall: str | None = None
     overall_score: int | None = None
     for src in sources.values():
         if src and src.get("ok"):
             overall = src["verdict"] if overall is None else _severity_max(overall, src["verdict"])
-            score = src.get("score", 0)
+            score = src.get("score") or 0
             overall_score = score if overall_score is None else max(overall_score, score)
 
     return {

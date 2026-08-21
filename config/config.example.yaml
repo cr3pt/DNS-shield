@@ -142,14 +142,31 @@ logging:
   ignored_domains: []
   ignored_clients: []   # exact IPs or CIDR ranges, e.g. "192.168.1.50" or "192.168.1.0/24"
 
-# Threat-intel reputation lookups (VirusTotal / AbuseIPDB / AlienVault OTX),
-# used only when you click "Enrich" on a domain/client in the dashboard -
-# never automatic, never on a schedule. Leave a key blank to skip that
-# service (its result just shows as "not configured"). AbuseIPDB has no
-# domain-lookup API, so it's only ever queried for an IP target. Get keys
-# from virustotal.com, abuseipdb.com, and otx.alienvault.com - all free
-# tiers work, DNS-shield only ever calls the one lookup endpoint per service.
+# Threat-intel reputation lookups, used only when you click "Enrich" on a
+# domain/client in the dashboard - never automatic, never on a schedule.
 enrichment:
+  # public_enabled is the master switch for the three cloud services below
+  # (VirusTotal / AbuseIPDB / AlienVault OTX) - off by default. Saving an
+  # API key alone does NOT start sending anything anywhere; this has to be
+  # turned on too before Enrich will ever call out to any of them. This is
+  # the one category of outbound call in this project that leaves your
+  # network, so it stays a deliberate, separate opt-in.
+  public_enabled: false
+  # Leave a key blank to skip that service once public_enabled is on (its
+  # result just shows as "not configured"). AbuseIPDB has no domain-lookup
+  # API, so it's only ever queried for an IP target. Get keys from
+  # virustotal.com, abuseipdb.com, and otx.alienvault.com - all free tiers
+  # work, DNS-shield only ever calls the one lookup endpoint per service.
   virustotal_api_key: ""
   abuseipdb_api_key: ""
   otx_api_key: ""
+  # Optional: point Enrich at your own reputation service instead of (or
+  # alongside) the public ones - not gated by public_enabled, since it's
+  # infrastructure you run and pointed this at yourself. DNS-shield POSTs
+  # {"target": "<domain-or-ip>", "type": "domain"|"ip"} as JSON to local_url
+  # (plus "Authorization: Bearer <local_api_key>" if set) and expects back
+  # {"verdict": "safe"|"low"|"medium"|"high"|"critical", "score": 0-100,
+  # "summary": "..."} - score and summary are optional.
+  local_enabled: false
+  local_url: ""
+  local_api_key: ""
