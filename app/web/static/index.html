@@ -196,6 +196,11 @@
   }
   .info-icon:hover { border-color: var(--danger); color: var(--danger); }
   .addr-cell { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  /* A long domain/IP is otherwise one unbreakable "word" to the browser,
+     forcing its table column (and column) wide enough to fit the whole
+     thing on one line - this lets it wrap instead, which matters most on
+     narrow/mobile screens where that column has little room to spare. */
+  .addr-cell > span { overflow-wrap: anywhere; min-width: 0; }
   .icon-btn {
     background: transparent;
     border: 1px solid var(--panel-border);
@@ -255,9 +260,19 @@
   .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
   .field { display: flex; flex-direction: column; gap: 0.3rem; }
   .field label { font-size: 0.78rem; color: var(--muted); }
-  .field.checkbox { flex-direction: row; align-items: center; gap: 0.5rem; }
+  /* flex-start (not center) + a nudge on the checkbox itself, so a label
+     long enough to wrap to 2+ lines on a narrow screen still lines up with
+     its checkbox at the top instead of floating in the middle of the
+     wrapped text. */
+  .field.checkbox { flex-direction: row; align-items: flex-start; gap: 0.5rem; }
+  .field.checkbox input[type="checkbox"] { flex-shrink: 0; margin-top: 0.2rem; }
   .field.checkbox label { font-size: 0.85rem; color: var(--text); }
   .hint { font-size: 0.75rem; color: var(--warn); margin: 0.4rem 0; }
+  /* A hint paragraph explaining the checkbox right above it sits close
+     underneath - but always a fixed *positive* offset from the checkbox
+     row's own bottom edge, never a negative one, so it can never climb up
+     into a label that's wrapped onto a second or third line. */
+  .field.checkbox + .hint { margin-top: 0.15rem; }
   .settings-group h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin: 1.25rem 0 0.6rem; }
   .settings-group:first-child h3 { margin-top: 0; }
   button {
@@ -272,10 +287,32 @@
   }
   button.secondary { background: transparent; color: var(--text); border: 1px solid var(--panel-border); }
   button.danger { background: var(--danger); color: var(--danger-text); }
-  .row { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
+  .row { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; flex-wrap: wrap; }
   .muted { color: var(--muted); }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
   @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+  @media (max-width: 640px) {
+    header { padding: 1rem; }
+    main { padding: 1rem; gap: 1.25rem; }
+    section { padding: 0.85rem 1rem; }
+    .row { flex-direction: column; align-items: stretch; }
+    .pause-controls { justify-content: flex-start; }
+    .tabs { width: 100%; }
+    .tab-btn { flex: 1 1 0; padding: 0.5rem 0.4rem; }
+    /* A wide table (query log, stats breakdowns, allow/deny/blocked-client
+       lists) no longer forces the *entire page* to scroll horizontally -
+       only the table itself does, staying put within its section. Table
+       children keep their own table-context display values (table-row-group
+       etc.) from the UA stylesheet regardless of the table element's own
+       display, so this still renders as a normal table, just in a
+       block box that can scroll on its own. */
+    table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    /* Query type is almost always "A" in practice and the least useful
+       column here - drop it first to fit more of the row (domain, client,
+       result, actions) in view before a horizontal swipe is needed. */
+    .col-qtype { display: none; }
+  }
   .group-card {
     background: var(--input-bg);
     border: 1px solid var(--panel-border);
@@ -504,7 +541,7 @@
           <input type="checkbox" id="s-enrich-public-enabled">
           <label for="s-enrich-public-enabled">Enable public lookups (VirusTotal / AbuseIPDB / AlienVault OTX)</label>
         </div>
-        <p class="hint" style="color:var(--muted); margin-top:-0.3rem;">
+        <p class="hint" style="color:var(--muted);">
           Off by default. This is the one thing in DNS-shield that calls out beyond your own
           network - saving an API key below does <strong>not</strong> turn it on by itself, and
           Enrich will report each of these three as disabled until this box is checked too.
@@ -532,7 +569,7 @@
           <input type="checkbox" id="s-enrich-local-enabled">
           <label for="s-enrich-local-enabled">Enable your own (local) reputation service</label>
         </div>
-        <p class="hint" style="color:var(--muted); margin-top:-0.3rem;">
+        <p class="hint" style="color:var(--muted);">
           Point this at infrastructure you run instead of (or alongside) the public services
           above - not subject to the switch above, since it's not a third-party call. DNS-shield
           POSTs <code>{"target": "&lt;domain-or-ip&gt;", "type": "domain"|"ip"}</code> as JSON to
@@ -687,7 +724,7 @@
     </form>
     <p class="muted" id="query-log-summary"></p>
     <table>
-      <thead><tr><th>Time</th><th>Domain</th><th>Type</th><th>Client</th><th>Result</th><th></th></tr></thead>
+      <thead><tr><th>Time</th><th>Domain</th><th class="col-qtype">Type</th><th>Client</th><th>Result</th><th></th></tr></thead>
       <tbody id="query-log-rows"></tbody>
     </table>
     <div style="margin-top:0.5rem;">
@@ -1468,7 +1505,7 @@ function renderQueryLogRow(q) {
   return el("tr", { "data-domain": q.domain }, [
     el("td", { text: fmtTime(q.ts) }),
     addressCell(q.domain, [enrichButton(q.domain, "domain")]),
-    el("td", { text: q.qtype }),
+    el("td", { text: q.qtype, class: "col-qtype" }),
     addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip"), clientBlockButton(q.client)] : [], q.client),
     el("td", {}, resultCell),
     el("td", {}, [blockBtn, hideBtn]),

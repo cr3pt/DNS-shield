@@ -565,6 +565,17 @@ Slate & Cyan / Mist & Cyan, Forest & Emerald / Meadow & Emerald, and
 Plum & Violet / Lilac & Violet. Navy & Azure (dark) is the default.
 Applies instantly, stored in `web.theme`.
 
+### Mobile
+
+The dashboard is usable from a phone - checking or pausing blocking, or
+adding a quick allow/deny rule, doesn't require a laptop. Below ~640px
+wide: form fields and settings groups collapse to a single column, wide
+data tables (query log, Stats breakdowns, allow/deny/blocked-client
+lists) scroll horizontally within their own box instead of forcing the
+whole page to, and long domains wrap instead of stretching their column.
+There's no separate mobile app or API - it's the same page, same
+`GET /`, just responsive CSS.
+
 ### Editing the config file directly
 
 DNS-shield's live configuration lives in `./data/config.db`, not a YAML
