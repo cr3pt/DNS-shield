@@ -1204,6 +1204,20 @@ function openEnrichmentWindow(result) {
         </div>`
       : "";
 
+  // Only for a domain target that came back "safe" - DNS-shield's
+  // allowlist/denylist match query names, not IP literals, so there's no
+  // equivalent "allowlist this IP" action to offer for an IP target (its
+  // Block/Unblock-host control above already covers "let this client back
+  // through" for the one IP-shaped case that does have a real mechanism -
+  // a client, not an arbitrary resolved address).
+  const safeAllowHtml =
+    result.type === "domain" && result.overall_verdict === "safe"
+      ? `<div class="safe-allow">
+          <button type="button" id="safe-allow-btn" data-target="${escapeHtml(result.target)}">Add to allowlist</button>
+          <p class="muted" style="margin-top:0.5rem;">Clears any denylist entry for ${escapeHtml(result.target)} and adds it to the global allowlist, same as Unblock in the query log - allowlist beats a blocklist-source match, but a fresh denylist entry would still win, hence clearing that too.</p>
+        </div>`
+      : "";
+
   w.document.write(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Enrichment: ${escapeHtml(result.target)}</title>
 <style>
@@ -1226,12 +1240,18 @@ function openEnrichmentWindow(result) {
   .client-block button:hover { border-color:currentColor; }
   .client-block button:disabled { opacity:0.5; cursor:wait; }
   .client-block button[data-blocked="1"] { background:rgba(255,255,255,0.12); }
+  .safe-allow { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .safe-allow button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.45rem 1rem; font-size:0.85rem; font-weight:600; cursor:pointer; }
+  .safe-allow button:hover { border-color:currentColor; }
+  .safe-allow button:disabled { opacity:0.5; cursor:wait; }
+  .safe-allow button[data-done="1"] { background:rgba(255,255,255,0.12); cursor:default; }
 </style></head>
 <body>
   <h1>${escapeHtml(result.target)}</h1>
   <div class="verdict">${escapeHtml(result.overall_verdict)}${result.overall_score != null ? " &middot; score " + result.overall_score : ""}</div>
   ${sourceHtml || '<p class="muted">No threat-intel sources configured yet.</p>'}
   ${historyHtml}
+  ${safeAllowHtml}
   ${clientBlockHtml}
   <p class="footer">Looked up just now, stored locally in enrichment.db.</p>
   <script>
@@ -1265,6 +1285,36 @@ function openEnrichmentWindow(result) {
           })
           .catch(function (err) {
             alert("Failed to update block state: " + (err && err.message ? err.message : err));
+            btn.disabled = false;
+          });
+      };
+    })();
+    (function () {
+      var btn = document.getElementById("safe-allow-btn");
+      if (!btn || !window.opener || !window.opener.api) return;
+      btn.onclick = function () {
+        var target = btn.getAttribute("data-target");
+        btn.disabled = true;
+        // Same two-step cleanup as the query log's Unblock button: a
+        // denylist entry always wins over the allowlist, so a stale
+        // manual deny would otherwise silently keep this blocked even
+        // after adding it to the allowlist.
+        window.opener
+          .api("/api/rules/deny/" + encodeURIComponent(target), { method: "DELETE" })
+          .then(function () {
+            return window.opener.api("/api/rules/allow", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ domain: target }),
+            });
+          })
+          .then(function () {
+            btn.setAttribute("data-done", "1");
+            btn.textContent = "Added to allowlist";
+            if (window.opener.refreshAll) window.opener.refreshAll();
+          })
+          .catch(function (err) {
+            alert("Failed to add to allowlist: " + (err && err.message ? err.message : err));
             btn.disabled = false;
           });
       };

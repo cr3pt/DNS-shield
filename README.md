@@ -668,13 +668,27 @@ shown (`GET /api/enrich/history?target=...`), pulled straight from
 `enrichment.db`; a first-time lookup just shows the one row for the
 current result.
 
-For an IP target - always a client that has queried DNS-shield, since
-that's the only kind of IP the dashboard ever offers Enrich for - the
-popup also has a **Block this host**/**Unblock this host** button, the
-same feature as the query log/Stats "Block host" button, just reachable
-without leaving the popup; see
+For an IP target that's a client that has queried DNS-shield (the query
+log/Stats client column, and the client-groups editor, always mean this;
+the query log's resolved-IP-under-domain display, see
+[Query log browser](#query-log-browser-quick-block-and-quick-hide) above,
+is the one case where an IP target is instead whatever address a domain
+happened to resolve to - not a client, so no block control makes sense
+for it) - the popup has a **Block this host**/**Unblock this host**
+button, the same feature as the query log/Stats "Block host" button, just
+reachable without leaving the popup; see
 [Blocking a client entirely](#blocking-a-client-entirely) above for what
 it actually does.
+
+For a **domain** target that came back an overall **safe** verdict, the
+popup also has an **Add to allowlist** button - a shortcut for the exact
+same cleanup the query log's Unblock button does (see
+[Query log browser](#query-log-browser-quick-block-and-quick-hide) above):
+clears any manual denylist entry for it first, then adds it to the global
+allowlist, since a denylist entry always wins over the allowlist and would
+otherwise silently keep it blocked. Not offered for IP targets - DNS-
+shield's allow/denylist match query *names*, not IP literals, so there's
+no equivalent "allowlist this IP" action to offer.
 
 ### Pause blocking
 
