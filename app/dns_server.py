@@ -2,10 +2,11 @@
 
 FilteringResolver decides, for every incoming query, whether the queried
 name is blocked. If it is, we answer locally (NXDOMAIN or a null IP) -
-no network traffic leaves the box for a blocked query. If it is not, the
-raw request is forwarded verbatim to one of the configured upstream
-resolvers and the raw reply is relayed back, so we stay correct for all
-record types without having to reimplement DNS semantics.
+no network traffic leaves the box for a blocked query. Otherwise, a
+configured custom DNS record ("rewrite") answers locally too, if one
+matches. Anything left is forwarded verbatim to one of the configured
+upstream resolvers and the raw reply relayed back, so we stay correct for
+all record types without having to reimplement DNS semantics.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from dnslib import AAAA, QTYPE, RCODE, RR, A, DNSRecord
 from dnslib.server import DNSServer
 
 from app import upstream as upstream_transport
+from app.dns_rewrites import find_rewrite
 from app.netmatch import ip_matches
 
 logger = logging.getLogger("dnsshield.dns")
@@ -58,6 +60,10 @@ class FilteringResolver:
         if blocked:
             return self._blocked_reply(request)
 
+        rewrite_ip = find_rewrite(qname, qtype_name, self._config) if qname else None
+        if rewrite_ip is not None:
+            return self._rewrite_reply(request, qtype, rewrite_ip)
+
         if self._cache is not None:
             cached = self._cache.get(request)
             if cached is not None:
@@ -81,6 +87,15 @@ class FilteringResolver:
             reply.add_answer(RR(request.q.qname, QTYPE.AAAA, rdata=AAAA(ip), ttl=60))
         else:
             reply.header.rcode = RCODE.NXDOMAIN
+        return reply
+
+    @staticmethod
+    def _rewrite_reply(request: DNSRecord, qtype: int, ip: str) -> DNSRecord:
+        reply = request.reply()
+        if qtype == QTYPE.A:
+            reply.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(ip), ttl=300))
+        else:
+            reply.add_answer(RR(request.q.qname, QTYPE.AAAA, rdata=AAAA(ip), ttl=300))
         return reply
 
     def _select_upstreams(self, qname: str, client_ip: str) -> list[str]:

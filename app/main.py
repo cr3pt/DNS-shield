@@ -22,6 +22,7 @@ from pathlib import Path
 
 import uvicorn
 
+from app.block_page import start_block_page_server
 from app.blocklist import BlocklistManager
 from app.client_names import ClientNameResolver
 from app.config import ConfigStore
@@ -64,6 +65,14 @@ def main() -> None:
     start_dns_servers(
         config_store, blocklist, stats, cache=cache, client_names=client_names, upstream_stats=upstream_stats
     )
+
+    if config_store.get("dns", "block_page_enabled", default=False):
+        bp_address = config_store.get("dns", "listen_address", default="0.0.0.0")
+        bp_port = int(config_store.get("dns", "block_page_port", default=80))
+        try:
+            start_block_page_server(bp_address, bp_port)
+        except OSError as exc:
+            logger.warning("could not start block page server on %s:%d: %s", bp_address, bp_port, exc)
 
     app = create_app(
         config_store,

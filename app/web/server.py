@@ -70,6 +70,8 @@ class DnsSettingsIn(BaseModel):
     resolve_client_names: bool | None = None
     client_name_resolver: str | None = None
     client_name_cache_seconds: int | None = None
+    block_page_enabled: bool | None = None
+    block_page_port: int | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -80,6 +82,12 @@ class DomainUpstreamIn(BaseModel):
     name: str
     domains: list[str] = []
     upstreams: list[str] = []
+
+
+class RewriteIn(BaseModel):
+    name: str
+    type: str  # "A" or "AAAA"
+    value: str
 
 
 class WebSettingsIn(BaseModel):
@@ -185,6 +193,12 @@ def create_app(
         snapshot = stats.snapshot(top_n=top_n, log_n=log_n)
         snapshot["client_names"] = client_names.snapshot() if client_names is not None else {}
         return snapshot
+
+    @app.get("/api/stats/timeseries")
+    def get_stats_timeseries(range: str = "24h", _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        if range not in ("24h", "7d", "30d"):
+            range = "24h"
+        return stats.timeseries(range)
 
     @app.get("/api/query-log")
     def get_query_log(
@@ -534,6 +548,41 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
+    # -- custom DNS records ("rewrites"): answer a hostname with an IP you --
+    # choose, entirely locally - see app/dns_rewrites.py for the matching
+    # rule and where this sits in the resolution order.
+    @app.get("/api/rewrites")
+    def list_rewrites(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        return config_store.get("dns_rewrites", default=[]) or []
+
+    @app.post("/api/rewrites")
+    def add_rewrite(rewrite: RewriteIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        name = rewrite.name.strip().lower().rstrip(".")
+        rtype = rewrite.type.strip().upper()
+        value = rewrite.value.strip()
+        if not name or not value:
+            raise HTTPException(status_code=400, detail="Name and value are required")
+        if rtype not in ("A", "AAAA"):
+            raise HTTPException(status_code=400, detail='Type must be "A" or "AAAA"')
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            rewrites = data.setdefault("dns_rewrites", [])
+            rewrites.append({"name": name, "type": rtype, "value": value})
+            return rewrites
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/rewrites/{index}")
+    def delete_rewrite(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            rewrites = data.setdefault("dns_rewrites", [])
+            if not 0 <= index < len(rewrites):
+                raise HTTPException(status_code=404, detail="No such rewrite")
+            rewrites.pop(index)
+            return rewrites
+
+        return config_store.mutate(_mutate)
+
     # -- import an existing AdGuard Home config, from the browser -------
     # Deliberately a plain (non-async) def: blocklist.refresh() below makes
     # blocking HTTP calls for every configured source, and a real AdGuard
@@ -592,7 +641,14 @@ def create_app(
                 "local_url": snap.get("enrichment", {}).get("local_url", "") or "",
                 "local_api_key_set": bool(snap.get("enrichment", {}).get("local_api_key")),
             },
-            "restart_required": ["dns.listen_address", "dns.listen_port", "web.listen_address", "web.listen_port"],
+            "restart_required": [
+                "dns.listen_address",
+                "dns.listen_port",
+                "web.listen_address",
+                "web.listen_port",
+                "dns.block_page_enabled",
+                "dns.block_page_port",
+            ],
             "restart_note": RESTART_NOTE,
         }
 

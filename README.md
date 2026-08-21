@@ -151,6 +151,8 @@ dns:
   block_mode: "nxdomain"                     # or "null_ip"
   blocked_ipv4: "0.0.0.0"        # used when block_mode is "null_ip"
   blocked_ipv6: "::"              # ditto, for AAAA
+  block_page_enabled: false      # serve a local "blocked" page - see below
+  block_page_port: 80
   block_ipv6: false             # true: answer AAAA queries empty instead of forwarding
   block_non_latin: false        # true: block Cyrillic/Arabic/CJK/etc. domains - see below
   cache_enabled: true            # in-memory cache of upstream answers, per their own TTL
@@ -172,6 +174,8 @@ blocklists:
 allowlist: []   # always resolved normally, even if a blocklist matches
 denylist: []    # always blocked, even if not on a blocklist
 blocked_clients: []   # IPs/CIDRs with EVERY query blocked - see below
+
+dns_rewrites: []   # custom local A/AAAA records - see below
 
 domain_upstreams: []   # route specific domains to specific resolvers - see below
 
@@ -301,6 +305,27 @@ could apply: a matching `domain_upstreams` rule wins first (domain routing
 is usually a hard technical requirement), then a matched client group's
 own `upstreams`, then the global `dns.upstreams`.
 
+### Custom DNS records ("rewrites")
+
+`dns_rewrites` answers a hostname with an IP you choose, entirely locally -
+no upstream query, no blocklist involvement. Handy for internal hostnames
+your public DNS has no idea about:
+
+```yaml
+dns_rewrites:
+  - name: "nas.home"
+    type: "A"
+    value: "192.168.1.10"
+```
+
+A rewrite matches the name and its subdomains (so `printer.nas.home` also
+resolves, from the entry above), A/AAAA only - no CNAME chasing, to keep
+this a flat lookup that always terminates. It's checked *after* blocking,
+not before: a fully blocked client or an already-blocked domain still
+behaves as blocked regardless of any rewrite - a rewrite is an answer, not
+an exemption. Manage rewrites from the dashboard (Settings -> Custom DNS
+records) or by editing the list directly.
+
 ### Client hostnames (reverse DNS)
 
 Set `dns.client_name_resolver` to your **router's** IP (not one of your
@@ -403,6 +428,30 @@ hit rate; Settings -> DNS answer cache has a "Clear cache" button to
 empty it on demand (e.g. right after changing upstreams, to stop
 serving anything answered by the old one).
 
+### Local "blocked" page
+
+With `dns.block_mode: "null_ip"`, a blocked domain normally just times out
+or refuses the connection at `blocked_ipv4` - technically correct, but not
+very informative for whoever hit it. Turn on `dns.block_page_enabled` and
+DNS-shield itself serves a small "this domain is blocked" page instead:
+point `blocked_ipv4` at this host's own reachable LAN IP, and a
+plain-HTTP request for a blocked domain lands on `dns.block_page_port`
+(80 by default) and gets a page naming the domain, read straight from the
+request's own `Host` header - no lookup, no state.
+
+This only ever works for plain HTTP. **HTTPS can't be shown a page this
+way** - the browser fails the certificate check before it ever sends the
+request, which is a fundamental limit of DNS-level blocking, not
+something to work around here; doing so would mean terminating TLS with a
+certificate the client doesn't trust, i.e. a MITM, which this project
+deliberately doesn't do. Off by default; changing either field requires a
+container restart, same as the DNS listen address/port.
+
+Running in Docker: the container only publishes 53/udp, 53/tcp, and
+3000/tcp by default - uncomment the port mapping in `docker-compose.yml`
+(matching whatever `block_page_port` you set) to actually reach this from
+other devices on your network.
+
 ### Query log browser, quick-block, and quick-hide
 
 The dashboard's **Query log** section searches the full retained history
@@ -444,6 +493,15 @@ by hand. A client's address also gets a **Block host** button - see
 [Blocking a client entirely](#blocking-a-client-entirely) above.
 
 ### Stats tab
+
+A **Query trend** chart leads the tab: total vs. blocked queries over
+time, with a range filter (last 24 hours, 7 days, or 30 days) that
+re-buckets the same `stats.db` history server-side (hourly/6-hourly/daily
+points respectively) rather than just re-slicing whatever the last query
+already fetched. Hover (or touch-drag on mobile) any point for the exact
+count at that moment. No new data is collected for this - it's the same
+query log every other table on this tab already reads, just aggregated
+differently.
 
 Cards for total/blocked queries, block rate, blocklist domain count,
 cache entries, and cache hit rate, plus five tables computed from the
@@ -625,10 +683,13 @@ app/
   netmatch.py         shared IP/CIDR matching for client groups and log-ignore rules
   blocklist.py        fetches + parses hosts/AdBlock-syntax lists (block and allow),
                        refreshes on a timer, caches lists to disk for offline restarts
-  dns_server.py        dnslib-based UDP/TCP DNS server; blocks locally, serves cached
-                        answers, or forwards the raw request packet to your upstreams
+  dns_server.py        dnslib-based UDP/TCP DNS server; blocks locally, answers a custom
+                        record, serves a cached answer, or forwards to your upstreams
+  dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)
+  block_page.py         optional local HTTP server for the "blocked" page (see above) -
+                        only ever answers requests that already arrived at it
   upstream.py          upstream transports: plain UDP/TCP, DNS-over-TLS, DNS-over-HTTPS
   upstream_stats.py    rolling latency/success tracking + background health probing,
                        backing the fastest/most_stable upstream selection strategies
@@ -645,10 +706,11 @@ app/
 ```
 
 Request flow: client -> DNS-shield (UDP/TCP :53) -> blocklist match? ->
-NXDOMAIN/null-IP locally; otherwise cache hit? -> answer from the local
-cache; otherwise forward the raw packet to an upstream resolver, relay the
-raw reply back, and cache it for its remaining TTL. Every query is recorded
-to the local stats log regardless of how it was answered.
+NXDOMAIN/null-IP locally; otherwise a custom DNS record match? -> answer
+locally; otherwise cache hit? -> answer from the local cache; otherwise
+forward the raw packet to an upstream resolver, relay the raw reply back,
+and cache it for its remaining TTL. Every query is recorded to the local
+stats log regardless of how it was answered.
 
 ### Concurrency
 

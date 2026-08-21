@@ -8,6 +8,10 @@ services:
       - "53:53/udp"
       - "53:53/tcp"
       - "3000:3000/tcp"
+      # Only needed if you turn on dns.block_page_enabled (off by default) -
+      # publishes the local "blocked" page on port 80. Uncomment and match
+      # dns.block_page_port if you enable it.
+      # - "80:80/tcp"
     volumes:
       - ./data:/data
     # DNS-shield only ever talks to the upstream resolvers and blocklist

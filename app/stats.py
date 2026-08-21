@@ -25,6 +25,15 @@ from typing import Any
 from app.netmatch import ip_matches
 from app.upstream import protected_hostnames
 
+# range key -> (how far back to look, bucket width) in seconds. Bucket sizes
+# are picked to keep the point count reasonable to plot (24-30 points) while
+# still showing real granularity at each range.
+_TIMESERIES_RANGES: dict[str, tuple[int, int]] = {
+    "24h": (86400, 3600),
+    "7d": (7 * 86400, 6 * 3600),
+    "30d": (30 * 86400, 86400),
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS queries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -294,3 +303,35 @@ class Stats:
             ],
             total,
         )
+
+    # -- time-series trend (Stats tab chart) -------------------------------
+    def timeseries(self, range_key: str = "24h") -> list[dict[str, Any]]:
+        """Total/blocked query counts bucketed over the given range, for the
+        Stats tab's trend chart. Always returns one entry per bucket over
+        the full range, zero-filled where there's no data, so the chart has
+        a continuous, evenly-spaced x-axis regardless of gaps in traffic.
+        """
+        window_seconds, bucket_seconds = _TIMESERIES_RANGES.get(range_key, _TIMESERIES_RANGES["24h"])
+        since = time.time() - window_seconds
+
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT CAST((ts - ?) / ? AS INTEGER) AS bucket, COUNT(*) AS total, SUM(blocked) AS blocked "
+                "FROM queries WHERE ts >= ? GROUP BY bucket",
+                (since, bucket_seconds, since),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        by_bucket = {row["bucket"]: (row["total"], row["blocked"] or 0) for row in rows}
+        num_buckets = window_seconds // bucket_seconds
+        return [
+            {
+                "bucket_start": since + i * bucket_seconds,
+                "total": by_bucket.get(i, (0, 0))[0],
+                "blocked": by_bucket.get(i, (0, 0))[1],
+            }
+            for i in range(num_buckets)
+        ]

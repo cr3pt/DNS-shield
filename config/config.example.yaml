@@ -43,6 +43,15 @@ dns:
   block_mode: "nxdomain"
   blocked_ipv4: "0.0.0.0"
   blocked_ipv6: "::"
+  # Optional: with block_mode "null_ip", a plain-HTTP request to a blocked
+  # domain normally just times out/refuses at blocked_ipv4. Turn this on and
+  # DNS-shield itself serves a small "this domain is blocked" page instead -
+  # point blocked_ipv4 at this host's own reachable LAN IP for it to work.
+  # HTTPS can't be shown a page this way (the browser fails the certificate
+  # check first) - see README. Off by default; changing either field here
+  # requires a container restart.
+  block_page_enabled: false
+  block_page_port: 80
   # If you don't use IPv6 on your network, turn this on: AAAA queries get
   # an empty NOERROR reply straight away (skipping the blocklist and the
   # upstream entirely) instead of a real IPv6 address, so dual-stack
@@ -93,6 +102,18 @@ denylist: []
 # domain-level rule. Populated via the dashboard's "Block host" button
 # (query log, Stats, and the Enrich popup) or added here by hand.
 blocked_clients: []
+
+# Custom local DNS records ("rewrites"): answer a hostname with an IP you
+# choose, entirely locally - no upstream query, no blocklist involvement.
+# A/AAAA only, matched exactly or as a subdomain (e.g. "nas.home" also
+# covers "printer.nas.home"). Checked after blocking, so a blocked client
+# or an already-blocked domain still behaves as blocked regardless.
+#
+# dns_rewrites:
+#   - name: "nas.home"
+#     type: "A"
+#     value: "192.168.1.10"
+dns_rewrites: []
 
 # Route specific domains to specific upstream resolvers, regardless of
 # which client asked (e.g. internal/corporate domains that only your own

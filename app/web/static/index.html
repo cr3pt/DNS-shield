@@ -313,6 +313,17 @@
        result, actions) in view before a horizontal swipe is needed. */
     .col-qtype { display: none; }
   }
+  .trend-legend { display: flex; gap: 1.1rem; margin-bottom: 0.6rem; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
+  .trend-legend .swatch { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .trend-legend .dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; display: inline-block; }
+  #trend-chart-wrap { position: relative; }
+  #trend-chart-wrap svg { display: block; width: 100%; height: auto; }
+  .trend-axis-label { fill: var(--muted); font-size: 9px; }
+  .trend-hover-line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
+  .trend-hover-dot { stroke: var(--panel); stroke-width: 1.5; }
+  .trend-tooltip-bg { fill: var(--input-bg); stroke: var(--panel-border); stroke-width: 1; }
+  .trend-tooltip-text { fill: var(--text); font-size: 10px; }
+  .trend-tooltip-muted { fill: var(--muted); font-size: 9px; }
   .group-card {
     background: var(--input-bg);
     border: 1px solid var(--panel-border);
@@ -367,6 +378,19 @@
 
   <div id="tab-stats" class="tab-panel">
   <div class="cards" id="cards"></div>
+
+  <section>
+    <div class="row" style="margin-bottom:0.5rem;">
+      <h2 style="margin:0;">Query trend</h2>
+      <select id="stats-range">
+        <option value="24h">Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+      </select>
+    </div>
+    <div id="trend-legend" class="trend-legend"></div>
+    <div id="trend-chart-wrap"></div>
+  </section>
 
   <section>
     <h2>Top blocked domains</h2>
@@ -434,6 +458,11 @@
           </div>
           <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
           <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-block-page-enabled">
+            <label for="s-dns-block-page-enabled">Serve a local "blocked" page for null_ip (HTTP only, requires restart)</label>
+          </div>
+          <div class="field"><label>Block page port</label><input type="number" id="s-dns-block-page-port"></div>
           <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
           <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
           <div class="field">
@@ -454,7 +483,7 @@
           <div class="field"><label>Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
           <div class="field"><label>Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
         </div>
-        <p class="hint">Listen address/port changes require restarting the container (docker compose restart). Everything else here applies immediately.</p>
+        <p class="hint">Listen address/port and block page settings require restarting the container (docker compose restart). Everything else here applies immediately.</p>
         <button type="submit">Save DNS settings</button>
       </form>
     </div>
@@ -484,6 +513,24 @@
       <table>
         <thead><tr><th>Name</th><th>Domains</th><th>Upstreams</th><th></th></tr></thead>
         <tbody id="domain-upstream-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="settings-group">
+      <h3>Custom DNS records</h3>
+      <p class="muted">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. Matches the name and its subdomains. A/AAAA only.</p>
+      <form class="inline" id="add-rewrite-form">
+        <input type="text" id="rw-name" placeholder="nas.home" required>
+        <select id="rw-type">
+          <option value="A">A (IPv4)</option>
+          <option value="AAAA">AAAA (IPv6)</option>
+        </select>
+        <input type="text" id="rw-value" placeholder="192.168.1.10" required>
+        <button type="submit">Add</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead>
+        <tbody id="rewrite-rows"></tbody>
       </table>
     </div>
 
@@ -1197,6 +1244,192 @@ async function loadStatusAndStats() {
   }
 }
 
+// -- Query trend chart (Stats tab) --------------------------------------
+// Plain inline SVG, no charting library - matches the rest of this
+// single-file dashboard. Total/blocked share one axis (never dual-axis);
+// colors reuse the same --accent/--danger tokens the "allowed"/"blocked"
+// tags elsewhere already use, so a series never means something different
+// depending which part of the dashboard you're looking at.
+let trendRange = localStorage.getItem("dnsshield-trend-range") || "24h";
+
+function fmtTrendLabel(ts, rangeKey) {
+  const d = new Date(ts * 1000);
+  return rangeKey === "24h"
+    ? d.toLocaleTimeString([], { hour: "numeric" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function fmtTrendTooltipLabel(ts, rangeKey) {
+  const d = new Date(ts * 1000);
+  return rangeKey === "24h"
+    ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString([], { hour: "numeric" });
+}
+
+function renderTrendLegend() {
+  const legend = document.getElementById("trend-legend");
+  legend.innerHTML = "";
+  const item = (color, label) => el("span", { class: "swatch" }, [
+    el("span", { class: "dot", style: `background:${color}` }),
+    document.createTextNode(label),
+  ]);
+  legend.appendChild(item("var(--accent)", "Total queries"));
+  legend.appendChild(item("var(--danger)", "Blocked queries"));
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+}
+
+function renderTrendChart(data) {
+  const wrap = document.getElementById("trend-chart-wrap");
+  wrap.innerHTML = "";
+  if (!data.length) return;
+
+  const W = 640, H = 200;
+  const padL = 38, padR = 10, padT = 10, padB = 20;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const n = data.length;
+  const maxTotal = Math.max(1, ...data.map((d) => d.total));
+
+  const xAt = (i) => padL + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const yAt = (v) => padT + plotH - (v / maxTotal) * plotH;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none" });
+
+  // Recessive gridlines/labels at 0, half, and max - never more than that,
+  // this is a trend overview, not a chart meant to be read to the exact count.
+  for (const frac of [0, 0.5, 1]) {
+    const y = padT + plotH * (1 - frac);
+    const line = svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y });
+    line.style.stroke = "var(--panel-border)";
+    line.style.strokeWidth = "1";
+    svg.appendChild(line);
+    const label = svgEl("text", { x: padL - 6, y: y + 3, "text-anchor": "end", class: "trend-axis-label" });
+    label.textContent = Math.round(maxTotal * frac).toLocaleString();
+    svg.appendChild(label);
+  }
+
+  // A handful of evenly spaced x-axis labels, not one per bucket - 24-30
+  // labels would collide and add nothing a hover-tooltip doesn't already say.
+  const labelCount = Math.min(5, n);
+  for (let k = 0; k < labelCount; k++) {
+    const i = labelCount > 1 ? Math.round((k / (labelCount - 1)) * (n - 1)) : 0;
+    const anchor = k === 0 ? "start" : k === labelCount - 1 ? "end" : "middle";
+    const label = svgEl("text", { x: xAt(i), y: H - 4, "text-anchor": anchor, class: "trend-axis-label" });
+    label.textContent = fmtTrendLabel(data[i].bucket_start, trendRange);
+    svg.appendChild(label);
+  }
+
+  function buildSeries(key, colorVar) {
+    let linePath = "";
+    data.forEach((d, i) => { linePath += (i === 0 ? "M" : "L") + xAt(i).toFixed(1) + "," + yAt(d[key]).toFixed(1) + " "; });
+    const baseline = padT + plotH;
+    const areaPath = `M${xAt(0).toFixed(1)},${baseline} ` + linePath + `L${xAt(n - 1).toFixed(1)},${baseline} Z`;
+
+    const area = svgEl("path", { d: areaPath });
+    area.style.fill = colorVar;
+    area.style.fillOpacity = "0.12";
+    area.style.stroke = "none";
+    svg.appendChild(area);
+
+    const line = svgEl("path", { d: linePath.trim() });
+    line.style.fill = "none";
+    line.style.stroke = colorVar;
+    line.style.strokeWidth = "2";
+    line.style.strokeLinecap = "round";
+    line.style.strokeLinejoin = "round";
+    svg.appendChild(line);
+
+    const dot = svgEl("circle", { r: 3, class: "trend-hover-dot" });
+    dot.style.fill = colorVar;
+    dot.style.opacity = "0";
+    svg.appendChild(dot);
+    return dot;
+  }
+
+  const totalDot = buildSeries("total", "var(--accent)");
+  const blockedDot = buildSeries("blocked", "var(--danger)");
+
+  const hoverLine = svgEl("line", { y1: padT, y2: padT + plotH, class: "trend-hover-line" });
+  hoverLine.style.opacity = "0";
+  svg.appendChild(hoverLine);
+
+  const tooltipW = 108, tooltipH = 42;
+  const tooltipGroup = svgEl("g");
+  tooltipGroup.style.opacity = "0";
+  const tooltipBg = svgEl("rect", { width: tooltipW, height: tooltipH, rx: 4, class: "trend-tooltip-bg" });
+  const tLabel = svgEl("text", { class: "trend-tooltip-muted" });
+  const tTotal = svgEl("text", { class: "trend-tooltip-text" });
+  const tBlocked = svgEl("text", { class: "trend-tooltip-text" });
+  tooltipGroup.append(tooltipBg, tLabel, tTotal, tBlocked);
+  svg.appendChild(tooltipGroup);
+
+  function showHover(i) {
+    const d = data[i];
+    const x = xAt(i);
+    hoverLine.setAttribute("x1", x);
+    hoverLine.setAttribute("x2", x);
+    hoverLine.style.opacity = "1";
+    totalDot.setAttribute("cx", x);
+    totalDot.setAttribute("cy", yAt(d.total));
+    totalDot.style.opacity = "1";
+    blockedDot.setAttribute("cx", x);
+    blockedDot.setAttribute("cy", yAt(d.blocked));
+    blockedDot.style.opacity = "1";
+
+    tLabel.textContent = fmtTrendTooltipLabel(d.bucket_start, trendRange);
+    tTotal.textContent = "Total: " + d.total.toLocaleString();
+    tBlocked.textContent = "Blocked: " + d.blocked.toLocaleString();
+
+    let tx = x + 8;
+    if (tx + tooltipW > W - padR) tx = x - tooltipW - 8;
+    const ty = padT + 4;
+    tooltipBg.setAttribute("x", tx);
+    tooltipBg.setAttribute("y", ty);
+    tLabel.setAttribute("x", tx + 7);
+    tLabel.setAttribute("y", ty + 13);
+    tTotal.setAttribute("x", tx + 7);
+    tTotal.setAttribute("y", ty + 26);
+    tBlocked.setAttribute("x", tx + 7);
+    tBlocked.setAttribute("y", ty + 38);
+    tooltipGroup.style.opacity = "1";
+  }
+
+  function hideHover() {
+    hoverLine.style.opacity = "0";
+    totalDot.style.opacity = "0";
+    blockedDot.style.opacity = "0";
+    tooltipGroup.style.opacity = "0";
+  }
+
+  function indexAtClientX(clientX) {
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((clientX - rect.left) / rect.width) * W;
+    return Math.max(0, Math.min(n - 1, Math.round(((svgX - padL) / plotW) * (n - 1))));
+  }
+
+  const capture = svgEl("rect", { x: padL, y: padT, width: plotW, height: plotH, fill: "transparent" });
+  capture.style.cursor = "crosshair";
+  capture.addEventListener("mousemove", (e) => showHover(indexAtClientX(e.clientX)));
+  capture.addEventListener("mouseleave", hideHover);
+  capture.addEventListener("touchstart", (e) => showHover(indexAtClientX(e.touches[0].clientX)), { passive: true });
+  capture.addEventListener("touchmove", (e) => showHover(indexAtClientX(e.touches[0].clientX)), { passive: true });
+  svg.appendChild(capture);
+
+  wrap.appendChild(svg);
+}
+
+async function loadTrend() {
+  renderTrendLegend();
+  const data = await api(`/api/stats/timeseries?range=${trendRange}`);
+  renderTrendChart(data);
+}
+
 async function loadSourceTable(apiPath, rowsElId, countsKey) {
   const sources = await api(apiPath);
   const status = await api("/api/status");
@@ -1347,6 +1580,8 @@ async function loadSettings() {
   document.getElementById("s-dns-block-mode").value = s.dns.block_mode ?? "nxdomain";
   document.getElementById("s-dns-blocked-ipv4").value = s.dns.blocked_ipv4 ?? "";
   document.getElementById("s-dns-blocked-ipv6").value = s.dns.blocked_ipv6 ?? "";
+  document.getElementById("s-dns-block-page-enabled").checked = !!s.dns.block_page_enabled;
+  document.getElementById("s-dns-block-page-port").value = s.dns.block_page_port ?? "";
   document.getElementById("s-dns-block-ipv6").checked = !!s.dns.block_ipv6;
   document.getElementById("s-dns-block-non-latin").checked = !!s.dns.block_non_latin;
   document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
@@ -1445,6 +1680,22 @@ async function loadDomainUpstreams() {
   });
 }
 
+async function loadRewrites() {
+  const rewrites = await api("/api/rewrites");
+  const rows = document.getElementById("rewrite-rows");
+  rows.innerHTML = "";
+  rewrites.forEach((r, i) => {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/rewrites/${i}`, { method: "DELETE" }); refreshAll(); };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: r.name }),
+      el("td", { text: r.type }),
+      el("td", { text: r.value }),
+      el("td", {}, [delBtn]),
+    ]));
+  });
+}
+
 let queryLogOffset = 0;
 const QUERY_LOG_PAGE_SIZE = 100;
 
@@ -1535,6 +1786,7 @@ async function loadQueryLog(reset) {
 
 async function refreshAll() {
   await loadStatusAndStats();
+  await loadTrend();
   await loadBlocklists();
   await loadAllowSources();
   await loadRules();
@@ -1543,6 +1795,7 @@ async function refreshAll() {
   await loadLogIgnore();
   await loadUpstreamHealth();
   await loadDomainUpstreams();
+  await loadRewrites();
   await loadQueryLog(true);
 }
 
@@ -1558,6 +1811,8 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
       block_mode: document.getElementById("s-dns-block-mode").value,
       blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
       blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
+      block_page_enabled: document.getElementById("s-dns-block-page-enabled").checked,
+      block_page_port: intField("s-dns-block-page-port"),
       block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
       block_non_latin: document.getElementById("s-dns-block-non-latin").checked,
       upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
@@ -1667,6 +1922,21 @@ document.getElementById("add-domain-upstream-form").addEventListener("submit", a
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: name || domains[0], domains, upstreams }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-rewrite-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("rw-name").value.trim();
+  const type = document.getElementById("rw-type").value;
+  const value = document.getElementById("rw-value").value.trim();
+  if (!name || !value) return;
+  await api("/api/rewrites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, type, value }),
   });
   e.target.reset();
   refreshAll();
@@ -1848,8 +2118,15 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
 }
 setActiveTab(localStorage.getItem("dnsshield-tab"));
 
+document.getElementById("stats-range").value = trendRange;
+document.getElementById("stats-range").addEventListener("change", (e) => {
+  trendRange = e.target.value;
+  localStorage.setItem("dnsshield-trend-range", trendRange);
+  loadTrend();
+});
+
 refreshAll();
-setInterval(() => { loadStatusAndStats(); loadQueryLog(true); }, 10000);
+setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);
 </script>
 </body>
 </html>
