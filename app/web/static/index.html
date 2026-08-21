@@ -195,6 +195,22 @@
     user-select: none;
   }
   .info-icon:hover { border-color: var(--danger); color: var(--danger); }
+  .addr-cell { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .icon-btn {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--muted);
+    border-radius: 5px;
+    padding: 0.05rem 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.5;
+  }
+  .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .icon-btn.copy-btn.copied { border-color: var(--accent); color: var(--accent); }
+  .icon-btn.enrich-btn:hover { border-color: var(--warn); color: var(--warn); }
+  .icon-btn.enrich-btn:disabled { opacity: 0.5; cursor: wait; }
   .pause-bar {
     background: var(--panel);
     border: 1px solid var(--panel-border);
@@ -314,7 +330,7 @@
   <section>
     <h2>Top blocked domains</h2>
     <table>
-      <thead><tr><th>Domain</th><th>Count</th></tr></thead>
+      <thead><tr><th>Domain</th><th>Count</th><th></th></tr></thead>
       <tbody id="top-blocked-rows"></tbody>
     </table>
   </section>
@@ -324,14 +340,14 @@
       <h2>Top queried domains</h2>
       <p class="muted">All queries, blocked and allowed.</p>
       <table>
-        <thead><tr><th>Domain</th><th>Count</th></tr></thead>
+        <thead><tr><th>Domain</th><th>Count</th><th></th></tr></thead>
         <tbody id="top-domains-rows"></tbody>
       </table>
     </section>
     <section>
       <h2>Top querying clients</h2>
       <table>
-        <thead><tr><th>Client</th><th>Count</th></tr></thead>
+        <thead><tr><th>Client</th><th>Count</th><th></th></tr></thead>
         <tbody id="top-clients-rows"></tbody>
       </table>
     </section>
@@ -471,6 +487,32 @@
       <div id="log-ignore-clients"></div>
       <p class="hint" style="margin-top:1rem;">Irreversible - wipes every row already logged, regardless of retention.</p>
       <button type="button" class="danger" id="query-log-purge">Delete all logged queries</button>
+    </div>
+
+    <div class="settings-group">
+      <h3>Threat intelligence</h3>
+      <p class="hint" style="color:var(--muted);">
+        Powers the "Enrich" button in Logs/Stats - a domain/IP reputation lookup that only
+        ever runs when you click it, never automatically. Leave a key blank to skip that
+        service. AbuseIPDB only supports IP lookups, so it's skipped for domains regardless.
+      </p>
+      <form id="enrichment-settings-form">
+        <div class="field-grid">
+          <div class="field">
+            <label>VirusTotal API key <span id="vt-key-status" class="muted"></span></label>
+            <input type="password" id="s-vt-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>AbuseIPDB API key <span id="abuseipdb-key-status" class="muted"></span></label>
+            <input type="password" id="s-abuseipdb-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>AlienVault OTX API key <span id="otx-key-status" class="muted"></span></label>
+            <input type="password" id="s-otx-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+        </div>
+        <button type="submit">Save API keys</button>
+      </form>
     </div>
   </section>
 
@@ -659,6 +701,127 @@ function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+function isIpAddress(value) {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(":");
+}
+
+function copyButton(text) {
+  const btn = el("button", { class: "icon-btn copy-btn", type: "button", title: "Copy \"" + text + "\" to clipboard", text: "Copy" });
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      // Clipboard API can be unavailable (e.g. insecure context) - fall back
+      // to a temporary hidden textarea + execCommand, then give up quietly.
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch (fallbackErr) {
+        return;
+      }
+    }
+    const original = btn.textContent;
+    btn.textContent = "Copied";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = original; btn.classList.remove("copied"); }, 1200);
+  };
+  return btn;
+}
+
+function addressCell(displayText, extra = [], copyValue = null) {
+  const value = copyValue ?? displayText;
+  return el("td", {}, [el("div", { class: "addr-cell" }, [el("span", { text: displayText }), copyButton(value), ...extra])]);
+}
+
+// Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX) - only
+// ever runs when this button is clicked. Never automatic, never on page
+// load or refresh.
+const VERDICT_COLORS = {
+  safe: { bg: "#0d3b26", fg: "#d6f5e3", accent: "#22c55e" },
+  low: { bg: "#173a1f", fg: "#e3f5c9", accent: "#84cc16" },
+  medium: { bg: "#4a3405", fg: "#fde8b8", accent: "#f59e0b" },
+  high: { bg: "#4a1006", fg: "#fdd8d0", accent: "#ef4444" },
+  critical: { bg: "#3f0a0a", fg: "#ffd2d2", accent: "#dc2626" },
+  unknown: { bg: "#1f2430", fg: "#dbe1ee", accent: "#64748b" },
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function openEnrichmentWindow(result) {
+  const colors = VERDICT_COLORS[result.overall_verdict] || VERDICT_COLORS.unknown;
+  const w = window.open("", "_blank", "width=560,height=680");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the enrichment result.");
+    return;
+  }
+
+  const sourceHtml = Object.entries(result.sources)
+    .filter(([, src]) => src !== null)
+    .map(([name, src]) => {
+      if (!src.configured) {
+        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Not configured - add an API key in Settings -> Threat intelligence.</p></div>`;
+      }
+      if (!src.ok) {
+        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Lookup failed: ${escapeHtml(src.error || "unknown error")}</p></div>`;
+      }
+      return `<div class="src"><h3>${escapeHtml(name)} <span class="badge">${escapeHtml(src.verdict)}</span></h3><p>${escapeHtml(src.summary)}</p></div>`;
+    })
+    .join("");
+
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Enrichment: ${escapeHtml(result.target)}</title>
+<style>
+  body { margin:0; padding:2rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:${colors.bg}; color:${colors.fg}; }
+  h1 { font-size:1.3rem; margin:0 0 0.6rem; word-break:break-all; }
+  .verdict { display:inline-block; padding:0.3rem 0.9rem; border-radius:999px; background:${colors.accent}; color:#04102a; font-weight:700; text-transform:uppercase; font-size:0.8rem; margin-bottom:1.5rem; letter-spacing:0.03em; }
+  .src { border-top:1px solid rgba(255,255,255,0.18); padding:1rem 0; }
+  .src h3 { margin:0 0 0.4rem; font-size:1rem; text-transform:capitalize; }
+  .badge { font-size:0.7rem; padding:0.1rem 0.5rem; border-radius:999px; background:rgba(255,255,255,0.18); margin-left:0.5rem; text-transform:uppercase; }
+  .muted { opacity:0.7; }
+  .footer { margin-top:1.5rem; font-size:0.75rem; opacity:0.6; }
+</style></head>
+<body>
+  <h1>${escapeHtml(result.target)}</h1>
+  <div class="verdict">${escapeHtml(result.overall_verdict)}${result.overall_score != null ? " &middot; score " + result.overall_score : ""}</div>
+  ${sourceHtml || '<p class="muted">No threat-intel sources configured yet.</p>'}
+  <p class="footer">Looked up just now, stored locally in enrichment.db.</p>
+</body></html>`);
+  w.document.close();
+}
+
+function enrichButton(target, type) {
+  const btn = el("button", { class: "icon-btn enrich-btn", type: "button", title: "Check reputation via VirusTotal/AbuseIPDB/OTX (manual only)", text: "Enrich" });
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "...";
+    try {
+      const result = await api("/api/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, type }),
+      });
+      openEnrichmentWindow(result);
+    } catch (err) {
+      alert("Enrichment failed: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  };
+  return btn;
+}
+
 function renderPauseBar(pause) {
   const bar = document.getElementById("pause-bar");
   const statusEl = document.getElementById("pause-status");
@@ -730,7 +893,7 @@ async function loadStatusAndStats() {
   topBlocked.innerHTML = "";
   for (const [domain, count] of stats.top_blocked_domains) {
     topBlocked.appendChild(el("tr", {}, [
-      el("td", { text: domain }),
+      addressCell(domain, [enrichButton(domain, "domain")]),
       el("td", { text: count }),
     ]));
   }
@@ -739,7 +902,7 @@ async function loadStatusAndStats() {
   topDomains.innerHTML = "";
   for (const [domain, count] of stats.top_domains) {
     topDomains.appendChild(el("tr", {}, [
-      el("td", { text: domain }),
+      addressCell(domain, [enrichButton(domain, "domain")]),
       el("td", { text: count }),
     ]));
   }
@@ -748,7 +911,7 @@ async function loadStatusAndStats() {
   topClients.innerHTML = "";
   for (const [client, count] of stats.top_clients) {
     topClients.appendChild(el("tr", {}, [
-      el("td", { text: clientLabel(client) }),
+      addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip")] : [], client),
       el("td", { text: count }),
     ]));
   }
@@ -938,6 +1101,14 @@ async function loadSettings() {
 
   document.getElementById("s-retention-days").value = s.logging.retention_days ?? "";
   document.getElementById("s-refresh-interval").value = s.blocklists_refresh_interval_hours ?? "";
+
+  document.getElementById("s-vt-key").value = "";
+  document.getElementById("s-abuseipdb-key").value = "";
+  document.getElementById("s-otx-key").value = "";
+  const enr = s.enrichment || {};
+  document.getElementById("vt-key-status").textContent = enr.virustotal_api_key_set ? "(configured)" : "(not set)";
+  document.getElementById("abuseipdb-key-status").textContent = enr.abuseipdb_api_key_set ? "(configured)" : "(not set)";
+  document.getElementById("otx-key-status").textContent = enr.otx_api_key_set ? "(configured)" : "(not set)";
 }
 
 async function loadLogIgnore() {
@@ -1054,9 +1225,9 @@ function renderQueryLogRow(q) {
   }
   return el("tr", { "data-domain": q.domain }, [
     el("td", { text: fmtTime(q.ts) }),
-    el("td", { text: q.domain }),
+    addressCell(q.domain, [enrichButton(q.domain, "domain")]),
     el("td", { text: q.qtype }),
-    el("td", { text: clientLabel(q.client) }),
+    addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip")] : [], q.client),
     el("td", {}, resultCell),
     el("td", {}, [blockBtn, hideBtn]),
   ]);
@@ -1166,6 +1337,23 @@ document.getElementById("misc-settings-form").addEventListener("submit", async (
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_interval_hours: floatField("s-refresh-interval") }),
+  });
+  refreshAll();
+});
+
+document.getElementById("enrichment-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {};
+  const vt = document.getElementById("s-vt-key").value.trim();
+  const abuse = document.getElementById("s-abuseipdb-key").value.trim();
+  const otx = document.getElementById("s-otx-key").value.trim();
+  if (vt) body.virustotal_api_key = vt;
+  if (abuse) body.abuseipdb_api_key = abuse;
+  if (otx) body.otx_api_key = otx;
+  await api("/api/settings/enrichment", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
   refreshAll();
 });

@@ -11,4 +11,6 @@ services:
     volumes:
       - ./data:/data
     # DNS-shield only ever talks to the upstream resolvers and blocklist
-    # URLs configured in ./data/config.db - nothing else.
+    # URLs configured in ./data/config.db, plus a threat-intel lookup
+    # (VirusTotal/AbuseIPDB/OTX) when you click "Enrich" - and only for a
+    # service you've configured an API key for. Nothing else, ever.

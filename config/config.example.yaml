@@ -141,3 +141,15 @@ logging:
   # the log and stats is affected. Domains also cover their subdomains.
   ignored_domains: []
   ignored_clients: []   # exact IPs or CIDR ranges, e.g. "192.168.1.50" or "192.168.1.0/24"
+
+# Threat-intel reputation lookups (VirusTotal / AbuseIPDB / AlienVault OTX),
+# used only when you click "Enrich" on a domain/client in the dashboard -
+# never automatic, never on a schedule. Leave a key blank to skip that
+# service (its result just shows as "not configured"). AbuseIPDB has no
+# domain-lookup API, so it's only ever queried for an IP target. Get keys
+# from virustotal.com, abuseipdb.com, and otx.alienvault.com - all free
+# tiers work, DNS-shield only ever calls the one lookup endpoint per service.
+enrichment:
+  virustotal_api_key: ""
+  abuseipdb_api_key: ""
+  otx_api_key: ""

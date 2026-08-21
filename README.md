@@ -68,14 +68,20 @@ DNS-shield implements the same core mechanism (DNS sinkhole + filter lists +
 web UI) but keeps it **local-only by construction**:
 
 - The only outbound network calls it ever makes are (a) to the blocklist
-  URLs *you* configure, and (b) to the upstream resolvers *you* configure.
-  There is no default AdGuard-operated endpoint.
+  URLs *you* configure, (b) to the upstream resolvers *you* configure, and
+  (c) a threat-intel reputation lookup (VirusTotal/AbuseIPDB/AlienVault
+  OTX) - but only to a service you've configured an API key for, and only
+  the instant you click "Enrich" on a specific domain/IP; see
+  [Threat-intel enrichment](#threat-intel-enrichment-virustotal--abuseipdb--alienvault-otx)
+  below. There is no default AdGuard-operated endpoint, and nothing calls
+  out on its own.
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
-- All state - config, cached blocklists, query stats/log - lives on your
-  bind-mounted `./data` volume: a local SQLite database for config
-  (`config.db`) and one for the query log (`stats.db`), plus cached list
-  files. Nothing is sent anywhere else, and you can open either database
+- All state - config, cached blocklists, query stats/log, enrichment
+  results - lives on your bind-mounted `./data` volume: a local SQLite
+  database for config (`config.db`), one for the query log (`stats.db`),
+  one for enrichment results (`enrichment.db`), plus cached list files.
+  Nothing is sent anywhere else, and you can open any of these databases
   yourself with any SQLite client to verify exactly what's stored.
 - Every setting is configurable from the dashboard - no editing a YAML
   file and restarting to change an upstream resolver or a blocklist.
@@ -172,6 +178,11 @@ logging:
   retention_days: 30       # how long query log entries are kept in stats.db
   ignored_domains: []      # never logged, but still resolved/blocked normally
   ignored_clients: []      # same, by client IP/CIDR
+
+enrichment:                    # threat-intel API keys - see Threat-intel enrichment below
+  virustotal_api_key: ""
+  abuseipdb_api_key: ""
+  otx_api_key: ""
 ```
 
 This example file (`config/config.example.yaml`) only matters for a *fresh*
@@ -379,6 +390,11 @@ non-Latin-script filter. This is computed at query time and stored per
 row (a `reason` column on `stats.db`, backfilled as `null` for rows
 logged before this existed - hover shows nothing for those).
 
+Every domain and client address in the log also has a **Copy** button next
+to it, for grabbing the exact value onto your clipboard (e.g. to paste into
+a search, a firewall rule, or a ticket) without having to select the text
+by hand.
+
 ### Stats tab
 
 Cards for total/blocked queries, block rate, blocklist domain count,
@@ -391,7 +407,40 @@ network), **Query types** (A/AAAA/CNAME/... breakdown), and **Blocked
 by** (which specific blocklist subscription or rule is responsible for
 the most blocks - the same reasons as the query log's (i) icon, just
 aggregated). All of it updates live every 10 seconds alongside the rest
-of the dashboard.
+of the dashboard. Like the query log, the domain/client tables have a
+**Copy** button on each row.
+
+### Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX)
+
+Every domain and IP address shown in the Query log and Stats tabs also has
+an **Enrich** button, which looks up that indicator's reputation via
+[VirusTotal](https://www.virustotal.com/), [AbuseIPDB](https://www.abuseipdb.com/),
+and [AlienVault OTX](https://otx.alienvault.com/) - whichever of those
+three you've configured an API key for in Settings -> Threat intelligence.
+Free-tier keys work fine; DNS-shield only ever calls the one lookup
+endpoint per service.
+
+**This only ever runs when you click it.** There is no background
+scanning, no automatic lookup of every query, no schedule, and no lookup
+triggered by loading the dashboard or a DNS query resolving - clicking
+Enrich is the only way an outbound call to any of these three services is
+ever made, and only for the single indicator you clicked on. AbuseIPDB has
+no domain-lookup endpoint, so it's skipped (not treated as an error) for
+domain targets and only ever queried for IP targets; VirusTotal and OTX
+support both.
+
+The result opens in a **new browser window**, with the background color
+set by the worst verdict across the configured sources - a calm green for
+a clean/safe result, escalating through yellow and orange to red for
+something flagged as malicious - along with each source's own verdict and
+a short summary (engines flagging it, abuse confidence score, pulse count,
+etc.). A source you haven't configured a key for just shows as "not
+configured"; a failed lookup (bad key, rate limit, no data on record, or a
+network error) shows the reason instead of crashing the popup.
+
+Every result - including "not configured" and failed lookups - is
+recorded locally in `data/enrichment.db`, purely so you have a record of
+past lookups; nothing in that database is ever sent anywhere.
 
 ### Pause blocking
 
@@ -482,6 +531,9 @@ app/
   stats.py             query log storage: SQLite database (data/stats.db), async writes,
                        hourly pruning, filterable search for the query-log browser
   import_adguard.py    one-off AdGuard Home -> DNS-shield config converter (see above)
+  enrichment.py         VirusTotal/AbuseIPDB/OTX reputation lookups - only ever called from
+                        the "Enrich" button's endpoint, never on its own (see above)
+  enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
   web/server.py        FastAPI REST API + basic-auth, backing the dashboard
   web/static/          single self-contained dashboard page (no external assets/CDN)
   main.py              wires the above together and starts everything
@@ -514,6 +566,11 @@ that would otherwise hit the upstream resolver.
   provided image runs as root for this (same approach as the official
   AdGuard Home / Pi-hole images). Run rootless via a compose override with
   `cap_add: [NET_BIND_SERVICE]` and a non-root `user:` if you need that.
+- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX) are stored in
+  `config.db`/`config.backup.yaml` like any other setting - anyone with
+  access to the web UI or `./data` volume can read or use them. The
+  Settings page and `GET /api/settings` never echo a key back, only
+  whether one is set.
 
 ## Limitations / roadmap
 

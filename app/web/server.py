@@ -1,8 +1,10 @@
 """Web UI + REST API.
 
 Everything here only ever reads/writes the local config store and the
-local stats snapshot - there is no outbound call of any kind from this
-module.
+local stats snapshot - the one exception is POST /api/enrich, which
+looks up a domain/IP's reputation via VirusTotal/AbuseIPDB/AlienVault OTX
+(app/enrichment.py) - and that only ever runs when a user clicks
+"Enrich" in the dashboard, never automatically.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
+from app.enrichment import enrich as run_enrichment
 from app.import_adguard import import_config
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -98,8 +101,26 @@ class PauseIn(BaseModel):
     seconds: float | None = None  # None/omitted = pause until manually resumed
 
 
+class EnrichmentSettingsIn(BaseModel):
+    virustotal_api_key: str | None = None  # blank/omitted = keep current key
+    abuseipdb_api_key: str | None = None
+    otx_api_key: str | None = None
+
+
+class EnrichIn(BaseModel):
+    target: str
+    type: str  # "domain" or "ip"
+
+
 def create_app(
-    config_store, blocklist, stats, started_at: float, cache=None, client_names=None, upstream_stats=None
+    config_store,
+    blocklist,
+    stats,
+    started_at: float,
+    cache=None,
+    client_names=None,
+    upstream_stats=None,
+    enrichment_store=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -545,6 +566,11 @@ def create_app(
             },
             "logging": snap.get("logging", {}),
             "blocklists_refresh_interval_hours": snap.get("blocklists", {}).get("refresh_interval_hours", 24),
+            "enrichment": {
+                "virustotal_api_key_set": bool(snap.get("enrichment", {}).get("virustotal_api_key")),
+                "abuseipdb_api_key_set": bool(snap.get("enrichment", {}).get("abuseipdb_api_key")),
+                "otx_api_key_set": bool(snap.get("enrichment", {}).get("otx_api_key")),
+            },
             "restart_required": ["dns.listen_address", "dns.listen_port", "web.listen_address", "web.listen_port"],
             "restart_note": RESTART_NOTE,
         }
@@ -602,5 +628,42 @@ def create_app(
             return {k: v for k, v in bl_cfg.items() if k not in ("sources", "allow_sources")}
 
         return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/enrichment")
+    def update_enrichment_settings(body: EnrichmentSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        payload = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v}
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            data.setdefault("enrichment", {}).update(payload)
+            return {
+                "virustotal_api_key_set": bool(data["enrichment"].get("virustotal_api_key")),
+                "abuseipdb_api_key_set": bool(data["enrichment"].get("abuseipdb_api_key")),
+                "otx_api_key_set": bool(data["enrichment"].get("otx_api_key")),
+            }
+
+        return config_store.mutate(_mutate)
+
+    # -- threat-intel enrichment: manual only, triggered by the "Enrich" ---
+    # button in the dashboard. Never called automatically, never on a
+    # schedule, never as a side effect of a DNS query.
+    @app.post("/api/enrich")
+    def enrich_target(body: EnrichIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        target = body.target.strip()
+        target_type = body.type if body.type in ("domain", "ip") else "domain"
+        if not target:
+            raise HTTPException(status_code=400, detail="Empty target")
+
+        result = run_enrichment(target, target_type, config_store)
+        if enrichment_store is not None:
+            enrichment_store.record(
+                result["target"], result["type"], result["overall_verdict"], result["overall_score"], result["sources"]
+            )
+        return result
+
+    @app.get("/api/enrich/history")
+    def enrichment_history(limit: int = 100, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        if enrichment_store is None:
+            return []
+        return enrichment_store.recent(limit=max(1, min(limit, 500)))
 
     return app
