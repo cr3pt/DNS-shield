@@ -1,6 +1,7 @@
 """Blocklist fetching, parsing and matching.
 
-Supported input formats (auto-detected per line):
+Supported input formats (auto-detected per line, so a single source can
+even mix formats without breaking - see parse_list/describe_format):
   - hosts file syntax:      0.0.0.0 ads.example.com
   - AdBlock/uBlock syntax:  ||ads.example.com^
   - plain domain list:      ads.example.com
@@ -8,6 +9,12 @@ Supported input formats (auto-detected per line):
 Every list source is a URL *you* configure (dashboard or config.db) -
 DNS-shield never talks to any address that isn't either an upstream
 resolver or a blocklist URL from your own config.
+
+Everything this module matches queries against - the merged blocked/
+allowed domain sets and the compiled regex-denylist cache - lives purely
+in process memory (frozensets + a dict), never touched per query. Disk is
+only ever touched by refresh(): once to fetch/cache each source's raw
+text, never to answer a query.
 """
 
 from __future__ import annotations
@@ -58,7 +65,17 @@ def is_non_latin_domain(domain: str) -> bool:
     return False
 
 
-def _parse_line(line: str) -> str | None:
+_FORMAT_LABELS = {
+    "hosts": "hosts file (0.0.0.0/127.0.0.1 domain)",
+    "adblock": "AdBlock/uBlock syntax (||domain^)",
+    "plain": "plain domain list",
+}
+
+
+def _parse_line(line: str) -> tuple[str, str] | None:
+    """Returns (domain, format_tag) for a recognized line, or None. The
+    format_tag is one of "hosts", "adblock", "plain" - see _FORMAT_LABELS.
+    """
     line = line.strip()
     if not line or line.startswith(("#", "!", ";")):
         return None
@@ -67,6 +84,7 @@ def _parse_line(line: str) -> str | None:
         m = _ADBLOCK_RE.match(line)
         if m:
             domain = m.group(1)
+            fmt = "adblock"
         else:
             return None
     elif line.startswith(_HOSTS_PREFIXES):
@@ -74,25 +92,60 @@ def _parse_line(line: str) -> str | None:
         if len(parts) < 2:
             return None
         domain = parts[1]
+        fmt = "hosts"
     else:
         # Plain domain list - but skip lines that are clearly something else.
         domain = line.split()[0] if line.split() else ""
+        fmt = "plain"
 
     domain = domain.strip().rstrip(".").lower()
     if domain in ("localhost", "local", "broadcasthost"):
         return None
     if not _DOMAIN_RE.match(domain):
         return None
-    return domain
+    return domain, fmt
 
 
-def parse_list(text: str) -> set[str]:
+def parse_list(text: str) -> tuple[set[str], dict[str, int]]:
+    """Parses a fetched list, auto-detecting each line's format (hosts file,
+    AdBlock/uBlock syntax, or a plain domain list - lists in the wild mix
+    these, so detection is per-line, not per-source). Returns the merged
+    domain set plus a count of lines seen per format, so a source made of a
+    single consistent format is reported as such, and a mixed one honestly
+    as "mixed".
+    """
     domains: set[str] = set()
+    format_counts: dict[str, int] = {}
     for raw_line in text.splitlines():
-        domain = _parse_line(raw_line)
-        if domain:
+        parsed = _parse_line(raw_line)
+        if parsed:
+            domain, fmt = parsed
             domains.add(domain)
-    return domains
+            format_counts[fmt] = format_counts.get(fmt, 0) + 1
+    return domains, format_counts
+
+
+_MIXED_FORMAT_THRESHOLD = 0.02  # a format under 2% of lines is noise (a stray line or two), not a real mix
+
+
+def describe_format(format_counts: dict[str, int]) -> str:
+    """A short, human-readable label for a source's dominant format, for
+    display next to its domain count - e.g. "hosts file (0.0.0.0 domain)"
+    or "mixed formats (hosts file + plain domain list)" when a source
+    genuinely combines more than one syntax. A format making up under
+    _MIXED_FORMAT_THRESHOLD of parsed lines is treated as noise (e.g. the
+    odd stray bare-domain line in an otherwise consistent hosts file)
+    rather than a real second format, so one-off outliers don't make a
+    99.9%-consistent list get reported as "mixed".
+    """
+    if not format_counts:
+        return "unknown"
+    total = sum(format_counts.values())
+    present = [fmt for fmt, count in format_counts.items() if count / total >= _MIXED_FORMAT_THRESHOLD]
+    if len(present) == 1:
+        return _FORMAT_LABELS.get(present[0], present[0])
+    labels = " + ".join(_FORMAT_LABELS.get(fmt, fmt) for fmt in sorted(present, key=lambda f: -format_counts[f]))
+    return f"mixed formats ({labels})"
 
 
 class BlocklistManager:
@@ -107,11 +160,23 @@ class BlocklistManager:
         self._allowed: frozenset[str] = frozenset()
         self._domain_source: dict[str, str] = {}
         self._source_counts: dict[str, int] = {}
+        self._source_formats: dict[str, str] = {}
         self._allow_source_counts: dict[str, int] = {}
+        self._allow_source_formats: dict[str, str] = {}
         self._last_refresh: float | None = None
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+
+        # Compiled regex-denylist cache: patterns are only recompiled when
+        # the configured pattern list itself changes (cheap tuple equality
+        # check against _regex_cache_key), never per query - regex matching
+        # is opt-in and CPU-heavier than the set lookups above, so the one
+        # thing we control for is never doing that compilation on the hot
+        # path. Off by default (dns.regex_denylist_enabled).
+        self._regex_lock = threading.Lock()
+        self._regex_cache_key: tuple[str, ...] | None = None
+        self._regex_cache_compiled: list[tuple[str, re.Pattern]] = []
 
     # -- matching -----------------------------------------------------
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
@@ -176,6 +241,10 @@ class BlocklistManager:
             return f"Denylist (client group \"{group.get('name', '')}\")"
         if matches(self._config.get("denylist", default=[])):
             return "Denylist (manually added)"
+        if self._config.get("dns", "regex_denylist_enabled", default=False):
+            for pattern_text, pattern in self._compiled_regex_patterns():
+                if pattern.search(qname):
+                    return f"Denylist (regex, experimental): {pattern_text}"
         if group and matches(group.get("allowlist")):
             return None
         if matches(self._config.get("allowlist", default=[])):
@@ -197,6 +266,20 @@ class BlocklistManager:
             return None
         source = domain_source.get(matched)
         return f"Blocklist: {source}" if source else "Blocklist"
+
+    def _compiled_regex_patterns(self) -> list[tuple[str, re.Pattern]]:
+        patterns = tuple(self._config.get("denylist_regex", default=[]) or [])
+        with self._regex_lock:
+            if patterns != self._regex_cache_key:
+                compiled = []
+                for pat in patterns:
+                    try:
+                        compiled.append((pat, re.compile(pat)))
+                    except re.error as exc:
+                        logger.warning("skipping invalid regex denylist pattern %r: %s", pat, exc)
+                self._regex_cache_compiled = compiled
+                self._regex_cache_key = patterns
+            return self._regex_cache_compiled
 
     @staticmethod
     def _find_match(qname: str, domain_set: frozenset[str]) -> str | None:
@@ -233,6 +316,10 @@ class BlocklistManager:
         with self._lock:
             return dict(self._source_counts)
 
+    def source_formats(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._source_formats)
+
     def total_count(self) -> int:
         with self._lock:
             return len(self._blocked)
@@ -240,6 +327,10 @@ class BlocklistManager:
     def allow_source_counts(self) -> dict[str, int]:
         with self._lock:
             return dict(self._allow_source_counts)
+
+    def allow_source_formats(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._allow_source_formats)
 
     def allowed_count(self) -> int:
         with self._lock:
@@ -253,7 +344,7 @@ class BlocklistManager:
         safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
         return self._cache_dir / f"{safe}.cache"
 
-    def _fetch_one(self, name: str, url: str) -> set[str]:
+    def _fetch_one(self, name: str, url: str) -> tuple[set[str], dict[str, int]]:
         cache_path = self._cache_path(name)
         try:
             resp = requests.get(url, timeout=15)
@@ -265,12 +356,15 @@ class BlocklistManager:
             if cache_path.exists():
                 text = cache_path.read_text(encoding="utf-8")
             else:
-                return set()
+                return set(), {}
         return parse_list(text)
 
-    def _fetch_sources(self, sources: Iterable[dict]) -> tuple[set[str], dict[str, int], dict[str, str]]:
+    def _fetch_sources(
+        self, sources: Iterable[dict]
+    ) -> tuple[set[str], dict[str, int], dict[str, str], dict[str, str]]:
         merged: set[str] = set()
         counts: dict[str, int] = {}
+        formats: dict[str, str] = {}
         domain_source: dict[str, str] = {}
         for source in sources:
             if not source.get("enabled", True):
@@ -279,27 +373,30 @@ class BlocklistManager:
             url = source.get("url")
             if not url:
                 continue
-            domains = self._fetch_one(name, url)
+            domains, format_counts = self._fetch_one(name, url)
             counts[name] = len(domains)
+            formats[name] = describe_format(format_counts)
             merged |= domains
             for domain in domains:
                 domain_source.setdefault(domain, name)
-        return merged, counts, domain_source
+        return merged, counts, formats, domain_source
 
     def refresh(self) -> None:
         with self._refresh_lock:
             sources = self._config.get("blocklists", "sources", default=[]) or []
-            merged, counts, domain_source = self._fetch_sources(sources)
+            merged, counts, formats, domain_source = self._fetch_sources(sources)
 
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
-            allow_merged, allow_counts, _ = self._fetch_sources(allow_sources)
+            allow_merged, allow_counts, allow_formats, _ = self._fetch_sources(allow_sources)
 
             with self._lock:
                 self._blocked = frozenset(merged)
                 self._source_counts = counts
+                self._source_formats = formats
                 self._domain_source = domain_source
                 self._allowed = frozenset(allow_merged)
                 self._allow_source_counts = allow_counts
+                self._allow_source_formats = allow_formats
                 self._last_refresh = time.time()
             logger.info(
                 "blocklist refresh complete: %d blocked domains from %d sources, "

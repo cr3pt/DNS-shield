@@ -9,6 +9,7 @@ looks up a domain/IP's reputation via VirusTotal/AbuseIPDB/AlienVault OTX
 
 from __future__ import annotations
 
+import re
 import secrets
 import time
 from pathlib import Path
@@ -20,9 +21,12 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
+from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app.enrichment import enrich as run_enrichment
 from app.import_adguard import import_config
 from app.netmatch import ip_matches
+from app.upstream import address as upstream_address
+from app.upstream import is_disabled as upstream_is_disabled
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -41,6 +45,10 @@ class DomainIn(BaseModel):
 
 class ValueIn(BaseModel):
     value: str
+
+
+class RegexPatternIn(BaseModel):
+    pattern: str
 
 
 class ClientGroupIn(BaseModel):
@@ -72,6 +80,7 @@ class DnsSettingsIn(BaseModel):
     client_name_cache_seconds: int | None = None
     block_page_enabled: bool | None = None
     block_page_port: int | None = None
+    regex_denylist_enabled: bool | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -157,9 +166,11 @@ def create_app(
             f"{config_store.get('dns', 'listen_port', default=53)}",
             "blocklist_domains": blocklist.total_count(),
             "blocklist_sources": blocklist.source_counts(),
+            "blocklist_source_formats": blocklist.source_formats(),
             "blocklist_last_refresh": blocklist.last_refresh(),
             "allowlist_domains": blocklist.allowed_count(),
             "allowlist_sources": blocklist.allow_source_counts(),
+            "allowlist_source_formats": blocklist.allow_source_formats(),
             "cache": cache.stats() if cache is not None else None,
             "upstream_stats": upstream_stats.snapshot() if upstream_stats is not None else {},
             "pause": {
@@ -322,6 +333,11 @@ def create_app(
     def toggle_allow_source(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
         return _toggle_source("allow_sources", index)
 
+    @app.get("/api/blocklists/catalog")
+    def get_blocklist_catalog(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        existing_urls = {s.get("url") for s in _list_sources("sources")}
+        return [dict(entry, already_added=entry["url"] in existing_urls) for entry in BLOCKLIST_CATALOG]
+
     @app.post("/api/blocklists/refresh")
     def refresh_blocklists(_: None = Depends(require_auth)) -> dict[str, Any]:
         blocklist.refresh()
@@ -332,6 +348,7 @@ def create_app(
         return {
             "allowlist": config_store.get("allowlist", default=[]) or [],
             "denylist": config_store.get("denylist", default=[]) or [],
+            "denylist_regex": config_store.get("denylist_regex", default=[]) or [],
             "blocked_clients": config_store.get("blocked_clients", default=[]) or [],
         }
 
@@ -374,6 +391,39 @@ def create_app(
     @app.delete("/api/rules/deny/{domain}")
     def remove_deny(domain: str, _: None = Depends(require_auth)) -> list[str]:
         return _remove_rule("denylist", domain)
+
+    # -- denylist_regex: experimental, off by default (dns.regex_denylist_enabled) -
+    # matched against the full query name with re.Pattern.search(), so an
+    # unanchored pattern like "tracker" matches anywhere in the name, same
+    # as a typical AdBlock-style regex rule. Compiled once and cached in
+    # BlocklistManager, not per query - see blocklist.py.
+    @app.post("/api/rules/deny-regex")
+    def add_deny_regex(body: RegexPatternIn, _: None = Depends(require_auth)) -> list[str]:
+        pattern = body.pattern.strip()
+        if not pattern:
+            raise HTTPException(status_code=400, detail="Empty pattern")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid regex: {exc}") from exc
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            items = data.setdefault("denylist_regex", [])
+            if pattern not in items:
+                items.append(pattern)
+            return items
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/rules/deny-regex/{pattern}")
+    def remove_deny_regex(pattern: str, _: None = Depends(require_auth)) -> list[str]:
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            items = data.setdefault("denylist_regex", [])
+            if pattern in items:
+                items.remove(pattern)
+            return items
+
+        return config_store.mutate(_mutate)
 
     # -- blocked_clients: EVERY query from this IP/CIDR is blocked, for every
     # domain - not a domain-scoped rule. Dashboard: "Block host" button next
@@ -667,11 +717,39 @@ def create_app(
 
     @app.put("/api/settings/upstreams")
     def update_upstreams(body: UpstreamsIn, _: None = Depends(require_auth)) -> list[str]:
-        upstreams = [u.strip() for u in body.upstreams if u.strip() and not u.strip().startswith("#")]
+        # A leading "#" marks an upstream as disabled - kept in the list
+        # (so re-enabling doesn't mean re-typing it) but skipped by
+        # FilteringResolver - see app.upstream.is_disabled. Only truly
+        # blank lines are dropped; a "# ..." line is a real disabled entry
+        # now, not a comment to discard.
+        upstreams = [u.strip() for u in body.upstreams if u.strip()]
 
         def _mutate(data: dict[str, Any]) -> list[str]:
             data.setdefault("dns", {})["upstreams"] = upstreams
             return data["dns"]["upstreams"]
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/settings/upstreams/{index}/toggle")
+    def toggle_upstream(index: int, _: None = Depends(require_auth)) -> list[str]:
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            upstreams = data.setdefault("dns", {}).setdefault("upstreams", [])
+            if not 0 <= index < len(upstreams):
+                raise HTTPException(status_code=404, detail="No such upstream")
+            entry = upstreams[index]
+            upstreams[index] = upstream_address(entry) if upstream_is_disabled(entry) else "#" + entry.strip()
+            return upstreams
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/settings/upstreams/{index}")
+    def delete_upstream(index: int, _: None = Depends(require_auth)) -> list[str]:
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            upstreams = data.setdefault("dns", {}).setdefault("upstreams", [])
+            if not 0 <= index < len(upstreams):
+                raise HTTPException(status_code=404, detail="No such upstream")
+            upstreams.pop(index)
+            return upstreams
 
         return config_store.mutate(_mutate)
 

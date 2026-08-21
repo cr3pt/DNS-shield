@@ -107,11 +107,28 @@ def _recv_exact(sock, n: int) -> bytes:
     return buf
 
 
+def is_disabled(entry: str) -> bool:
+    """True if this dns.upstreams-style entry is disabled: kept in the
+    list (so re-enabling it doesn't mean re-typing it) but never actually
+    used to resolve queries. Marked by a leading "#" - the dashboard's
+    per-entry Disable button writes this, and it doubles as the same
+    "commented out" convention a hand-edited config file would use.
+    """
+    return entry.strip().startswith("#")
+
+
+def address(entry: str) -> str:
+    """The usable address/URL for a dns.upstreams-style entry, with a
+    leading disabled marker (if any) stripped.
+    """
+    return entry.strip().lstrip("#").strip()
+
+
 def hostname_of(upstream: str) -> str | None:
     """The bare hostname an upstream spec needs DNS to resolve, or None
     if it's a literal IP (nothing to protect for those).
     """
-    entry = upstream.strip()
+    entry = address(upstream)
     for prefix in ("dot://", "doh://", "https://"):
         if entry.startswith(prefix):
             entry = entry[len(prefix) :]

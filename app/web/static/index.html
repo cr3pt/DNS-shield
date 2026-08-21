@@ -494,6 +494,10 @@
           <div class="field"><label>Block page port</label><input type="number" id="s-dns-block-page-port"></div>
           <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
           <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-regex-denylist-enabled">
+            <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern below; CPU cost grows with the pattern list, keep it short)</label>
+          </div>
           <div class="field">
             <label>Upstream selection strategy</label>
             <select id="s-dns-upstream-strategy">
@@ -519,11 +523,15 @@
 
     <div class="settings-group">
       <h3>Upstream DNS servers</h3>
-      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is a comment and is ignored.</p>
+      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is disabled - kept in the list but never used - same as the Disable button in the table below.</p>
       <form id="upstreams-form">
         <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query&#10;# disabled for now:&#10;# 8.8.8.8:53"></textarea>
         <div style="margin-top:0.5rem;"><button type="submit">Save upstreams</button></div>
       </form>
+      <table style="margin-top:0.75rem;">
+        <thead><tr><th>Upstream</th><th>Status</th><th></th></tr></thead>
+        <tbody id="upstream-rows"></tbody>
+      </table>
       <table style="margin-top:0.75rem;">
         <thead><tr><th>Upstream</th><th>Avg latency</th><th>Success rate</th><th>Samples</th></tr></thead>
         <tbody id="upstream-health-rows"></tbody>
@@ -691,6 +699,19 @@
       <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
       <tbody id="blocklist-rows"></tbody>
     </table>
+
+    <h3 style="margin-top:1.25rem;">Suggested lists</h3>
+    <p class="muted">
+      A short list of well-known public blocklists - StevenBlack's Unified Hosts plus a
+      few of <a href="https://firebog.net" target="_blank" rel="noopener">Firebog</a>'s
+      recommended ("ticked") lists. Adding one just fills in the form above for you and
+      fetches it like any other source - format is auto-detected either way, and you can
+      Disable or Remove it afterwards the same as anything you'd typed in by hand.
+    </p>
+    <table>
+      <thead><tr><th>Name</th><th>Category</th><th></th></tr></thead>
+      <tbody id="blocklist-catalog-rows"></tbody>
+    </table>
   </section>
 
   <section>
@@ -725,6 +746,23 @@
       <table><tbody id="deny-rows"></tbody></table>
     </section>
   </div>
+
+  <section>
+    <h2>Regex denylist <span class="tag" style="background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)">experimental</span></h2>
+    <p class="muted">
+      Blocks any query name matching one of these Python regular expressions - e.g.
+      <code>^ads?[0-9]*\.</code> catches ad/ad1/ads2 subdomains across every domain at once.
+      Off by default (toggle above, under DNS settings), since every enabled pattern here is
+      checked against every single query - keep the list short. Patterns are compiled once
+      and cached in memory, not recompiled per query, but matching itself is still real CPU
+      work per query - this is meant for a handful of hand-picked rules, not a full list.
+    </p>
+    <form class="inline" id="add-deny-regex-form">
+      <input type="text" id="deny-regex" placeholder="^ads?[0-9]*\.example\.com$" required style="min-width:280px">
+      <button type="submit">Add</button>
+    </form>
+    <table><tbody id="deny-regex-rows"></tbody></table>
+  </section>
 
   <section>
     <h2>Blocked clients (no communication allowed)</h2>
@@ -1460,10 +1498,11 @@ async function loadTrend() {
   renderTrendChart(data);
 }
 
-async function loadSourceTable(apiPath, rowsElId, countsKey) {
+async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
   const sources = await api(apiPath);
   const status = await api("/api/status");
   const counts = status[countsKey] || {};
+  const formats = status[formatsKey] || {};
   const rows = document.getElementById(rowsElId);
   rows.innerHTML = "";
   sources.forEach((s, i) => {
@@ -1471,10 +1510,14 @@ async function loadSourceTable(apiPath, rowsElId, countsKey) {
     toggleBtn.onclick = async () => { await api(`${apiPath}/${i}/toggle`, { method: "POST" }); refreshAll(); };
     const delBtn = el("button", { class: "danger", text: "Remove" });
     delBtn.onclick = async () => { await api(`${apiPath}/${i}`, { method: "DELETE" }); refreshAll(); };
+    const domainsCell = el("td", {}, [document.createTextNode((counts[s.name] ?? "-").toString())]);
+    if (formats[s.name]) {
+      domainsCell.appendChild(el("div", { class: "muted", style: "font-size:0.72rem;margin-top:0.1rem;", text: formats[s.name] }));
+    }
     rows.appendChild(el("tr", {}, [
       el("td", { text: s.name }),
       el("td", { text: s.url }),
-      el("td", { text: (counts[s.name] ?? "-").toString() }),
+      domainsCell,
       el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? "enabled" : "disabled" })]),
       el("td", {}, [toggleBtn, delBtn]),
     ]));
@@ -1482,11 +1525,37 @@ async function loadSourceTable(apiPath, rowsElId, countsKey) {
 }
 
 async function loadBlocklists() {
-  await loadSourceTable("/api/blocklists", "blocklist-rows", "blocklist_sources");
+  await loadSourceTable("/api/blocklists", "blocklist-rows", "blocklist_sources", "blocklist_source_formats");
 }
 
 async function loadAllowSources() {
-  await loadSourceTable("/api/allow-sources", "allow-source-rows", "allowlist_sources");
+  await loadSourceTable("/api/allow-sources", "allow-source-rows", "allowlist_sources", "allowlist_source_formats");
+}
+
+async function loadBlocklistCatalog() {
+  const catalog = await api("/api/blocklists/catalog");
+  const rows = document.getElementById("blocklist-catalog-rows");
+  rows.innerHTML = "";
+  for (const entry of catalog) {
+    const addBtn = el("button", { class: "secondary", text: entry.already_added ? "Added" : "Add" });
+    if (entry.already_added) addBtn.disabled = true;
+    addBtn.onclick = async () => {
+      await api("/api/blocklists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: entry.name, url: entry.url }),
+      });
+      refreshAll();
+    };
+    rows.appendChild(el("tr", {}, [
+      el("td", {}, [
+        el("div", { text: entry.name }),
+        el("div", { class: "muted", style: "font-size:0.78rem;margin-top:0.1rem;", text: entry.description }),
+      ]),
+      el("td", { text: entry.category }),
+      el("td", {}, [addBtn]),
+    ]));
+  }
 }
 
 async function loadRules() {
@@ -1504,6 +1573,14 @@ async function loadRules() {
     const delBtn = el("button", { class: "danger", text: "Remove" });
     delBtn.onclick = async () => { await api(`/api/rules/deny/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
     denyRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
+  }
+
+  const denyRegexRows = document.getElementById("deny-regex-rows");
+  denyRegexRows.innerHTML = "";
+  for (const pattern of rules.denylist_regex || []) {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/rules/deny-regex/${encodeURIComponent(pattern)}`, { method: "DELETE" }); refreshAll(); };
+    denyRegexRows.appendChild(el("tr", {}, [el("td", { text: pattern }), el("td", {}, [delBtn])]));
   }
 
   blockedClients = new Set(rules.blocked_clients || []);
@@ -1614,6 +1691,7 @@ async function loadSettings() {
   document.getElementById("s-dns-block-page-port").value = s.dns.block_page_port ?? "";
   document.getElementById("s-dns-block-ipv6").checked = !!s.dns.block_ipv6;
   document.getElementById("s-dns-block-non-latin").checked = !!s.dns.block_non_latin;
+  document.getElementById("s-dns-regex-denylist-enabled").checked = !!s.dns.regex_denylist_enabled;
   document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
   document.getElementById("s-dns-upstream-stats-window").value = s.dns.upstream_stats_window_minutes ?? "";
   document.getElementById("s-dns-cache-enabled").checked = !!s.dns.cache_enabled;
@@ -1625,6 +1703,7 @@ async function loadSettings() {
   document.getElementById("s-dns-name-cache-seconds").value = s.dns.client_name_cache_seconds ?? "";
 
   document.getElementById("s-upstreams").value = (s.upstreams || []).join("\n");
+  renderUpstreamRows(s.upstreams || []);
 
   document.getElementById("s-web-listen-address").value = s.web.listen_address ?? "";
   document.getElementById("s-web-listen-port").value = s.web.listen_port ?? "";
@@ -1677,6 +1756,24 @@ async function loadLogIgnore() {
   const clientsEl = document.getElementById("log-ignore-clients");
   clientsEl.innerHTML = "";
   clientsEl.appendChild(clientsEditor);
+}
+
+function renderUpstreamRows(upstreams) {
+  const rows = document.getElementById("upstream-rows");
+  rows.innerHTML = "";
+  upstreams.forEach((entry, i) => {
+    const disabled = entry.trim().startsWith("#");
+    const address = entry.trim().replace(/^#+\s*/, "");
+    const toggleBtn = el("button", { class: "secondary", text: disabled ? "Enable" : "Disable" });
+    toggleBtn.onclick = async () => { await api(`/api/settings/upstreams/${i}/toggle`, { method: "POST" }); refreshAll(); };
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/settings/upstreams/${i}`, { method: "DELETE" }); refreshAll(); };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: address }),
+      el("td", {}, [el("span", { class: "tag " + (disabled ? "blocked" : "allowed"), text: disabled ? "disabled" : "enabled" })]),
+      el("td", {}, [toggleBtn, delBtn]),
+    ]));
+  });
 }
 
 async function loadUpstreamHealth() {
@@ -1819,6 +1916,7 @@ async function refreshAll() {
   await loadTrend();
   await loadBlocklists();
   await loadAllowSources();
+  await loadBlocklistCatalog();
   await loadRules();
   await loadClientGroups();
   await loadSettings();
@@ -1845,6 +1943,7 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
       block_page_port: intField("s-dns-block-page-port"),
       block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
       block_non_latin: document.getElementById("s-dns-block-non-latin").checked,
+      regex_denylist_enabled: document.getElementById("s-dns-regex-denylist-enabled").checked,
       upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
       upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),
       cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
@@ -1861,7 +1960,7 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
 
 document.getElementById("upstreams-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const upstreams = document.getElementById("s-upstreams").value.split("\n").map((s) => s.trim()).filter((s) => s && !s.startsWith("#"));
+  const upstreams = document.getElementById("s-upstreams").value.split("\n").map((s) => s.trim()).filter(Boolean);
   await api("/api/settings/upstreams", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -2075,6 +2174,24 @@ document.getElementById("add-deny-form").addEventListener("submit", async (e) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ domain }),
   });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-deny-regex-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const pattern = document.getElementById("deny-regex").value.trim();
+  if (!pattern) return;
+  try {
+    await api("/api/rules/deny-regex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pattern }),
+    });
+  } catch (err) {
+    alert("Could not add pattern: " + err.message);
+    return;
+  }
   e.target.reset();
   refreshAll();
 });

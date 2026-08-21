@@ -21,6 +21,10 @@ dns:
   #   - "doh://cloudflare-dns.com/dns-query"
   #   - "dot://9.9.9.9"
   #   - "https://dns.quad9.net/dns-query"
+  # A leading "#" disables an entry - kept in the list (so re-enabling
+  # doesn't mean re-typing it) but never actually queried. The dashboard's
+  # per-entry Disable button in Settings -> Upstream DNS servers writes
+  # this same marker.
   upstreams:
     - "1.1.1.1:53"
     - "9.9.9.9:53"
@@ -63,6 +67,13 @@ dns:
   # (e.g. café.fr) are never affected. Off by default; the global/group
   # allowlist always overrides this if you need a specific exception.
   block_non_latin: false
+  # EXPERIMENTAL, off by default: when on, every query name is also
+  # checked against every pattern in denylist_regex below (re.search, so
+  # an unanchored pattern matches anywhere in the name). Real per-query
+  # CPU cost that grows with the pattern list - patterns are compiled once
+  # and cached, never per query, but the matching itself isn't free, so
+  # this is meant for a handful of hand-picked rules, not a full list.
+  regex_denylist_enabled: false
   # In-memory cache of upstream answers, keyed by (domain, qtype) and
   # respecting each answer's own TTL. Cuts repeat-lookup latency and
   # upstream traffic; purely local, nothing persisted to disk.
@@ -80,6 +91,11 @@ dns:
 
 blocklists:
   refresh_interval_hours: 24
+  # Each source's format (hosts file, AdBlock/uBlock syntax, or a plain
+  # domain list) is auto-detected per line when fetched - lists in the
+  # wild aren't all the same format, and some even mix them - so you can
+  # point this at any of the three without picking one yourself. The
+  # dashboard shows the detected format under each source's domain count.
   sources:
     - name: "StevenBlack Unified Hosts"
       url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
@@ -95,6 +111,15 @@ allowlist: []
 
 # Domains that are always blocked, in addition to the blocklists.
 denylist: []
+
+# EXPERIMENTAL regex denylist: Python regular expressions checked against
+# every query name (only when dns.regex_denylist_enabled above is true).
+# e.g. "^ads?[0-9]*\\." blocks ad/ad1/ads2-style subdomains across every
+# domain at once. Keep this short - see the note on regex_denylist_enabled.
+#
+# denylist_regex:
+#   - "^ads?[0-9]*\\."
+denylist_regex: []
 
 # Client IPs/CIDRs with EVERY query blocked, for every domain - not a
 # domain-scoped rule like denylist above, this is "no communication with

@@ -155,6 +155,7 @@ dns:
   block_page_port: 80
   block_ipv6: false             # true: answer AAAA queries empty instead of forwarding
   block_non_latin: false        # true: block Cyrillic/Arabic/CJK/etc. domains - see below
+  regex_denylist_enabled: false  # experimental - see Regex denylist below
   cache_enabled: true            # in-memory cache of upstream answers, per their own TTL
   cache_max_entries: 10000
   cache_min_ttl_seconds: 0        # floor applied to cached TTLs
@@ -173,6 +174,7 @@ blocklists:
 
 allowlist: []   # always resolved normally, even if a blocklist matches
 denylist: []    # always blocked, even if not on a blocklist
+denylist_regex: []   # experimental regex denylist, see below - off unless regex_denylist_enabled
 blocked_clients: []   # IPs/CIDRs with EVERY query blocked - see below
 
 dns_rewrites: []   # custom local A/AAAA records - see below
@@ -254,9 +256,17 @@ current even for a server the strategy has stopped picking, and it can be
 picked again if it improves. This only ever probes the upstream hosts
 already in your config.
 
-A line starting with `#` in the Upstream DNS servers box is a comment and
-is ignored - handy for keeping a resolver around (with a note on why)
-without deleting and retyping it later.
+### Disabling an upstream without removing it
+
+Each configured upstream has its own Disable/Enable button in the
+dashboard's Settings -> Upstream DNS servers table - it stays in your list
+(and in the health-stats table) but is skipped when actually resolving
+queries, so you don't lose the address or its config-file/import history
+by deleting it outright. Under the hood this just prefixes the entry with
+`#` in `dns.upstreams` (or `domain_upstreams[].upstreams` /
+`client_groups[].upstreams`, if you disable one there) - the same
+convention as commenting a line out by hand in the "one per line" textarea
+above the table, or in a hand-edited config file.
 
 ### Upstream and blocklist hostnames are always resolvable and never logged
 
@@ -325,6 +335,46 @@ not before: a fully blocked client or an already-blocked domain still
 behaves as blocked regardless of any rewrite - a rewrite is an answer, not
 an exemption. Manage rewrites from the dashboard (Settings -> Custom DNS
 records) or by editing the list directly.
+
+### Blocklist formats and suggested lists
+
+Blocklist sources come in three common formats, and lists in the wild
+aren't all the same one - some even mix them within a single file:
+
+- **hosts file syntax**: `0.0.0.0 ads.example.com`
+- **AdBlock/uBlock syntax**: `||ads.example.com^`
+- **plain domain list**: `ads.example.com`
+
+DNS-shield auto-detects the format of every line as it fetches a source,
+so you can point it at any of the three (or a source that mixes them)
+without picking one yourself. The dashboard's Blocklists table shows the
+detected format under each source's domain count - e.g. "hosts file
+(0.0.0.0/127.0.0.1 domain)", or "mixed formats (...)" for a source that
+genuinely combines more than one syntax (a stray line or two doesn't
+count - only a real mix is reported that way).
+
+The Blocklists section also has a **Suggested lists** table: a short,
+fixed list baked into DNS-shield itself (nothing fetched to build it) -
+StevenBlack's Unified Hosts plus a handful of [Firebog](https://firebog.net)'s
+recommended ("ticked") lists. Clicking Add just fills in the normal
+add-a-source form for you; the list is then fetched, disabled, and
+removed exactly like any source you'd typed in by hand.
+
+### Regex denylist (experimental)
+
+`denylist_regex` blocks any query name matching a Python regular
+expression, checked with `re.search()` against the full name - e.g.
+`^ads?[0-9]*\.` catches `ad.`/`ad1.`/`ads2.`-style subdomains across every
+domain at once, something a plain domain/subdomain denylist entry can't
+express. It's off by default (`dns.regex_denylist_enabled`) and marked
+experimental in the dashboard for a reason: every enabled pattern is
+checked against **every single query**, so the per-query CPU cost grows
+with how many patterns you have. Patterns are compiled once and cached in
+memory - never recompiled per query - but the matching itself is still
+real work, so this is meant for a handful of hand-picked rules, not a
+full list. An invalid pattern is rejected with an error when you try to
+add it, rather than silently skipped later. Manage it from the dashboard
+(Settings -> Regex denylist) or by editing `denylist_regex` directly.
 
 ### Client hostnames (reverse DNS)
 
@@ -685,8 +735,12 @@ app/
   config.py          config storage: SQLite (data/config.db) as the live source of
                       truth, exported to data/config.backup.yaml every 12h
   netmatch.py         shared IP/CIDR matching for client groups and log-ignore rules
-  blocklist.py        fetches + parses hosts/AdBlock-syntax lists (block and allow),
-                       refreshes on a timer, caches lists to disk for offline restarts
+  blocklist.py        fetches + parses hosts/AdBlock/plain-domain lists (auto-detecting
+                       each source's format) for block and allow, refreshes on a timer,
+                       caches lists to disk for offline restarts, and (experimental) matches
+                       an in-memory cache of compiled regex denylist patterns
+  blocklist_catalog.py  fixed list of well-known public blocklists offered as one-click
+                       "Suggested lists" in the dashboard's Blocklists section
   dns_server.py        dnslib-based UDP/TCP DNS server; blocks locally, answers a custom
                         record, serves a cached answer, or forwards to your upstreams
   dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
@@ -758,4 +812,7 @@ that would otherwise hit the upstream resolver.
 - No built-in HTTPS for the web UI - put a reverse proxy in front of it if
   you need TLS.
 - Blocklist matching is domain/subdomain based; it doesn't parse the full
-  AdBlock rule grammar (element hiding, exceptions, regex rules).
+  AdBlock rule grammar (element hiding, exceptions, cosmetic filters, the
+  `$` modifier syntax). A separate, experimental regex denylist exists for
+  pattern-based blocking (see above), but it's a flat list of your own
+  patterns, not an AdBlock-rule interpreter.

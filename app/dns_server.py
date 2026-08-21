@@ -104,23 +104,30 @@ class FilteringResolver:
         whose group has its own upstreams, since domain routing is usually
         a hard technical requirement (e.g. "*.corp.local must go to the
         internal resolver") rather than a per-client preference.
+
+        Any entry disabled from the dashboard (a leading "#", see
+        app.upstream.is_disabled) is filtered out here, never handed to
+        the actual forwarding code below - so a fully-disabled list
+        resolves to empty and every query against it SERVFAILs loudly,
+        rather than silently falling back to some other default.
         """
         for rule in self._config.get("domain_upstreams", default=[]) or []:
             domains = rule.get("domains") or []
             if any(qname == d or qname.endswith("." + d) for d in domains):
-                upstreams = rule.get("upstreams") or []
+                upstreams = [u for u in (rule.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
                 if upstreams:
                     return upstreams
 
         if client_ip:
             for group in self._config.get("client_groups", default=[]) or []:
                 if any(ip_matches(client_ip, pattern) for pattern in group.get("match", []) or []):
-                    upstreams = group.get("upstreams") or []
+                    upstreams = [u for u in (group.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
                     if upstreams:
                         return upstreams
                     break
 
-        return self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
+        upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
+        return [u for u in upstreams if not upstream_transport.is_disabled(u)]
 
     def _forward(self, request: DNSRecord, qname: str, client_ip: str) -> DNSRecord:
         data = request.pack()
