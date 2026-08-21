@@ -195,12 +195,17 @@
     user-select: none;
   }
   .info-icon:hover { border-color: var(--danger); color: var(--danger); }
-  .addr-cell { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  /* Name on its own line, action buttons (Copy/Enrich/Block host) in a
+     wrapping row underneath - keeps the domain/client name readable
+     instead of competing with buttons for the same line, especially once
+     a row has 2-3 of them. */
+  .addr-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
   /* A long domain/IP is otherwise one unbreakable "word" to the browser,
      forcing its table column (and column) wide enough to fit the whole
      thing on one line - this lets it wrap instead, which matters most on
      narrow/mobile screens where that column has little room to spare. */
   .addr-cell > span { overflow-wrap: anywhere; min-width: 0; }
+  .addr-cell-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
   .icon-btn {
     background: transparent;
     border: 1px solid var(--panel-border);
@@ -968,7 +973,10 @@ function copyButton(text) {
 function addressCell(displayText, extra = [], copyValue = null, label = null) {
   const value = copyValue ?? displayText;
   const attrs = label ? { "data-label": label } : {};
-  return el("td", attrs, [el("div", { class: "addr-cell" }, [el("span", { text: displayText }), copyButton(value), ...extra])]);
+  return el("td", attrs, [el("div", { class: "addr-cell" }, [
+    el("span", { text: displayText }),
+    el("div", { class: "addr-cell-actions" }, [copyButton(value), ...extra]),
+  ])]);
 }
 
 // Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX) - only
