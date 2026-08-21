@@ -26,6 +26,7 @@ yourself - see query_local() for the request/response contract.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 from typing import Any
 from urllib.parse import quote
@@ -35,7 +36,13 @@ import requests
 logger = logging.getLogger("dnsshield.enrichment")
 
 _SEVERITY_ORDER = ["safe", "low", "medium", "high", "critical"]
-_TIMEOUT = 10.0
+# AlienVault OTX's API is noticeably slower than VirusTotal/AbuseIPDB and
+# occasionally takes several seconds even when it's working correctly - 10s
+# was tight enough to time out real (if slow) OTX responses, reported as a
+# generic "timed out" every single time. 20s gives it enough room without
+# leaving a genuinely unreachable service hanging too long, given this is
+# a manual, one-off click, not something on a request's critical path.
+_TIMEOUT = 20.0
 
 # One shared, connection-pooling session (same reasoning as app/upstream.py's
 # DoH session) - enrichment is low-frequency (manual clicks only) but there's
@@ -251,22 +258,28 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
     sources: dict[str, Any] = {}
     public_enabled = bool(config_store.get("enrichment", "public_enabled", default=False))
 
-    def _public(name: str, key: str, run) -> dict[str, Any]:
+    # Only the sources that are actually going to make a network call go in
+    # here - "not enabled"/"not configured" is decided up front (no network
+    # involved) and written straight into `sources`.
+    jobs: dict[str, Any] = {}
+
+    def _register(name: str, key: str, run) -> None:
         if not public_enabled:
-            return {"configured": bool(key), "enabled": False}
-        if not key:
-            return {"configured": False}
-        return run()
+            sources[name] = {"configured": bool(key), "enabled": False}
+        elif not key:
+            sources[name] = {"configured": False}
+        else:
+            jobs[name] = run
 
     vt_key = config_store.get("enrichment", "virustotal_api_key", default="") or ""
-    sources["virustotal"] = _public("virustotal", vt_key, lambda: query_virustotal(target, target_type, vt_key))
+    _register("virustotal", vt_key, lambda: query_virustotal(target, target_type, vt_key))
 
     otx_key = config_store.get("enrichment", "otx_api_key", default="") or ""
-    sources["otx"] = _public("otx", otx_key, lambda: query_otx(target, target_type, otx_key))
+    _register("otx", otx_key, lambda: query_otx(target, target_type, otx_key))
 
     if target_type == "ip":
         abuse_key = config_store.get("enrichment", "abuseipdb_api_key", default="") or ""
-        sources["abuseipdb"] = _public("abuseipdb", abuse_key, lambda: query_abuseipdb(target, abuse_key))
+        _register("abuseipdb", abuse_key, lambda: query_abuseipdb(target, abuse_key))
     else:
         sources["abuseipdb"] = None
 
@@ -274,9 +287,21 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
     local_url = config_store.get("enrichment", "local_url", default="") or ""
     if local_enabled and local_url:
         local_key = config_store.get("enrichment", "local_api_key", default="") or ""
-        sources["local"] = query_local(target, target_type, local_url, local_key)
+        jobs["local"] = lambda: query_local(target, target_type, local_url, local_key)
     else:
         sources["local"] = {"configured": False}
+
+    # Run every actual lookup at once rather than one after another - each
+    # source has its own _TIMEOUT, so calling them sequentially means one
+    # slow/unreachable source (OTX in practice, which is noticeably slower
+    # than VirusTotal/AbuseIPDB) adds its full timeout on top of every other
+    # source's instead of just being the slowest of several calls made
+    # together, which is what a "check reputation" click should feel like.
+    if jobs:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+            futures = {name: pool.submit(run) for name, run in jobs.items()}
+            for name, future in futures.items():
+                sources[name] = future.result()
 
     overall: str | None = None
     overall_score: int | None = None
