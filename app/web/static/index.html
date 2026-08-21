@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DNS-shield</title>
+<!-- Favicon: a shield (protection) with a DNS "ping" signal and a blocked
+     ad-banner glyph, inlined as base64 SVG - no external asset/CDN request,
+     consistent with the rest of this single-file dashboard. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNmRiNGZmIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMWEzYTdhIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHBhdGggZD0iTTEwMCwxMCBMMTcyLDM2IEwxNzIsOTYgQzE3MiwxNTAgMTQyLDE4NCAxMDAsMjAwIEM1OCwxODQgMjgsMTUwIDI4LDk2IEwyOCwzNiBaIiBmaWxsPSJ1cmwoI2cpIiBzdHJva2U9IiNlZWYyZmYiIHN0cm9rZS13aWR0aD0iNSIvPjxnIHN0cm9rZT0iI2VlZjJmZiIgc3Ryb2tlLXdpZHRoPSI2IiBmaWxsPSJub25lIj48cGF0aCBkPSJNNzUsNzggQTI1LDI1IDAgMCAxIDEyNSw3OCIvPjxwYXRoIGQ9Ik02NCw2OCBBNDAsNDAgMCAwIDEgMTM2LDY4Ii8+PC9nPjxjaXJjbGUgY3g9IjEwMCIgY3k9Ijg4IiByPSI3IiBmaWxsPSIjZWVmMmZmIi8+PHJlY3QgeD0iNjMiIHk9IjExMCIgd2lkdGg9Ijc0IiBoZWlnaHQ9IjQ0IiByeD0iMTAiIGZpbGw9IiMwYTExMjgiIHN0cm9rZT0iI2ZmNWQ3NSIgc3Ryb2tlLXdpZHRoPSI5Ii8+PGxpbmUgeDE9IjY4IiB5MT0iMTE0IiB4Mj0iMTMyIiB5Mj0iMTUwIiBzdHJva2U9IiNmZjVkNzUiIHN0cm9rZS13aWR0aD0iMTAiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==">
 <style>
   :root {
     color-scheme: dark;
@@ -131,6 +135,8 @@
     flex-wrap: wrap;
   }
   header h1 { font-size: 1.15rem; margin: 0; }
+  .brand { display: flex; align-items: center; gap: 0.5rem; }
+  .brand-icon { width: 1.6rem; height: 1.6rem; flex-shrink: 0; }
   header .sub { color: var(--muted); font-size: 0.85rem; }
   main {
     max-width: 1100px;
@@ -407,7 +413,25 @@
 </head>
 <body>
 <header>
-  <h1>DNS-shield</h1>
+  <div class="brand">
+    <svg class="brand-icon" viewBox="0 0 200 200" aria-hidden="true">
+      <defs>
+        <linearGradient id="brand-icon-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#6db4ff"/>
+          <stop offset="100%" stop-color="#1a3a7a"/>
+        </linearGradient>
+      </defs>
+      <path d="M100,10 L172,36 L172,96 C172,150 142,184 100,200 C58,184 28,150 28,96 L28,36 Z" fill="url(#brand-icon-grad)" stroke="#eef2ff" stroke-width="5"/>
+      <g stroke="#eef2ff" stroke-width="6" fill="none">
+        <path d="M75,78 A25,25 0 0 1 125,78"/>
+        <path d="M64,68 A40,40 0 0 1 136,68"/>
+      </g>
+      <circle cx="100" cy="88" r="7" fill="#eef2ff"/>
+      <rect x="63" y="110" width="74" height="44" rx="10" fill="#0a1128" stroke="#ff5d75" stroke-width="9"/>
+      <line x1="68" y1="114" x2="132" y2="150" stroke="#ff5d75" stroke-width="10" stroke-linecap="round"/>
+    </svg>
+    <h1>DNS-shield</h1>
+  </div>
   <span class="sub" id="dns-listen">-</span>
   <span class="sub" id="uptime">-</span>
 </header>

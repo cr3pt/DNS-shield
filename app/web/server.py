@@ -45,8 +45,10 @@ def _masked_key_preview(key: str | None) -> str:
     """
     if not key:
         return ""
-    if len(key) <= 2:
+    if len(key) == 1:
         return key
+    if len(key) == 2:
+        return f"{key[0]}*"
     return f"{key[0]}{'*' * min(len(key) - 2, 12)}{key[-1]}"
 
 

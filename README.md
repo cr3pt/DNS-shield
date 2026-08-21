@@ -1,5 +1,7 @@
 # DNS-shield
 
+<p align="center"><img src="docs/logo.png" alt="DNS-shield logo" width="160"></p>
+
 A small, self-hosted, network-wide DNS ad/tracker blocker you run in Docker.
 It does the same core job as [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) -
 sit as your network's DNS resolver and drop queries to ad/tracker domains -
@@ -815,7 +817,8 @@ app/
                         the "Enrich" button's endpoint, never on its own (see above)
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
   web/server.py        FastAPI REST API + basic-auth, backing the dashboard
-  web/static/          single self-contained dashboard page (no external assets/CDN)
+  web/static/          single self-contained dashboard page (no external assets/CDN -
+                       even its favicon/header logo is an inlined SVG, not a fetched file)
   main.py              wires the above together and starts everything
 ```
 
