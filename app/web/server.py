@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from app.enrichment import enrich as run_enrichment
 from app.import_adguard import import_config
+from app.netmatch import ip_matches
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -317,28 +318,29 @@ def create_app(
         return {
             "allowlist": config_store.get("allowlist", default=[]) or [],
             "denylist": config_store.get("denylist", default=[]) or [],
+            "blocked_clients": config_store.get("blocked_clients", default=[]) or [],
         }
 
-    def _add_rule(list_name: str, domain: str) -> list[str]:
-        domain = domain.strip().lower().rstrip(".")
-        if not domain:
-            raise HTTPException(status_code=400, detail="Empty domain")
+    def _add_rule(list_name: str, value: str, label: str = "domain") -> list[str]:
+        value = value.strip().lower().rstrip(".")
+        if not value:
+            raise HTTPException(status_code=400, detail=f"Empty {label}")
 
         def _mutate(data: dict[str, Any]) -> list[str]:
             items = data.setdefault(list_name, [])
-            if domain not in items:
-                items.append(domain)
+            if value not in items:
+                items.append(value)
             return items
 
         return config_store.mutate(_mutate)
 
-    def _remove_rule(list_name: str, domain: str) -> list[str]:
-        domain = domain.strip().lower().rstrip(".")
+    def _remove_rule(list_name: str, value: str) -> list[str]:
+        value = value.strip().lower().rstrip(".")
 
         def _mutate(data: dict[str, Any]) -> list[str]:
             items = data.setdefault(list_name, [])
-            if domain in items:
-                items.remove(domain)
+            if value in items:
+                items.remove(value)
             return items
 
         return config_store.mutate(_mutate)
@@ -358,6 +360,17 @@ def create_app(
     @app.delete("/api/rules/deny/{domain}")
     def remove_deny(domain: str, _: None = Depends(require_auth)) -> list[str]:
         return _remove_rule("denylist", domain)
+
+    # -- blocked_clients: EVERY query from this IP/CIDR is blocked, for every
+    # domain - not a domain-scoped rule. Dashboard: "Block host" button next
+    # to a client IP (query log, Stats, Enrich popup), or added by hand here.
+    @app.post("/api/rules/deny-client")
+    def add_deny_client(body: ValueIn, _: None = Depends(require_auth)) -> list[str]:
+        return _add_rule("blocked_clients", body.value, label="client")
+
+    @app.delete("/api/rules/deny-client/{client}")
+    def remove_deny_client(client: str, _: None = Depends(require_auth)) -> list[str]:
+        return _remove_rule("blocked_clients", client)
 
     # -- log-ignore: excluded from the query log only, resolution/blocking is unaffected --
     def _add_nested_rule(section: str, list_name: str, value: str) -> list[str]:
@@ -686,6 +699,9 @@ def create_app(
             # moved over time, not just the result of this one click.
             history = enrichment_store.history_for(result["target"], limit=20)
         result["history"] = history
+        if target_type == "ip":
+            blocked_clients = config_store.get("blocked_clients", default=[]) or []
+            result["client_blocked"] = any(ip_matches(result["target"], p) for p in blocked_clients)
         return result
 
     @app.get("/api/enrich/history")

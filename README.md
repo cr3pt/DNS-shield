@@ -20,6 +20,14 @@ third-party cloud service**.
 | --- | --- |
 | ![Allowlist and denylist](docs/screenshots/allow-deny.png) | ![Pause blocking bar](docs/screenshots/pause-bar.png) |
 
+| Blocked clients | Settings - Threat intelligence |
+| --- | --- |
+| ![Blocked clients editor](docs/screenshots/blocked-clients.png) | ![Threat intelligence settings](docs/screenshots/settings-threat-intel.png) |
+
+| Enrich popup |
+| --- |
+| ![Enrichment result popup with lookup history and a block-host button](docs/screenshots/enrich-popup.png) |
+
 ## Why not just use AdGuard Home?
 
 ### What AdGuard Home actually is and how it works
@@ -163,6 +171,7 @@ blocklists:
 
 allowlist: []   # always resolved normally, even if a blocklist matches
 denylist: []    # always blocked, even if not on a blocklist
+blocked_clients: []   # IPs/CIDRs with EVERY query blocked - see below
 
 domain_upstreams: []   # route specific domains to specific resolvers - see below
 
@@ -333,6 +342,29 @@ is the main reason to allowlist something in the first place. Manage
 groups (and their per-group allow/deny lists) from the dashboard or by
 editing this list directly.
 
+### Blocking a client entirely
+
+`blocked_clients` is a separate, stronger mechanism from everything above:
+an IP/CIDR here has *every* query blocked, for *every* domain - "no
+communication with this host at all" rather than a domain-scoped rule. It
+takes priority over `client_groups` and any per-domain allow/deny entry,
+though a paused blocking window (see below) still bypasses it like
+everything else.
+
+The dashboard's **Block host** button does this for you - next to any
+client IP wherever one's shown (the query log, the Stats tab's "Top
+querying clients" table, and the [Enrich popup](#threat-intel-enrichment-virustotal--abuseipdb--alienvault-otx--your-own)
+for an IP lookup) - and flips to **Unblock host** once that client is
+blocked. Settings -> "Blocked clients" lists everything currently
+blocked and lets you add or remove entries (including CIDR ranges) by
+hand:
+
+```yaml
+blocked_clients:
+  - "192.168.1.50"
+  - "192.168.1.0/28"
+```
+
 ### Disabling IPv6
 
 If your network doesn't use IPv6, turn on `dns.block_ipv6` (dashboard:
@@ -408,7 +440,8 @@ logged before this existed - hover shows nothing for those).
 Every domain and client address in the log also has a **Copy** button next
 to it, for grabbing the exact value onto your clipboard (e.g. to paste into
 a search, a firewall rule, or a ticket) without having to select the text
-by hand.
+by hand. A client's address also gets a **Block host** button - see
+[Blocking a client entirely](#blocking-a-client-entirely) above.
 
 ### Stats tab
 
@@ -423,7 +456,8 @@ by** (which specific blocklist subscription or rule is responsible for
 the most blocks - the same reasons as the query log's (i) icon, just
 aggregated). All of it updates live every 10 seconds alongside the rest
 of the dashboard. Like the query log, the domain/client tables have a
-**Copy** button on each row.
+**Copy** button on each row, and client rows also get a **Block host**
+button.
 
 ### Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX / your own)
 
@@ -493,6 +527,14 @@ the popup. Only past results for the exact target you just looked up are
 shown (`GET /api/enrich/history?target=...`), pulled straight from
 `enrichment.db`; a first-time lookup just shows the one row for the
 current result.
+
+For an IP target - always a client that has queried DNS-shield, since
+that's the only kind of IP the dashboard ever offers Enrich for - the
+popup also has a **Block this host**/**Unblock this host** button, the
+same feature as the query log/Stats "Block host" button, just reachable
+without leaving the popup; see
+[Blocking a client entirely](#blocking-a-client-entirely) above for what
+it actually does.
 
 ### Pause blocking
 

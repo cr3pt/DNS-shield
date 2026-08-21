@@ -212,6 +212,9 @@
   .icon-btn.enrich-btn:hover { border-color: var(--warn); color: var(--warn); }
   .icon-btn.enrich-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .icon-btn.enrich-btn:disabled[data-busy="1"] { cursor: wait; }
+  .icon-btn.block-client-btn:hover { border-color: var(--danger); color: var(--danger); }
+  .icon-btn.block-client-btn:disabled { opacity: 0.5; cursor: wait; }
+  .icon-btn.block-client-btn.is-blocked { border-color: var(--danger); color: var(--danger); }
   .pause-bar {
     background: var(--panel);
     border: 1px solid var(--panel-border);
@@ -611,6 +614,21 @@
   </div>
 
   <section>
+    <h2>Blocked clients (no communication allowed)</h2>
+    <p class="muted">
+      Every query from these IPs/CIDRs is blocked, for every domain - stronger than a domain
+      denylist entry, and takes priority over client groups below. Usually populated via the
+      "Block host" button next to a client's address in Logs, Stats, or the Enrich popup;
+      add one by hand here too if you'd rather.
+    </p>
+    <form class="inline" id="add-blocked-client-form">
+      <input type="text" id="blocked-client-value" placeholder="192.168.1.50 or 192.168.1.0/24" required>
+      <button type="submit">Block</button>
+    </form>
+    <table><tbody id="blocked-client-rows"></tbody></table>
+  </section>
+
+  <section>
     <h2>Client groups</h2>
     <p class="muted">Per-IP/CIDR overrides. First matching group wins; unmatched clients get the global policy above.</p>
     <form class="inline" id="add-group-form">
@@ -744,6 +762,14 @@ function updateEnrichButtons() {
 }
 const clientLabel = (ip) => (clientNames[ip] ? `${clientNames[ip]} (${ip})` : ip);
 
+// Clients with every query blocked outright (Settings -> blocked_clients),
+// populated by loadRules(). Membership here is an exact-string match, so a
+// manually-added CIDR entry won't make an individual IP within it show as
+// blocked here - the backend's actual blocking (app.netmatch.ip_matches) is
+// CIDR-aware regardless; this only affects the button's initial label.
+let blockedClients = new Set();
+const isClientBlocked = (ip) => blockedClients.has(ip);
+
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -824,7 +850,10 @@ function openEnrichmentWindow(result) {
         return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Public lookups are turned off - enable them in Settings -> Threat intelligence.</p></div>`;
       }
       if (!src.configured) {
-        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Not configured - add an API key in Settings -> Threat intelligence.</p></div>`;
+        const hint = name === "local"
+          ? "Not set up - enable it and add a URL in Settings -> Threat intelligence."
+          : "Not configured - add an API key in Settings -> Threat intelligence.";
+        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">${hint}</p></div>`;
       }
       if (!src.ok) {
         return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Lookup failed: ${escapeHtml(src.error || "unknown error")}</p></div>`;
@@ -852,6 +881,17 @@ function openEnrichmentWindow(result) {
       </div>`
     : "";
 
+  // Only ever shown for an IP target - in this app that's always a client
+  // that queried DNS-shield (see enrichButton() call sites), never an
+  // arbitrary resolved address, so "block this host" is always meaningful.
+  const clientBlockHtml =
+    result.type === "ip"
+      ? `<div class="client-block">
+          <button type="button" id="block-client-btn" data-target="${escapeHtml(result.target)}" data-blocked="${result.client_blocked ? "1" : "0"}">${result.client_blocked ? "Unblock this host" : "Block this host"}</button>
+          <p class="muted" style="margin-top:0.5rem;">Blocks ALL communication from ${escapeHtml(result.target)} through DNS-shield, for every domain - not just what was looked up here.</p>
+        </div>`
+      : "";
+
   w.document.write(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Enrichment: ${escapeHtml(result.target)}</title>
 <style>
@@ -869,13 +909,55 @@ function openEnrichmentWindow(result) {
   .hist-table th, .hist-table td { text-align:left; padding:0.35rem 0.5rem; border-bottom:1px solid rgba(255,255,255,0.1); }
   .hist-table th { opacity:0.7; font-weight:600; }
   .hbadge { display:inline-block; padding:0.1rem 0.5rem; border-radius:999px; color:#04102a; font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.02em; }
+  .client-block { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .client-block button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.45rem 1rem; font-size:0.85rem; font-weight:600; cursor:pointer; }
+  .client-block button:hover { border-color:currentColor; }
+  .client-block button:disabled { opacity:0.5; cursor:wait; }
+  .client-block button[data-blocked="1"] { background:rgba(255,255,255,0.12); }
 </style></head>
 <body>
   <h1>${escapeHtml(result.target)}</h1>
   <div class="verdict">${escapeHtml(result.overall_verdict)}${result.overall_score != null ? " &middot; score " + result.overall_score : ""}</div>
   ${sourceHtml || '<p class="muted">No threat-intel sources configured yet.</p>'}
   ${historyHtml}
+  ${clientBlockHtml}
   <p class="footer">Looked up just now, stored locally in enrichment.db.</p>
+  <script>
+    (function () {
+      var btn = document.getElementById("block-client-btn");
+      // Calls back into the opener (the dashboard tab that opened this
+      // popup) rather than fetching directly - this document was created
+      // via document.write() on a window.open("") target, and a relative
+      // fetch() from that context doesn't reliably resolve/authenticate
+      // against the dashboard's origin. window.opener.api() is the exact
+      // same helper the rest of the dashboard already uses successfully.
+      if (!btn || !window.opener || !window.opener.api) return;
+      btn.onclick = function () {
+        var target = btn.getAttribute("data-target");
+        var blocked = btn.getAttribute("data-blocked") === "1";
+        btn.disabled = true;
+        var req = blocked
+          ? window.opener.api("/api/rules/deny-client/" + encodeURIComponent(target), { method: "DELETE" })
+          : window.opener.api("/api/rules/deny-client", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ value: target }),
+            });
+        req
+          .then(function () {
+            var nowBlocked = !blocked;
+            btn.setAttribute("data-blocked", nowBlocked ? "1" : "0");
+            btn.textContent = nowBlocked ? "Unblock this host" : "Block this host";
+            btn.disabled = false;
+            if (window.opener.refreshAll) window.opener.refreshAll();
+          })
+          .catch(function (err) {
+            alert("Failed to update block state: " + (err && err.message ? err.message : err));
+            btn.disabled = false;
+          });
+      };
+    })();
+  <\/script>
 </body></html>`);
   w.document.close();
 }
@@ -909,6 +991,57 @@ function enrichButton(target, type) {
     }
   };
   return btn;
+}
+
+// Blocks/unblocks ALL communication from a client IP through DNS-shield -
+// every domain, not just the one this button happens to be shown next to.
+function clientBlockButtonLabel(blocked) {
+  return blocked ? "Unblock host" : "Block host";
+}
+function clientBlockButtonTitle(blocked) {
+  return blocked
+    ? "Allow this host to make DNS queries again"
+    : "Block ALL communication from this host through DNS-shield, not just this one query";
+}
+
+function clientBlockButton(client) {
+  const btn = el("button", { class: "icon-btn block-client-btn", type: "button" });
+  btn.dataset.client = client;
+  btn.textContent = clientBlockButtonLabel(isClientBlocked(client));
+  btn.title = clientBlockButtonTitle(isClientBlocked(client));
+  btn.classList.toggle("is-blocked", isClientBlocked(client));
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    const blocked = isClientBlocked(client);
+    btn.disabled = true;
+    try {
+      if (blocked) {
+        await api(`/api/rules/deny-client/${encodeURIComponent(client)}`, { method: "DELETE" });
+      } else {
+        await api("/api/rules/deny-client", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: client }),
+        });
+      }
+      refreshAll();
+    } catch (err) {
+      alert("Failed to update block state: " + err.message);
+      btn.disabled = false;
+    }
+  };
+  return btn;
+}
+
+function updateClientBlockButtons() {
+  for (const btn of document.querySelectorAll(".block-client-btn")) {
+    const client = btn.dataset.client;
+    if (!client) continue;
+    const blocked = isClientBlocked(client);
+    btn.textContent = clientBlockButtonLabel(blocked);
+    btn.title = clientBlockButtonTitle(blocked);
+    btn.classList.toggle("is-blocked", blocked);
+  }
 }
 
 function renderPauseBar(pause) {
@@ -1000,7 +1133,7 @@ async function loadStatusAndStats() {
   topClients.innerHTML = "";
   for (const [client, count] of stats.top_clients) {
     topClients.appendChild(el("tr", {}, [
-      addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip")] : [], client),
+      addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip"), clientBlockButton(client)] : [], client),
       el("td", { text: count }),
     ]));
   }
@@ -1072,6 +1205,16 @@ async function loadRules() {
     delBtn.onclick = async () => { await api(`/api/rules/deny/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
     denyRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
   }
+
+  blockedClients = new Set(rules.blocked_clients || []);
+  const blockedClientRows = document.getElementById("blocked-client-rows");
+  blockedClientRows.innerHTML = "";
+  for (const client of rules.blocked_clients || []) {
+    const delBtn = el("button", { class: "danger", text: "Unblock" });
+    delBtn.onclick = async () => { await api(`/api/rules/deny-client/${encodeURIComponent(client)}`, { method: "DELETE" }); refreshAll(); };
+    blockedClientRows.appendChild(el("tr", {}, [el("td", { text: clientLabel(client) }), el("td", {}, [delBtn])]));
+  }
+  updateClientBlockButtons();
 }
 
 function buildRuleEditor(title, items, onAdd, onRemove) {
@@ -1326,7 +1469,7 @@ function renderQueryLogRow(q) {
     el("td", { text: fmtTime(q.ts) }),
     addressCell(q.domain, [enrichButton(q.domain, "domain")]),
     el("td", { text: q.qtype }),
-    addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip")] : [], q.client),
+    addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip"), clientBlockButton(q.client)] : [], q.client),
     el("td", {}, resultCell),
     el("td", {}, [blockBtn, hideBtn]),
   ]);
@@ -1594,6 +1737,19 @@ document.getElementById("add-deny-form").addEventListener("submit", async (e) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ domain }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-blocked-client-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = document.getElementById("blocked-client-value").value.trim();
+  if (!value) return;
+  await api("/api/rules/deny-client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
   });
   e.target.reset();
   refreshAll();

@@ -133,10 +133,10 @@ class BlocklistManager:
         tooltip), or None if it isn't blocked.
 
         Precedence: pause-blocking bypass > upstream/blocklist-source
-        hostnames > group deny > global deny > group allow > global allow >
-        allow-list sources > group disabled (pass-through) > non-Latin
-        script filter > blocklists. A client not matching any configured
-        group behaves exactly as if client_groups were empty.
+        hostnames > blocked client > group deny > global deny > group allow
+        > global allow > allow-list sources > group disabled (pass-through)
+        > non-Latin script filter > blocklists. A client not matching any
+        configured group behaves exactly as if client_groups were empty.
 
         The hostname of a configured upstream (e.g. "dns.nextdns.io" for a
         doh:// upstream) or blocklist subscription URL is checked next and
@@ -144,6 +144,13 @@ class BlocklistManager:
         on it would otherwise cut DNS-shield off from that upstream or
         blocklist entirely, since it needs plain DNS to resolve that
         hostname before it can even reach it.
+
+        A client on `blocked_clients` (dashboard: a dedicated "Block host"
+        button next to any client IP, in the query log, Stats, and the
+        Enrich popup - or added by hand in Settings) has every query
+        blocked outright, for every domain, ahead of any per-domain or
+        per-group rule - this is "no communication at all", not a
+        domain-scoped denylist entry.
 
         Deny (group or global) is checked before allow (group or global) so
         an explicit denylist entry is truly "always blocked", as the UI
@@ -163,6 +170,8 @@ class BlocklistManager:
 
         if matches(protected_hostnames(self._config)):
             return None
+        if self._is_client_blocked(client_ip):
+            return "Client blocked (manually)"
         if group and matches(group.get("denylist")):
             return f"Denylist (client group \"{group.get('name', '')}\")"
         if matches(self._config.get("denylist", default=[])):
@@ -210,6 +219,14 @@ class BlocklistManager:
                 if ip_matches(client_ip, pattern):
                     return group
         return None
+
+    def _is_client_blocked(self, client_ip: str | None) -> bool:
+        if not client_ip:
+            return False
+        for pattern in self._config.get("blocked_clients", default=[]) or []:
+            if ip_matches(client_ip, pattern):
+                return True
+        return False
 
     # -- stats ----------------------------------------------------------
     def source_counts(self) -> dict[str, int]:

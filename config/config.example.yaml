@@ -87,6 +87,13 @@ allowlist: []
 # Domains that are always blocked, in addition to the blocklists.
 denylist: []
 
+# Client IPs/CIDRs with EVERY query blocked, for every domain - not a
+# domain-scoped rule like denylist above, this is "no communication with
+# this host at all". Takes priority over client_groups and every
+# domain-level rule. Populated via the dashboard's "Block host" button
+# (query log, Stats, and the Enrich popup) or added here by hand.
+blocked_clients: []
+
 # Route specific domains to specific upstream resolvers, regardless of
 # which client asked (e.g. internal/corporate domains that only your own
 # DNS server knows about) - takes priority over everything below.

@@ -67,6 +67,19 @@ def _http_error_message(exc: requests.HTTPError) -> str:
     return f"HTTP {status}" if status else str(exc)
 
 
+def _network_error_message(exc: Exception) -> str:
+    # Deliberately not str(exc) - a requests.ConnectionError's message is
+    # the raw connection-pool/urllib3 repr (nested exception classes,
+    # socket errors, retry counts), not something worth putting in front of
+    # a user; the full detail still reaches the log via logger.warning at
+    # each call site.
+    if isinstance(exc, requests.Timeout):
+        return "timed out - the service didn't respond in time"
+    if isinstance(exc, requests.ConnectionError):
+        return "network error - couldn't reach the service (check connectivity/DNS)"
+    return str(exc)
+
+
 def query_virustotal(target: str, target_type: str, api_key: str) -> dict[str, Any]:
     kind = "domains" if target_type == "domain" else "ip_addresses"
     url = f"https://www.virustotal.com/api/v3/{kind}/{quote(target, safe='')}"
@@ -102,7 +115,7 @@ def query_virustotal(target: str, target_type: str, api_key: str) -> dict[str, A
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
     except Exception as exc:  # noqa: BLE001
         logger.warning("VirusTotal lookup failed for %s: %s", target, exc)
-        return {"configured": True, "ok": False, "error": str(exc)}
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
 def query_abuseipdb(ip: str, api_key: str) -> dict[str, Any]:
@@ -143,7 +156,7 @@ def query_abuseipdb(ip: str, api_key: str) -> dict[str, Any]:
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
     except Exception as exc:  # noqa: BLE001
         logger.warning("AbuseIPDB lookup failed for %s: %s", ip, exc)
-        return {"configured": True, "ok": False, "error": str(exc)}
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
 def query_otx(target: str, target_type: str, api_key: str) -> dict[str, Any]:
@@ -177,7 +190,7 @@ def query_otx(target: str, target_type: str, api_key: str) -> dict[str, Any]:
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
     except Exception as exc:  # noqa: BLE001
         logger.warning("OTX lookup failed for %s: %s", target, exc)
-        return {"configured": True, "ok": False, "error": str(exc)}
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
 def query_local(target: str, target_type: str, url: str, api_key: str) -> dict[str, Any]:
@@ -212,7 +225,7 @@ def query_local(target: str, target_type: str, url: str, api_key: str) -> dict[s
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
     except Exception as exc:  # noqa: BLE001
         logger.warning("Local enrichment lookup failed for %s: %s", target, exc)
-        return {"configured": True, "ok": False, "error": str(exc)}
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
 def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
