@@ -442,6 +442,15 @@ Every result - including "not configured" and failed lookups - is
 recorded locally in `data/enrichment.db`, purely so you have a record of
 past lookups; nothing in that database is ever sent anywhere.
 
+The popup also shows a **lookup history** table for that same target -
+every past time you've clicked Enrich on it, newest first, with the
+verdict and score it had *at that time* - so you can see whether an
+indicator's reputation has moved since you last checked, without leaving
+the popup. Only past results for the exact target you just looked up are
+shown (`GET /api/enrich/history?target=...`), pulled straight from
+`enrichment.db`; a first-time lookup just shows the one row for the
+current result.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide

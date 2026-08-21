@@ -777,22 +777,48 @@ function openEnrichmentWindow(result) {
     })
     .join("");
 
+  const history = result.history || [];
+  const historyHtml = history.length
+    ? `<div class="history">
+        <h2>Lookup history <span class="muted">(${history.length} of this target's past checks, newest first)</span></h2>
+        <table class="hist-table">
+          <thead><tr><th>When</th><th>Verdict at the time</th><th>Score</th></tr></thead>
+          <tbody>
+            ${history
+              .map((h) => {
+                const hc = VERDICT_COLORS[h.overall_verdict] || VERDICT_COLORS.unknown;
+                const when = new Date(h.ts * 1000).toLocaleString();
+                return `<tr><td>${escapeHtml(when)}</td><td><span class="hbadge" style="background:${hc.accent};">${escapeHtml(h.overall_verdict)}</span></td><td>${h.overall_score != null ? h.overall_score : "&ndash;"}</td></tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>`
+    : "";
+
   w.document.write(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Enrichment: ${escapeHtml(result.target)}</title>
 <style>
   body { margin:0; padding:2rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:${colors.bg}; color:${colors.fg}; }
   h1 { font-size:1.3rem; margin:0 0 0.6rem; word-break:break-all; }
+  h2 { font-size:0.95rem; margin:0 0 0.6rem; }
   .verdict { display:inline-block; padding:0.3rem 0.9rem; border-radius:999px; background:${colors.accent}; color:#04102a; font-weight:700; text-transform:uppercase; font-size:0.8rem; margin-bottom:1.5rem; letter-spacing:0.03em; }
   .src { border-top:1px solid rgba(255,255,255,0.18); padding:1rem 0; }
   .src h3 { margin:0 0 0.4rem; font-size:1rem; text-transform:capitalize; }
   .badge { font-size:0.7rem; padding:0.1rem 0.5rem; border-radius:999px; background:rgba(255,255,255,0.18); margin-left:0.5rem; text-transform:uppercase; }
-  .muted { opacity:0.7; }
+  .muted { opacity:0.7; font-weight:400; text-transform:none; letter-spacing:normal; }
   .footer { margin-top:1.5rem; font-size:0.75rem; opacity:0.6; }
+  .history { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .hist-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+  .hist-table th, .hist-table td { text-align:left; padding:0.35rem 0.5rem; border-bottom:1px solid rgba(255,255,255,0.1); }
+  .hist-table th { opacity:0.7; font-weight:600; }
+  .hbadge { display:inline-block; padding:0.1rem 0.5rem; border-radius:999px; color:#04102a; font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.02em; }
 </style></head>
 <body>
   <h1>${escapeHtml(result.target)}</h1>
   <div class="verdict">${escapeHtml(result.overall_verdict)}${result.overall_score != null ? " &middot; score " + result.overall_score : ""}</div>
   ${sourceHtml || '<p class="muted">No threat-intel sources configured yet.</p>'}
+  ${historyHtml}
   <p class="footer">Looked up just now, stored locally in enrichment.db.</p>
 </body></html>`);
   w.document.close();

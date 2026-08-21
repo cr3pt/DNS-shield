@@ -654,16 +654,25 @@ def create_app(
             raise HTTPException(status_code=400, detail="Empty target")
 
         result = run_enrichment(target, target_type, config_store)
+        history: list[dict[str, Any]] = []
         if enrichment_store is not None:
             enrichment_store.record(
                 result["target"], result["type"], result["overall_verdict"], result["overall_score"], result["sources"]
             )
+            # Past lookups for this exact target (this one included, as the
+            # newest row) - lets the popup show how its verdict/score have
+            # moved over time, not just the result of this one click.
+            history = enrichment_store.history_for(result["target"], limit=20)
+        result["history"] = history
         return result
 
     @app.get("/api/enrich/history")
-    def enrichment_history(limit: int = 100, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def enrichment_history(limit: int = 100, target: str | None = None, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
         if enrichment_store is None:
             return []
-        return enrichment_store.recent(limit=max(1, min(limit, 500)))
+        limit = max(1, min(limit, 500))
+        if target:
+            return enrichment_store.history_for(target.strip(), limit=limit)
+        return enrichment_store.recent(limit=limit)
 
     return app
