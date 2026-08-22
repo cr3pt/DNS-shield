@@ -900,6 +900,13 @@
 
       <h3 style="margin-top:1rem;">Watch lists</h3>
       <p class="muted">Subscribed lists of domains to watch, same formats/auto-detection as the Blocklists section.</p>
+      <form class="inline" id="alert-source-from-blocklist-form">
+        <select id="alert-source-from-blocklist" style="flex:1;min-width:12rem;">
+          <option value="">-- add a list already in Blocklists --</option>
+        </select>
+        <button type="submit">Watch this list</button>
+      </form>
+      <p class="muted" style="margin-top:0.4rem;">Or watch a list that isn't in Blocklists at all:</p>
       <form class="inline" id="alert-source-form">
         <input type="text" id="alert-source-name" placeholder="list name" style="width:9rem;">
         <input type="text" id="alert-source-url" placeholder="https://..." style="flex:1;min-width:12rem;">
@@ -2690,6 +2697,29 @@ async function loadAlertDomains() {
 
 async function loadAlertSources() {
   await loadSourceTable("/api/alert-rules/sources", "alert-source-rows", "alert_sources", "alert_source_formats");
+  await loadAlertSourcePicker();
+}
+
+// Dropdown of lists already configured in Settings -> Blocklists, so
+// watching one of them doesn't mean retyping its name/URL - only lists
+// not already being watched are offered.
+async function loadAlertSourcePicker() {
+  const [blocklists, watched] = await Promise.all([
+    api("/api/blocklists"),
+    api("/api/alert-rules/sources"),
+  ]);
+  const watchedUrls = new Set(watched.map((s) => s.url));
+  const select = document.getElementById("alert-source-from-blocklist");
+  const previous = select.value;
+  select.innerHTML = "";
+  select.appendChild(el("option", { value: "", text: "-- add a list already in Blocklists --" }));
+  for (const source of blocklists) {
+    if (watchedUrls.has(source.url)) continue;
+    const opt = el("option", { value: source.url, text: source.name });
+    opt.dataset.name = source.name;
+    select.appendChild(opt);
+  }
+  if ([...select.options].some((o) => o.value === previous)) select.value = previous;
 }
 
 document.getElementById("anomaly-show-acknowledged").addEventListener("change", loadAnomalies);
@@ -2760,6 +2790,20 @@ document.getElementById("alert-source-form").addEventListener("submit", async (e
   const name = document.getElementById("alert-source-name").value.trim();
   const url = document.getElementById("alert-source-url").value.trim();
   if (!name || !url) return;
+  await api("/api/alert-rules/sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, url }),
+  });
+  refreshAll();
+});
+
+document.getElementById("alert-source-from-blocklist-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const select = document.getElementById("alert-source-from-blocklist");
+  const url = select.value;
+  if (!url) return;
+  const name = select.selectedOptions[0].dataset.name || select.selectedOptions[0].textContent;
   await api("/api/alert-rules/sources", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

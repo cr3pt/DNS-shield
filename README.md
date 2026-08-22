@@ -819,7 +819,11 @@ Settings -> Anomalies, right below the anomaly-detection settings, is a
 subdomains) and/or subscribe to watch lists (same hosts/AdBlock/plain
 formats, fetch/parse/cache behavior as the global Blocklists section -
 see [Blocklists, multiple formats & the Suggested-lists catalog](#blocklists-multiple-formats--the-suggested-lists-catalog)
-above). Querying anything on either list raises an alert - **whether or
+above). A dropdown lets you watch a list that's already configured in
+Blocklists with one click (it drops off the dropdown once watched, same
+as the Suggested-lists catalog); there's also a plain name/URL form right
+below it for watching a list that isn't in Blocklists at all. Querying
+anything on either list raises an alert - **whether or
 not the query is actually blocked** - and shows up as a "high"-severity
 row in the same top-level Anomalies tab, going through the exact same
 Acknowledge/Remove/Clear-all controls and the same email/browser
