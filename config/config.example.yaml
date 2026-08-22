@@ -261,3 +261,25 @@ anomaly:
   # this long before it can fire again, so a persistent condition doesn't
   # spam a fresh row every check cycle.
   cooldown_minutes: 60
+
+# Optional email notification when a new anomaly is detected - sent
+# straight to the SMTP server *you* configure below (your own mail server,
+# or your own account at any provider), using nothing but Python's stdlib
+# smtplib. Not a third-party cloud service. Off by default; nothing is
+# ever sent unless enabled and at least one recipient is set. The other
+# half of "notifications" - a browser popup - needs no config at all; see
+# the dashboard's Settings -> Notifications tab.
+notifications:
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    # "none", "starttls", or "ssl"
+    smtp_security: "starttls"
+    smtp_username: ""
+    smtp_password: ""
+    from_address: ""
+    to_addresses: []
+    # Only anomalies at or above this severity trigger an email -
+    # "low", "medium", or "high".
+    min_severity: "medium"

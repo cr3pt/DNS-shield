@@ -108,12 +108,17 @@ KIND_LABELS = {
 
 
 class AnomalyDetector:
-    def __init__(self, config_store, stats, db_path: Path):
+    def __init__(self, config_store, stats, db_path: Path, on_new_anomalies=None):
         self._config = config_store
         self._stats = stats
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        # Optional callback(list[dict]) fired at the end of check_once() with
+        # whatever was newly recorded - e.g. NotificationSender.notify_anomalies
+        # (app/notifications.py), wired in by main.py. Never required: detection
+        # and storage above work identically with this left as None.
+        self._on_new_anomalies = on_new_anomalies
         self._init_schema()
 
         self._stop_event = threading.Event()
@@ -277,6 +282,11 @@ class AnomalyDetector:
 
         if found:
             logger.info("anomaly check: %d new anomal%s flagged", len(found), "y" if len(found) == 1 else "ies")
+            if self._on_new_anomalies is not None:
+                try:
+                    self._on_new_anomalies(found)
+                except Exception:  # noqa: BLE001 - a notification failure must never break detection
+                    logger.exception("on_new_anomalies callback failed")
         return found
 
     # -- reading/managing -------------------------------------------------

@@ -78,15 +78,18 @@ DNS-shield implements the same core mechanism (DNS sinkhole + filter lists +
 web UI) but keeps it **local-only by construction**:
 
 - The only outbound network calls it ever makes are (a) to the blocklist
-  URLs *you* configure, (b) to the upstream resolvers *you* configure, and
+  URLs *you* configure, (b) to the upstream resolvers *you* configure,
   (c) a threat-intel reputation lookup (VirusTotal/AbuseIPDB/AlienVault
   OTX) - gated by an API key *and* a separate "Enable public lookups"
   switch that's off by default, and even then only the instant you click
   "Enrich" on a specific domain/IP; see
   [Threat-intel enrichment](#threat-intel-enrichment-virustotal--abuseipdb--alienvault-otx--your-own)
   below, including the option to point Enrich at a reputation service you
-  run yourself instead. There is no default AdGuard-operated endpoint,
-  and nothing calls out on its own.
+  run yourself instead - and (d) an email to the SMTP server *you*
+  configure, off by default, only when [anomaly detection](#local-anomaly-detection)
+  is on and finds something; see [Notifications](#notifications) below.
+  There is no default AdGuard-operated endpoint, and nothing calls out on
+  its own.
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
 - All state - config, cached blocklists, query stats/log, enrichment
@@ -767,6 +770,46 @@ own `anomalies.db`, never touching the query-answering path at all. A
 bug here can, at worst, stop producing new alerts; it cannot break or
 slow down DNS resolution.
 
+### Notifications
+
+Settings -> Notifications has two independent ways to hear about a newly
+detected anomaly without having the dashboard open at the moment it
+fires - both off by default, both entirely under your own control:
+
+**Email**, sent straight to the SMTP server *you* configure - your own
+mail server, or your own account at any provider - using nothing but
+Python's standard library (`smtplib`); this is not a third-party cloud
+service, it's exactly what any desktop mail client does. Fill in the
+host, port, security mode (STARTTLS/SSL/none), optional username/password,
+a from address, and at least one recipient, then **Save email
+notification settings**. A **Send test email** button lets you verify
+the configuration immediately rather than waiting for a real anomaly.
+`notifications.email.min_severity` (default `medium`) limits which
+anomalies actually trigger an email, so a flood of low-severity alerts
+doesn't flood your inbox too - every anomaly still shows up in the
+Anomalies tab regardless of this setting, it only affects what emails
+out. The SMTP password is masked the same way as the threat-intel API
+keys (first/last character only, e.g. `s******t`) and never round-trips
+to your browser in full once saved.
+
+**Browser popups**, via your browser's own
+[Notification API](https://developer.mozilla.org/en-US/docs/Web/API/Notifications_API) -
+no server component at all. Checking "Notify me in this browser when new
+anomalies are detected" asks your browser to allow popups from the
+dashboard; once granted, that browser tab polls the dashboard's own
+unacknowledged-anomaly count every 30 seconds (as long as the dashboard
+is open in some tab) and pops a native notification when that count goes
+up. This is a per-browser/per-device choice stored in that browser's own
+`localStorage`, not a server-side setting - enabling it on your laptop
+doesn't enable it on your phone, and DNS-shield never learns whether
+you've turned it on.
+
+Both channels only ever fire from the *same* event: a new row landing in
+`anomalies.db` from the anomaly detector above. Neither one is itself a
+new source of outbound calls beyond what's already documented - email
+goes to the mail server you typed in, and the browser popup never leaves
+your own browser.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide
@@ -932,6 +975,8 @@ app/
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
   anomaly.py             local, heuristic anomaly detection over the query log - its own
                         background thread, SQLite storage (data/anomalies.db) (see above)
+  notifications.py       optional email for new anomalies, straight to the SMTP server you
+                        configure (stdlib smtplib only) - never called on its own (see above)
   web/server.py        FastAPI REST API + basic-auth, backing the dashboard
   web/static/          single self-contained dashboard page (no external assets/CDN -
                        even its favicon/header logo is an inlined SVG, not a fetched file)

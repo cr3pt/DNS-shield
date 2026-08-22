@@ -31,6 +31,7 @@ from app.config import ConfigStore
 from app.dns_cache import DNSCache
 from app.dns_server import start_dns_servers
 from app.enrichment_store import EnrichmentStore
+from app.notifications import NotificationSender
 from app.stats import Stats
 from app.upstream_stats import UpstreamStats
 from app.web.server import create_app
@@ -64,11 +65,19 @@ def main() -> None:
     upstream_stats = UpstreamStats(config_store)
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")
 
+    # Optional outbound email for anomaly alerts, via an SMTP server *you*
+    # configure - off by default, and never anything but that one SMTP
+    # call (see app/notifications.py). Browser-popup notifications need no
+    # backend component at all; that half lives entirely in the dashboard.
+    notifications = NotificationSender(config_store)
+
     # Local, heuristic anomaly detection over the query log - its own
     # background thread, reading from stats.db on a timer and writing to
     # its own anomalies.db. Off by default (anomaly.enabled); wrapped in
     # try/except internally so a bug here can never affect DNS resolution.
-    anomaly = AnomalyDetector(config_store, stats, DATA_DIR / "anomalies.db")
+    anomaly = AnomalyDetector(
+        config_store, stats, DATA_DIR / "anomalies.db", on_new_anomalies=notifications.notify_anomalies
+    )
     anomaly.start()
 
     start_dns_servers(
@@ -93,6 +102,7 @@ def main() -> None:
         upstream_stats=upstream_stats,
         enrichment_store=enrichment_store,
         anomaly=anomaly,
+        notifications=notifications,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))

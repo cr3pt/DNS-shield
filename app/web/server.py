@@ -73,6 +73,21 @@ def _anomaly_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {key: cfg.get(key, default) for key, default in _ANOMALY_DEFAULTS.items()}
 
 
+def _notification_email_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "smtp_host": cfg.get("smtp_host", "") or "",
+        "smtp_port": cfg.get("smtp_port", 587),
+        "smtp_security": cfg.get("smtp_security", "starttls") or "starttls",
+        "smtp_username": cfg.get("smtp_username", "") or "",
+        "smtp_password_set": bool(cfg.get("smtp_password")),
+        "smtp_password_preview": _masked_key_preview(cfg.get("smtp_password")),
+        "from_address": cfg.get("from_address", "") or "",
+        "to_addresses": cfg.get("to_addresses", []) or [],
+        "min_severity": cfg.get("min_severity", "medium") or "medium",
+    }
+
+
 class BlocklistSourceIn(BaseModel):
     name: str
     url: str
@@ -189,6 +204,18 @@ class AnomalySettingsIn(BaseModel):
     cooldown_minutes: float | None = None
 
 
+class NotificationEmailSettingsIn(BaseModel):
+    enabled: bool | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_security: str | None = None  # "none" | "starttls" | "ssl"
+    smtp_username: str | None = None
+    smtp_password: str | None = None  # blank/omitted = keep current password
+    from_address: str | None = None
+    to_addresses: list[str] | None = None
+    min_severity: str | None = None  # "low" | "medium" | "high"
+
+
 def create_app(
     config_store,
     blocklist,
@@ -199,6 +226,7 @@ def create_app(
     upstream_stats=None,
     enrichment_store=None,
     anomaly=None,
+    notifications=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -919,6 +947,9 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "local_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("local_api_key")),
             },
             "anomaly": _anomaly_settings(snap.get("anomaly", {})),
+            "notifications": {
+                "email": _notification_email_settings(snap.get("notifications", {}).get("email", {})),
+            },
             "restart_required": [
                 "dns.listen_address",
                 "dns.listen_port",
@@ -1052,6 +1083,32 @@ To restore into an EXISTING instance (data/config.db already exists):
             return _anomaly_settings(anomaly_cfg)
 
         return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/notifications/email")
+    def update_notification_email_settings(
+        body: NotificationEmailSettingsIn, _: None = Depends(require_auth)
+    ) -> dict[str, Any]:
+        # smtp_password is masked like the threat-intel API keys - blank/
+        # omitted means "keep the current value", never "clear it".
+        data_in = body.model_dump(exclude_unset=True)
+        payload = {k: v for k, v in data_in.items() if (v if k == "smtp_password" else v is not None)}
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            email_cfg = data.setdefault("notifications", {}).setdefault("email", {})
+            email_cfg.update(payload)
+            return _notification_email_settings(email_cfg)
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/notifications/test-email")
+    def send_test_email(_: None = Depends(require_auth)) -> dict[str, Any]:
+        if notifications is None:
+            raise HTTPException(status_code=503, detail="Notifications are not available")
+        try:
+            notifications.send_test_email()
+        except Exception as exc:  # noqa: BLE001 - surface the SMTP/config error to the dashboard
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True}
 
     # -- local anomaly detection: a background thread that periodically ---
     # scans the query log for per-client statistical red flags (a spike in

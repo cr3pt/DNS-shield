@@ -545,6 +545,7 @@
     <button type="button" class="subtab-btn" data-subtab="logging">Logging</button>
     <button type="button" class="subtab-btn" data-subtab="threat-intel">Threat intelligence</button>
     <button type="button" class="subtab-btn" data-subtab="anomalies">Anomalies<span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
+    <button type="button" class="subtab-btn" data-subtab="notifications">Notifications</button>
     <button type="button" class="subtab-btn" data-subtab="import">Import</button>
     <button type="button" class="subtab-btn" data-subtab="blocklists">Blocklists</button>
     <button type="button" class="subtab-btn" data-subtab="ownlists">Own lists</button>
@@ -848,6 +849,71 @@
         <tbody id="anomaly-rows"></tbody>
       </table>
       <p class="muted" id="anomaly-empty" style="display:none;">No anomalies detected.</p>
+    </section>
+  </div>
+
+  <div id="subtab-notifications" class="subtab-panel">
+    <section>
+      <h2>Email notifications</h2>
+      <p class="hint" style="color:var(--muted);">
+        Sends an email straight to the SMTP server <em>you</em> configure below when new
+        anomalies are detected - not a third-party cloud service, this is exactly what any
+        mail client does: your own mail server, or your own account at any provider. Off by
+        default; nothing is ever sent unless enabled here and at least one recipient is set.
+      </p>
+      <form id="notifications-email-form">
+        <div class="field checkbox">
+          <input type="checkbox" id="s-notif-email-enabled">
+          <label for="s-notif-email-enabled">Enable email notifications</label>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label>SMTP host</label><input type="text" id="s-notif-smtp-host" placeholder="smtp.example.com" autocomplete="off"></div>
+          <div class="field"><label>SMTP port</label><input type="number" id="s-notif-smtp-port" min="1" step="1" placeholder="587"></div>
+          <div class="field">
+            <label>Security</label>
+            <select id="s-notif-smtp-security">
+              <option value="starttls">STARTTLS</option>
+              <option value="ssl">SSL/TLS</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+          <div class="field"><label>SMTP username (optional)</label><input type="text" id="s-notif-smtp-username" autocomplete="off"></div>
+          <div class="field">
+            <label>SMTP password <span id="notif-smtp-password-status" class="muted"></span></label>
+            <input type="password" id="s-notif-smtp-password" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+          <div class="field"><label>From address</label><input type="text" id="s-notif-from-address" placeholder="dns-shield@example.com" autocomplete="off"></div>
+          <div class="field"><label>To address(es), comma separated</label><input type="text" id="s-notif-to-addresses" placeholder="you@example.com" autocomplete="off"></div>
+          <div class="field">
+            <label>Minimum severity to email</label>
+            <select id="s-notif-min-severity">
+              <option value="low">Low and above</option>
+              <option value="medium">Medium and above</option>
+              <option value="high">High only</option>
+            </select>
+          </div>
+        </div>
+        <div class="inline">
+          <button type="submit">Save email notification settings</button>
+          <button type="button" class="secondary" id="notif-send-test-email">Send test email</button>
+        </div>
+        <p class="muted" id="notif-test-email-result"></p>
+      </form>
+    </section>
+
+    <section>
+      <h2>Browser notifications</h2>
+      <p class="hint" style="color:var(--muted);">
+        A native browser popup (via your browser's own Notification permission - nothing sent
+        anywhere) when a new anomaly appears, as long as this dashboard tab is open somewhere.
+        No server component: your browser polls the dashboard itself and decides locally
+        whether to show a popup, per browser/device you enable this on.
+      </p>
+      <div class="field checkbox">
+        <input type="checkbox" id="s-notif-browser-enabled">
+        <label for="s-notif-browser-enabled">Notify me in this browser when new anomalies are detected</label>
+      </div>
+      <p class="muted" id="notif-browser-status"></p>
     </section>
   </div>
 
@@ -2135,6 +2201,19 @@ async function loadSettings() {
   document.getElementById("s-anomaly-entropy-min-length").value = an.domain_burst_min_label_length ?? "";
   document.getElementById("s-anomaly-entropy-min-bits").value = an.domain_burst_min_entropy ?? "";
   document.getElementById("s-anomaly-entropy-fraction").value = an.domain_burst_entropy_fraction ?? "";
+
+  const notifEmail = (s.notifications || {}).email || {};
+  document.getElementById("s-notif-email-enabled").checked = !!notifEmail.enabled;
+  document.getElementById("s-notif-smtp-host").value = notifEmail.smtp_host ?? "";
+  document.getElementById("s-notif-smtp-port").value = notifEmail.smtp_port ?? "";
+  document.getElementById("s-notif-smtp-security").value = notifEmail.smtp_security ?? "starttls";
+  document.getElementById("s-notif-smtp-username").value = notifEmail.smtp_username ?? "";
+  document.getElementById("s-notif-smtp-password").value = "";
+  document.getElementById("notif-smtp-password-status").textContent = notifEmail.smtp_password_set
+    ? `(configured: ${notifEmail.smtp_password_preview}) ` : "(not set)";
+  document.getElementById("s-notif-from-address").value = notifEmail.from_address ?? "";
+  document.getElementById("s-notif-to-addresses").value = (notifEmail.to_addresses || []).join(", ");
+  document.getElementById("s-notif-min-severity").value = notifEmail.min_severity ?? "medium";
 }
 
 async function loadLogIgnore() {
@@ -2399,6 +2478,111 @@ document.getElementById("anomaly-settings-form").addEventListener("submit", asyn
   });
   refreshAll();
 });
+
+document.getElementById("notifications-email-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const password = document.getElementById("s-notif-smtp-password").value;
+  const body = {
+    enabled: document.getElementById("s-notif-email-enabled").checked,
+    smtp_host: document.getElementById("s-notif-smtp-host").value.trim(),
+    smtp_port: intField("s-notif-smtp-port"),
+    smtp_security: document.getElementById("s-notif-smtp-security").value,
+    smtp_username: document.getElementById("s-notif-smtp-username").value.trim(),
+    from_address: document.getElementById("s-notif-from-address").value.trim(),
+    to_addresses: document.getElementById("s-notif-to-addresses").value.split(",").map((s) => s.trim()).filter(Boolean),
+    min_severity: document.getElementById("s-notif-min-severity").value,
+  };
+  if (password) body.smtp_password = password;
+  document.getElementById("notif-test-email-result").textContent = "";
+  await api("/api/settings/notifications/email", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  refreshAll();
+});
+
+document.getElementById("notif-send-test-email").addEventListener("click", async () => {
+  const btn = document.getElementById("notif-send-test-email");
+  const result = document.getElementById("notif-test-email-result");
+  btn.disabled = true;
+  result.textContent = "Sending...";
+  try {
+    await api("/api/notifications/test-email", { method: "POST" });
+    result.textContent = "Test email sent - check your inbox.";
+  } catch (err) {
+    result.textContent = "Failed to send test email: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Browser notifications: no server component at all - this browser polls
+// the dashboard's own unacknowledged-anomaly count and decides locally
+// whether to pop a native Notification, entirely client-side.
+const BROWSER_NOTIF_KEY = "dnsshield-browser-notifications";
+let lastKnownAnomalyCount = null;
+
+function browserNotifSupported() {
+  return typeof window !== "undefined" && "Notification" in window;
+}
+
+function updateBrowserNotifStatus() {
+  const statusEl = document.getElementById("notif-browser-status");
+  const checkbox = document.getElementById("s-notif-browser-enabled");
+  if (!browserNotifSupported()) {
+    statusEl.textContent = "Your browser doesn't support notifications.";
+    checkbox.disabled = true;
+    return;
+  }
+  const wantsIt = localStorage.getItem(BROWSER_NOTIF_KEY) === "1";
+  const permission = Notification.permission;
+  checkbox.checked = wantsIt && permission === "granted";
+  if (permission === "denied") {
+    statusEl.textContent = "Blocked at the browser level - allow notifications for this site in your browser's settings to use this.";
+  } else if (wantsIt && permission === "granted") {
+    statusEl.textContent = "Enabled in this browser.";
+  } else {
+    statusEl.textContent = "Off in this browser. Enabling asks your browser to allow popups from this page.";
+  }
+}
+
+document.getElementById("s-notif-browser-enabled").addEventListener("change", async (e) => {
+  if (!browserNotifSupported()) return;
+  if (e.target.checked) {
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      localStorage.setItem(BROWSER_NOTIF_KEY, "1");
+    } else {
+      localStorage.removeItem(BROWSER_NOTIF_KEY);
+    }
+  } else {
+    localStorage.removeItem(BROWSER_NOTIF_KEY);
+  }
+  updateBrowserNotifStatus();
+});
+
+async function pollBrowserAnomalyNotifications() {
+  if (!browserNotifSupported() || Notification.permission !== "granted" || localStorage.getItem(BROWSER_NOTIF_KEY) !== "1") {
+    return;
+  }
+  try {
+    const info = await api("/api/anomalies/count");
+    if (lastKnownAnomalyCount !== null && info.unacknowledged > lastKnownAnomalyCount) {
+      const delta = info.unacknowledged - lastKnownAnomalyCount;
+      new Notification("DNS-shield: new anomaly detected", {
+        body: `${delta} new anomal${delta === 1 ? "y" : "ies"} detected - open the dashboard's Anomalies tab for details.`,
+      });
+    }
+    lastKnownAnomalyCount = info.unacknowledged;
+  } catch (err) {
+    // Auth/network hiccups shouldn't spam the console on a background poll.
+  }
+}
+
+updateBrowserNotifStatus();
+pollBrowserAnomalyNotifications();
+setInterval(pollBrowserAnomalyNotifications, 30000);
 
 async function refreshAll() {
   await loadStatusAndStats();
@@ -2868,7 +3052,7 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
 }
 setActiveTab(localStorage.getItem("dnsshield-tab"));
 
-const SUBTAB_NAMES = ["general", "dns", "logging", "threat-intel", "anomalies", "import", "blocklists", "ownlists", "clients", "cleans"];
+const SUBTAB_NAMES = ["general", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
 
 function setActiveSubtab(subtab) {
   if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";
