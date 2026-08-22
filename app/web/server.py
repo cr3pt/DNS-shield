@@ -79,6 +79,7 @@ class ClientGroupIn(BaseModel):
     allowlist: list[str] = []
     denylist: list[str] = []
     upstreams: list[str] = []
+    blocklist_sources: list[dict[str, Any]] = []
 
 
 class DnsSettingsIn(BaseModel):
@@ -181,6 +182,7 @@ def create_app(
 
     @app.get("/api/status")
     def status(_: None = Depends(require_auth)) -> dict[str, Any]:
+        group_names = [g.get("name", "") for g in (config_store.get("client_groups", default=[]) or [])]
         return {
             "uptime_seconds": time.time() - started_at,
             "dns_listen": f"{config_store.get('dns', 'listen_address', default='0.0.0.0')}:"
@@ -192,6 +194,9 @@ def create_app(
             "allowlist_domains": blocklist.allowed_count(),
             "allowlist_sources": blocklist.allow_source_counts(),
             "allowlist_source_formats": blocklist.allow_source_formats(),
+            "group_blocklist_domains": {n: blocklist.group_total_count(n) for n in group_names},
+            "group_blocklist_sources": {n: blocklist.group_source_counts(n) for n in group_names},
+            "group_blocklist_source_formats": {n: blocklist.group_source_formats(n) for n in group_names},
             "cache": cache.stats() if cache is not None else None,
             "upstream_stats": upstream_stats.snapshot() if upstream_stats is not None else {},
             "pause": {
@@ -596,6 +601,62 @@ def create_app(
             return group
 
         return _group_mutate(index, _fn)
+
+    # -- per-group extra blocklist sources: additive to the global blocklist,
+    # e.g. a stricter extra list for a kids' devices group. Mirrors the
+    # global /api/blocklists CRUD above, scoped to one group's own list. --
+    def _group_source_mutate(index: int, fn) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            groups = data.setdefault("client_groups", [])
+            if not 0 <= index < len(groups):
+                raise HTTPException(status_code=404, detail="No such client group")
+            sources = groups[index].setdefault("blocklist_sources", [])
+            return fn(sources)
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
+
+    @app.get("/api/client-groups/{index}/blocklist-sources")
+    def list_group_blocklist_sources(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        groups = config_store.get("client_groups", default=[]) or []
+        if not 0 <= index < len(groups):
+            raise HTTPException(status_code=404, detail="No such client group")
+        return groups[index].get("blocklist_sources", []) or []
+
+    @app.post("/api/client-groups/{index}/blocklist-sources")
+    def add_group_blocklist_source(
+        index: int, source: BlocklistSourceIn, _: None = Depends(require_auth)
+    ) -> list[dict[str, Any]]:
+        def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            sources.append(source.model_dump())
+            return sources
+
+        return _group_source_mutate(index, _fn)
+
+    @app.delete("/api/client-groups/{index}/blocklist-sources/{source_index}")
+    def delete_group_blocklist_source(
+        index: int, source_index: int, _: None = Depends(require_auth)
+    ) -> list[dict[str, Any]]:
+        def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            if not 0 <= source_index < len(sources):
+                raise HTTPException(status_code=404, detail="No such list")
+            sources.pop(source_index)
+            return sources
+
+        return _group_source_mutate(index, _fn)
+
+    @app.post("/api/client-groups/{index}/blocklist-sources/{source_index}/toggle")
+    def toggle_group_blocklist_source(
+        index: int, source_index: int, _: None = Depends(require_auth)
+    ) -> list[dict[str, Any]]:
+        def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            if not 0 <= source_index < len(sources):
+                raise HTTPException(status_code=404, detail="No such list")
+            sources[source_index]["enabled"] = not sources[source_index].get("enabled", True)
+            return sources
+
+        return _group_source_mutate(index, _fn)
 
     # -- per-domain upstream routing: [/domain/] -> specific resolvers, AdGuard-style --
     @app.get("/api/domain-upstreams")

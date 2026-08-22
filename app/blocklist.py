@@ -163,6 +163,15 @@ class BlocklistManager:
         self._source_formats: dict[str, str] = {}
         self._allow_source_counts: dict[str, int] = {}
         self._allow_source_formats: dict[str, str] = {}
+        # Per-group extra blocklists (client_groups[].blocklist_sources), keyed
+        # by group name. Extend-only: a group's effective blocklist is the
+        # global one above *plus* these, never a replacement - see
+        # block_reason() and refresh(). Rebuilt whole on every refresh(), so a
+        # renamed/removed group's stale entry just disappears next cycle.
+        self._group_blocked: dict[str, frozenset[str]] = {}
+        self._group_domain_source: dict[str, dict[str, str]] = {}
+        self._group_source_counts: dict[str, dict[str, int]] = {}
+        self._group_source_formats: dict[str, dict[str, str]] = {}
         self._last_refresh: float | None = None
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -200,8 +209,16 @@ class BlocklistManager:
         Precedence: pause-blocking bypass > upstream/blocklist-source
         hostnames > blocked client > group deny > global deny > group allow
         > global allow > allow-list sources > group disabled (pass-through)
-        > non-Latin script filter > blocklists. A client not matching any
-        configured group behaves exactly as if client_groups were empty.
+        > non-Latin script filter > global blocklists > group's own extra
+        blocklist sources. A client not matching any configured group
+        behaves exactly as if client_groups were empty.
+
+        A group's own blocklist_sources (Clients tab) are additive, never a
+        replacement for the global blocklist - a group only ever ends up
+        with a *stricter* effective list than the default, e.g. an extra
+        adult-content list for a kids' devices group. Wanting a *lighter*
+        list for a group is already covered by the existing per-group
+        allowlist and the group enabled/disabled toggle.
 
         The hostname of a configured upstream (e.g. "dns.nextdns.io" for a
         doh:// upstream) or blocklist subscription URL is checked next and
@@ -252,6 +269,8 @@ class BlocklistManager:
 
         with self._lock:
             allowed, blocked, domain_source = self._allowed, self._blocked, self._domain_source
+            group_blocked = self._group_blocked
+            group_domain_source = self._group_domain_source
 
         if self._find_match(qname, allowed) is not None:
             return None
@@ -262,10 +281,19 @@ class BlocklistManager:
             return "Non-Latin-script domain filter"
 
         matched = self._find_match(qname, blocked)
-        if matched is None:
-            return None
-        source = domain_source.get(matched)
-        return f"Blocklist: {source}" if source else "Blocklist"
+        if matched is not None:
+            source = domain_source.get(matched)
+            return f"Blocklist: {source}" if source else "Blocklist"
+
+        if group is not None:
+            group_name = group.get("name", "")
+            matched = self._find_match(qname, group_blocked.get(group_name, frozenset()))
+            if matched is not None:
+                source = group_domain_source.get(group_name, {}).get(matched)
+                label = f'Blocklist (client group "{group_name}")'
+                return f"{label}: {source}" if source else label
+
+        return None
 
     def _compiled_regex_patterns(self) -> list[tuple[str, re.Pattern]]:
         patterns = tuple(self._config.get("denylist_regex", default=[]) or [])
@@ -336,6 +364,18 @@ class BlocklistManager:
         with self._lock:
             return len(self._allowed)
 
+    def group_source_counts(self, group_name: str) -> dict[str, int]:
+        with self._lock:
+            return dict(self._group_source_counts.get(group_name, {}))
+
+    def group_source_formats(self, group_name: str) -> dict[str, str]:
+        with self._lock:
+            return dict(self._group_source_formats.get(group_name, {}))
+
+    def group_total_count(self, group_name: str) -> int:
+        with self._lock:
+            return len(self._group_blocked.get(group_name, frozenset()))
+
     def last_refresh(self) -> float | None:
         return self._last_refresh
 
@@ -389,6 +429,21 @@ class BlocklistManager:
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
             allow_merged, allow_counts, allow_formats, _ = self._fetch_sources(allow_sources)
 
+            group_blocked: dict[str, frozenset[str]] = {}
+            group_domain_source: dict[str, dict[str, str]] = {}
+            group_source_counts: dict[str, dict[str, int]] = {}
+            group_source_formats: dict[str, dict[str, str]] = {}
+            for group in self._config.get("client_groups", default=[]) or []:
+                group_sources = group.get("blocklist_sources") or []
+                if not group_sources:
+                    continue
+                name = group.get("name", "")
+                g_merged, g_counts, g_formats, g_domain_source = self._fetch_sources(group_sources)
+                group_blocked[name] = frozenset(g_merged)
+                group_domain_source[name] = g_domain_source
+                group_source_counts[name] = g_counts
+                group_source_formats[name] = g_formats
+
             with self._lock:
                 self._blocked = frozenset(merged)
                 self._source_counts = counts
@@ -397,11 +452,15 @@ class BlocklistManager:
                 self._allowed = frozenset(allow_merged)
                 self._allow_source_counts = allow_counts
                 self._allow_source_formats = allow_formats
+                self._group_blocked = group_blocked
+                self._group_domain_source = group_domain_source
+                self._group_source_counts = group_source_counts
+                self._group_source_formats = group_source_formats
                 self._last_refresh = time.time()
             logger.info(
                 "blocklist refresh complete: %d blocked domains from %d sources, "
-                "%d allow-listed domains from %d sources",
-                len(merged), len(counts), len(allow_merged), len(allow_counts),
+                "%d allow-listed domains from %d sources, %d client group(s) with extra sources",
+                len(merged), len(counts), len(allow_merged), len(allow_counts), len(group_blocked),
             )
 
     # -- background thread ------------------------------------------------

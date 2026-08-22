@@ -1870,8 +1870,67 @@ function buildRuleEditor(title, items, onAdd, onRemove) {
   return wrap;
 }
 
+function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDomains) {
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: "Extra blocklist sources for this group (adds to the global blocklist)" }));
+  wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: `${totalDomains} extra domain(s) blocked for this group beyond the global blocklist.` }));
+
+  if (sources.length) {
+    const table = el("table", {});
+    const thead = el("thead", {}, [el("tr", {}, [
+      el("th", { text: "Name" }), el("th", { text: "URL" }), el("th", { text: "Domains" }), el("th", { text: "Status" }), el("th", {}),
+    ])]);
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    sources.forEach((s, si) => {
+      const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? "Disable" : "Enable" });
+      toggleBtn.onclick = async () => { await api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}/toggle`, { method: "POST" }); refreshAll(); };
+      const delBtn = el("button", { class: "danger", text: "Remove" });
+      delBtn.onclick = async () => { await api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}`, { method: "DELETE" }); refreshAll(); };
+      const domainsCell = el("td", {}, [document.createTextNode((counts[s.name] ?? "-").toString())]);
+      if (formats[s.name]) {
+        domainsCell.appendChild(el("div", { class: "muted", style: "font-size:0.72rem;margin-top:0.1rem;", text: formats[s.name] }));
+      }
+      tbody.appendChild(el("tr", {}, [
+        el("td", { text: s.name }),
+        el("td", { text: s.url, class: "url-cell" }),
+        domainsCell,
+        el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? "enabled" : "disabled" })]),
+        el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
+      ]));
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+
+  const addForm = document.createElement("form");
+  addForm.className = "inline";
+  addForm.style.marginTop = "0.4rem";
+  const nameInput = el("input", { type: "text", placeholder: "list name", style: "width:9rem;" });
+  const urlInput = el("input", { type: "text", placeholder: "https://...", style: "flex:1;min-width:12rem;" });
+  addForm.appendChild(nameInput);
+  addForm.appendChild(urlInput);
+  addForm.appendChild(el("button", { type: "submit", text: "Add list" }));
+  addForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    const url = urlInput.value.trim();
+    if (!name || !url) return;
+    await api(`/api/client-groups/${groupIndex}/blocklist-sources`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url }),
+    });
+    refreshAll();
+  });
+  wrap.appendChild(addForm);
+
+  return wrap;
+}
+
 async function loadClientGroups() {
   const groups = await api("/api/client-groups");
+  const status = await api("/api/status");
   const container = document.getElementById("group-list");
   container.innerHTML = "";
 
@@ -1920,7 +1979,15 @@ async function loadClientGroups() {
       refreshAll();
     });
 
-    container.appendChild(el("div", { class: "group-card" }, [header, actions, allowEditor, denyEditor, upstreamsForm]));
+    const groupBlocklistEditor = buildGroupBlocklistEditor(
+      i,
+      g.blocklist_sources || [],
+      (status.group_blocklist_sources || {})[g.name] || {},
+      (status.group_blocklist_source_formats || {})[g.name] || {},
+      (status.group_blocklist_domains || {})[g.name] || 0
+    );
+
+    container.appendChild(el("div", { class: "group-card" }, [header, actions, allowEditor, denyEditor, upstreamsForm, groupBlocklistEditor]));
   });
 }
 

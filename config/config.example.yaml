@@ -168,6 +168,13 @@ domain_upstreams: []
 #     allowlist: []
 #     denylist: ["some-adult-site.example"]
 #     upstreams: []
+#     # Extra subscribed lists just for this group, on top of the global
+#     # blocklists above - additive only, never a replacement (want a
+#     # *lighter* list for a group instead? use allowlist/enabled above).
+#     blocklist_sources:
+#       - name: "Extra kids-safe list"
+#         url: "https://example.org/extra-blocklist.txt"
+#         enabled: true
 #   - name: "Guests"
 #     match: ["192.168.1.200/29"]
 #     enabled: false   # pass-through, no ad/tracker blocking for guests

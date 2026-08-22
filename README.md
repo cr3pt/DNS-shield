@@ -411,6 +411,10 @@ client_groups:
     enabled: true
     allowlist: []
     denylist: ["some-adult-site.example"]
+    blocklist_sources:
+      - name: "Extra kids-safe list"
+        url: "https://example.org/extra-blocklist.txt"
+        enabled: true
   - name: "Guests"
     match: ["192.168.1.200/29"]
     enabled: false   # pass-through: no ad/tracker blocking for this group
@@ -418,14 +422,26 @@ client_groups:
 
 Precedence for a query from a matched client: group denylist > global
 denylist > group allowlist > global allowlist > group `enabled: false`
-(no filtering at all) > the blocklists. Denylist beats allowlist at both
-levels, so an explicit deny entry is truly "always blocked" even for a
-domain that's also allowlisted (e.g. after a query-log Unblock, which
-allowlists a domain - manually denylisting that same domain again still
-works); allowlist only beats the *blocklists* (subscribed lists), which
-is the main reason to allowlist something in the first place. Manage
-groups (and their per-group allow/deny lists) from the dashboard or by
-editing this list directly.
+(no filtering at all) > the blocklists > the group's own extra
+`blocklist_sources`. Denylist beats allowlist at both levels, so an
+explicit deny entry is truly "always blocked" even for a domain that's
+also allowlisted (e.g. after a query-log Unblock, which allowlists a
+domain - manually denylisting that same domain again still works);
+allowlist only beats the *blocklists* (subscribed lists), which is the
+main reason to allowlist something in the first place. Manage groups
+(and their per-group allow/deny lists) from the dashboard or by editing
+this list directly.
+
+A group's `blocklist_sources` are its own subscribed lists (same
+hosts/AdBlock/plain formats and fetch/parse/cache behavior as the global
+Blocklists section), fetched and matched *in addition to* the global
+blocklist for clients in that group - never a replacement. This is
+one-directional by design: a group can only end up *stricter* than the
+default (e.g. an extra adult-content list on top of the usual ad/tracker
+lists for a kids' devices group). Wanting a *lighter* list for a group is
+already covered by the existing per-group allowlist and the `enabled:
+false` pass-through toggle above. Manage a group's extra sources from its
+card in the dashboard's Clients tab, right below its allow/deny lists.
 
 ### Blocking a client entirely
 
