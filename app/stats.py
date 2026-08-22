@@ -199,37 +199,71 @@ class Stats:
             conn.close()
 
     # -- reading ----------------------------------------------------------
-    def snapshot(self, top_n: int = 25, log_n: int = 200) -> dict[str, Any]:
+    def distinct_clients(self) -> list[str]:
+        """Every client IP that has ever made a query still in the log -
+        used to resolve a restricted user's allowed_clients/allowed_groups
+        IP/CIDR patterns (app/netmatch.ip_matches) down to a concrete list
+        of client IPs before filtering stats/query-log/anomalies.
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute("SELECT DISTINCT client FROM queries").fetchall()
+        finally:
+            conn.close()
+        return [row[0] for row in rows]
+
+    def snapshot(self, top_n: int = 25, log_n: int = 200, client_ips: list[str] | None = None) -> dict[str, Any]:
+        # client_ips (when not None) restricts every query below to that
+        # exact set of clients - used to scope a restricted user's view to
+        # only the hosts/groups an admin allowed them to see. An empty list
+        # means "no clients allowed", not "no filter".
+        where_clients = ""
+        base_params: list[Any] = []
+        if client_ips is not None:
+            if not client_ips:
+                where_clients = "WHERE 0"
+            else:
+                where_clients = "WHERE client IN (%s)" % ",".join("?" for _ in client_ips)
+                base_params = list(client_ips)
+
+        def _and_clients(extra: str = "") -> str:
+            if not where_clients:
+                return f"WHERE {extra}" if extra else ""
+            return f"{where_clients} AND {extra}" if extra else where_clients
+
         conn = self._connect()
         try:
             conn.row_factory = sqlite3.Row
-            total = conn.execute("SELECT COUNT(*) AS c FROM queries").fetchone()["c"]
-            blocked = conn.execute("SELECT COUNT(*) AS c FROM queries WHERE blocked = 1").fetchone()["c"]
+            total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_clients}", base_params).fetchone()["c"]
+            blocked = conn.execute(
+                f"SELECT COUNT(*) AS c FROM queries {_and_clients('blocked = 1')}", base_params
+            ).fetchone()["c"]
             top_domains = conn.execute(
-                "SELECT domain, COUNT(*) AS c FROM queries GROUP BY domain ORDER BY c DESC LIMIT ?",
-                (top_n,),
+                f"SELECT domain, COUNT(*) AS c FROM queries {where_clients} GROUP BY domain ORDER BY c DESC LIMIT ?",
+                base_params + [top_n],
             ).fetchall()
             top_blocked_domains = conn.execute(
-                "SELECT domain, COUNT(*) AS c FROM queries WHERE blocked = 1 "
+                f"SELECT domain, COUNT(*) AS c FROM queries {_and_clients('blocked = 1')} "
                 "GROUP BY domain ORDER BY c DESC LIMIT ?",
-                (top_n,),
+                base_params + [top_n],
             ).fetchall()
             top_clients = conn.execute(
-                "SELECT client, COUNT(*) AS c FROM queries GROUP BY client ORDER BY c DESC LIMIT ?",
-                (top_n,),
+                f"SELECT client, COUNT(*) AS c FROM queries {where_clients} GROUP BY client ORDER BY c DESC LIMIT ?",
+                base_params + [top_n],
             ).fetchall()
             qtype_counts = conn.execute(
-                "SELECT qtype, COUNT(*) AS c FROM queries GROUP BY qtype ORDER BY c DESC"
+                f"SELECT qtype, COUNT(*) AS c FROM queries {where_clients} GROUP BY qtype ORDER BY c DESC",
+                base_params,
             ).fetchall()
             block_reasons = conn.execute(
-                "SELECT reason, COUNT(*) AS c FROM queries WHERE blocked = 1 AND reason IS NOT NULL "
+                f"SELECT reason, COUNT(*) AS c FROM queries {_and_clients('blocked = 1 AND reason IS NOT NULL')} "
                 "GROUP BY reason ORDER BY c DESC LIMIT ?",
-                (top_n,),
+                base_params + [top_n],
             ).fetchall()
             recent = conn.execute(
-                "SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule FROM queries "
+                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule FROM queries {where_clients} "
                 "ORDER BY id DESC LIMIT ?",
-                (log_n,),
+                base_params + [log_n],
             ).fetchall()
         finally:
             conn.close()
@@ -269,6 +303,7 @@ class Stats:
         until: float | None = None,
         limit: int = 200,
         offset: int = 0,
+        restrict_client_ips: list[str] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Search the full retained history (not just the in-memory tail).
 
@@ -276,10 +311,21 @@ class Stats:
         client_like (a substring against the stored IP) are OR'd together
         when both are given, so a client filter can match either an IP
         fragment or a resolved display name.
+
+        restrict_client_ips, when not None, is ANDed with everything else -
+        it scopes a restricted user's view to only the hosts/groups an
+        admin allowed them to see, regardless of what they searched for.
+        An empty list means "no clients allowed", not "no restriction".
         """
         where: list[str] = []
         params: list[Any] = []
 
+        if restrict_client_ips is not None:
+            if not restrict_client_ips:
+                where.append("0")
+            else:
+                where.append("client IN (%s)" % ",".join("?" for _ in restrict_client_ips))
+                params.extend(restrict_client_ips)
         if domain:
             where.append("domain LIKE ?")
             params.append(f"%{domain.lower()}%")
@@ -460,22 +506,35 @@ class Stats:
         return [row["domain"] for row in rows]
 
     # -- time-series trend (Stats tab chart) -------------------------------
-    def timeseries(self, range_key: str = "24h") -> list[dict[str, Any]]:
+    def timeseries(self, range_key: str = "24h", client_ips: list[str] | None = None) -> list[dict[str, Any]]:
         """Total/blocked query counts bucketed over the given range, for the
         Stats tab's trend chart. Always returns one entry per bucket over
         the full range, zero-filled where there's no data, so the chart has
         a continuous, evenly-spaced x-axis regardless of gaps in traffic.
+
+        client_ips, when not None, restricts to that exact set of clients -
+        same scoping use as snapshot() above. Empty list means "no clients
+        allowed".
         """
         window_seconds, bucket_seconds = _TIMESERIES_RANGES.get(range_key, _TIMESERIES_RANGES["24h"])
         since = time.time() - window_seconds
+
+        where_clients = ""
+        client_params: list[Any] = []
+        if client_ips is not None:
+            if not client_ips:
+                where_clients = "AND 0"
+            else:
+                where_clients = "AND client IN (%s)" % ",".join("?" for _ in client_ips)
+                client_params = list(client_ips)
 
         conn = self._connect()
         try:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT CAST((ts - ?) / ? AS INTEGER) AS bucket, COUNT(*) AS total, SUM(blocked) AS blocked "
-                "FROM queries WHERE ts >= ? GROUP BY bucket",
-                (since, bucket_seconds, since),
+                f"FROM queries WHERE ts >= ? {where_clients} GROUP BY bucket",
+                [since, bucket_seconds, since] + client_params,
             ).fetchall()
         finally:
             conn.close()

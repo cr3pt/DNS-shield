@@ -119,22 +119,27 @@ docker compose up -d --build
 ```
 
 On first start it seeds `./data/config.db` from `config/config.example.yaml`.
-Open `http://<host>:3000`, log in with the default `admin` / `changeme`
-credentials, **change the password** (Settings -> Web UI), and point a
+Open `http://<host>:3000` and you'll land on a public, read-only view
+(query trend + top blocked domains, no sign-in needed) with a "Sign in"
+link. Log in with the default `admin` / `changeme` credentials, **change
+the password** (Settings -> General -> "Your account"), and point a
 device's DNS at `<host>:53` to test it.
 
 To use it network-wide, set it as the DNS server in your router's DHCP
 settings (or on individual devices).
 
-The dashboard has three tabs (remembered across reloads): **Logs** - just
-the query log browser; **Stats** - the summary cards, top blocked
-domains, top queried domains overall, top querying clients, a query-type
-breakdown, and a "blocked by" breakdown (which blocklist/rule is
-responsible for the most blocks); and **Settings** - everything else
-(DNS/web/logging settings, upstreams, blocklists, allow/deny lists,
-client groups, the AdGuard Home importer, and "Delete all logged
-queries" under Logging & blocklist refresh). The pause-blocking bar at
-the top is always visible regardless of tab.
+Once signed in, the dashboard has four tabs (remembered across reloads):
+**Logs** - the query log browser; **Anomalies** - anything the local
+anomaly detector or your alert rules have flagged; **Stats** - the
+summary cards, top blocked domains, top queried domains overall, top
+querying clients, a query-type breakdown, and a "blocked by" breakdown
+(which blocklist/rule is responsible for the most blocks); and
+**Settings** - everything else (DNS/web settings, user accounts,
+upstreams, blocklists, allow/deny lists, client groups, the AdGuard Home
+importer, and "Delete all logged queries" under Logging & blocklist
+refresh). The pause-blocking bar at the top is visible to Administrator
+accounts only - see **Multi-user accounts, roles, and the public view**
+below.
 
 ## Configuration
 
@@ -198,9 +203,13 @@ client_groups: []   # per-IP/CIDR overrides, see below
 web:
   listen_address: "0.0.0.0"
   listen_port: 3000
-  username: "admin"
-  password: "changeme"   # change this from the dashboard
   theme: "navy"           # 8 palettes, dark/light pairs - see Color themes below
+
+# Dashboard accounts - see "Multi-user accounts, roles, and the public
+# view" below. On first start (or upgrading from a version that only had
+# web.username/web.password above), a single admin account is created
+# here automatically, with the password converted to a bcrypt hash.
+# users: []
 
 logging:
   level: "INFO"             # Python log level; YAML-only, not in the dashboard
@@ -874,6 +883,69 @@ new source of outbound calls beyond what's already documented - email
 goes to the mail server you typed in, and the browser popup never leaves
 your own browser.
 
+### Multi-user accounts, roles, and the public view
+
+DNS-shield supports more than one dashboard account, each with its own
+password and its own view of the data - Settings -> Users (Administrator
+accounts only).
+
+**Roles.** An **Administrator** sees and does everything: every tab,
+every client/group, all Settings, threat-intel Enrich, anomalies, and the
+"Blocking active" pause bar. A **User** is read-mostly and limited to
+whatever an admin grants them:
+
+- **Allowed clients / groups** - IP/CIDR patterns and/or `client_groups`
+  names. A restricted user's Logs, Stats, and Anomalies are all
+  transparently filtered down to just these clients server-side (not a
+  client-side hide - the API itself never returns another client's rows
+  to them); leaving both empty means the account sees no client data at
+  all until an admin grants some.
+- **Can see threat-intel results** - without this, Enrich buttons are
+  disabled and `/api/enrich` is refused.
+- **Can see detected anomalies** - without this, the Anomalies tab is
+  hidden and its endpoints are refused.
+- **Can block a domain/host** - without this, "Block host" and adding to
+  the global denylist are refused (per-group denylist editing and every
+  other Settings change remain Administrator-only regardless).
+- **Can whitelist a domain** - same, for the global allowlist.
+
+The Settings tab itself, and the "Blocking active" pause bar, are always
+Administrator-only - a User account never sees them, and the underlying
+API endpoints refuse a non-admin regardless of what the dashboard shows.
+
+**Signing in.** `/login` is a dedicated page (not a browser Basic-Auth
+popup), so it can carry its own branding and a "back to the public view"
+link. A successful login sets an `HttpOnly` session cookie (`SameSite=Lax`,
+no `Secure` flag - this is meant for a plain-HTTP LAN deployment, same as
+the rest of the dashboard; put a reverse proxy with TLS in front if you
+need `Secure` cookies). Sessions live in server memory only, so a
+container restart signs everyone out; changing a user's password (their
+own, or an admin changing someone else's) also signs out every session
+for that account immediately.
+
+**Signed out**, `/` shows a minimal public view: just the query trend
+chart and the top blocked domains list (domain + count, nothing else) -
+no client IPs, no query log, no Copy or Enrich buttons, no tabs, no pause
+bar. This is meant to be safe to leave open on a shared screen or point a
+household member at without giving them a login. It's served by its own
+endpoint, `GET /api/public/summary`, which needs no session cookie.
+
+**Passwords** are always bcrypt-hashed (`app/auth.py`), never stored or
+returned in plain text. Upgrading from a version that only had a single
+`web.username`/`web.password` pair migrates that one account into the new
+`users` list automatically the first time the new version starts,
+converting its existing password to a bcrypt hash in place - nothing to
+redo by hand, and the same username/password keep working. Every user can
+change their own password from Settings -> General -> "Your account";
+only an Administrator can create, edit, or delete accounts (Settings ->
+Users), and DNS-shield refuses to demote or delete the last remaining
+Administrator so you can't lock yourself out entirely.
+
+A downloaded config backup (see **Downloading a backup** below) includes
+every account's bcrypt hash - not reversible to the original password,
+but still worth keeping private, same as any other credential in that
+file.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide
@@ -884,7 +956,9 @@ temporarily remove a specific denylist entry or blocklist. While paused,
 every query resolves as if no blocklist, denylist, or client group
 existed; it self-expires exactly at the chosen time (no polling/cleanup
 needed - the timestamp is just checked against the current time) or you
-can hit "Resume blocking" early.
+can hit "Resume blocking" early. Only Administrator accounts can see or
+use this bar - see **Multi-user accounts, roles, and the public view**
+above.
 
 ### Excluding domains/clients from the log
 
@@ -937,9 +1011,11 @@ in `config.db`. The zip has `config.yaml` (restore it the same way as
 manual-restore cases.
 
 Like `config.backup.yaml`, this is a full, unmasked snapshot - any
-threat-intel API keys and your web login password come out in plain text.
-Treat the downloaded file like you would a password: back it up somewhere
-you'd store a password, not somewhere public.
+threat-intel API keys come out in plain text, and every user account's
+bcrypt password hash comes out too (not reversible to the original
+password, but still worth keeping private). Treat the downloaded file
+like you would a password: back it up somewhere you'd store a password,
+not somewhere public.
 
 **Settings -> Import -> Restore from backup** applies one of these zips
 without leaving the dashboard or touching the container - upload it and
@@ -1043,9 +1119,18 @@ app/
                         (data/anomalies.db) (see above)
   notifications.py       optional email for new anomalies, straight to the SMTP server you
                         configure (stdlib smtplib only) - never called on its own (see above)
-  web/server.py        FastAPI REST API + basic-auth, backing the dashboard
-  web/static/          single self-contained dashboard page (no external assets/CDN -
-                       even its favicon/header logo is an inlined SVG, not a fetched file)
+  auth.py               bcrypt password hashing (thin wrapper, isolates the bcrypt
+                        dependency to one module)
+  users.py              multi-user accounts + roles/permissions: SQLite-backed (via
+                        config.py's `users` list), migrates a pre-multi-user
+                        web.username/web.password into a bcrypt-hashed admin account
+  sessions.py           in-memory login sessions (token -> username) backing the
+                        session cookie - never persisted to disk, a restart signs
+                        everyone out
+  web/server.py        FastAPI REST API + session-cookie auth/RBAC, backing the dashboard
+  web/static/          single self-contained dashboard page, plus a separate login
+                       page (no external assets/CDN - even the favicon/logo is an
+                       inlined SVG, not a fetched file)
   main.py              wires the above together and starts everything
 ```
 
@@ -1070,9 +1155,19 @@ that would otherwise hit the upstream resolver.
 
 ## Security notes
 
-- Change the default web UI password before exposing it beyond localhost.
+- Change the default `admin` password before exposing the dashboard
+  beyond localhost (Settings -> General -> "Your account", or Settings ->
+  Users). Passwords are always bcrypt-hashed - see **Multi-user accounts,
+  roles, and the public view** above.
 - The web UI has no rate limiting; put it behind your own reverse proxy /
-  VPN if you expose it outside your LAN.
+  VPN if you expose it outside your LAN. Login sessions use a cookie
+  without the `Secure` flag (this is meant for plain-HTTP LAN use); a
+  reverse proxy terminating TLS in front of it is also how you'd get
+  `Secure` cookies.
+- The public, signed-out view (`/` and `GET /api/public/summary`) is
+  intentionally reachable without a login - it only ever returns the
+  query trend and top blocked domains, nothing client- or domain-specific
+  beyond that.
 - Port 53 needs root or `CAP_NET_BIND_SERVICE` in the container - the
   provided image runs as root for this (same approach as the official
   AdGuard Home / Pi-hole images). Run rootless via a compose override with

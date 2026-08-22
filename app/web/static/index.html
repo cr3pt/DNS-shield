@@ -447,6 +447,7 @@
   </div>
   <span class="sub" id="dns-listen">-</span>
   <span class="sub" id="uptime">-</span>
+  <span class="sub" id="auth-status" style="margin-left:auto;"></span>
 </header>
 <main>
   <section id="pause-bar" class="pause-bar">
@@ -542,6 +543,7 @@
 
   <div class="subtabs" id="settings-subtabs">
     <button type="button" class="subtab-btn" data-subtab="general">General</button>
+    <button type="button" class="subtab-btn" data-subtab="users">Users</button>
     <button type="button" class="subtab-btn" data-subtab="dns">DNS</button>
     <button type="button" class="subtab-btn" data-subtab="logging">Logging</button>
     <button type="button" class="subtab-btn" data-subtab="threat-intel">Threat intelligence</button>
@@ -575,11 +577,21 @@
               <option value="lilac">Lilac &amp; Violet (light)</option>
             </select>
           </div>
-          <div class="field"><label>Username</label><input type="text" id="s-web-username"></div>
-          <div class="field"><label>New password</label><input type="password" id="s-web-password" placeholder="leave blank to keep current"></div>
         </div>
-        <p class="hint">Listen address/port changes require restarting the container. Username/password apply immediately.</p>
+        <p class="hint">Listen address/port changes require restarting the container.</p>
         <button type="submit">Save web settings</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Your account</h2>
+      <p class="muted">Change the password for the account you're signed in with (<span id="my-username">-</span>).</p>
+      <form id="password-form">
+        <div class="field-grid">
+          <div class="field"><label>Current password</label><input type="password" id="s-current-password" autocomplete="current-password"></div>
+          <div class="field"><label>New password</label><input type="password" id="s-new-password" autocomplete="new-password"></div>
+        </div>
+        <button type="submit">Change password</button>
       </form>
     </section>
 
@@ -593,11 +605,52 @@
         the server beyond what's already in config.db, and never leaves your own network.
       </p>
       <p class="hint">
-        The file includes any threat-intel API keys and your web login password in plain text
-        (same as data/config.backup.yaml already on disk) - store the download like you would a
-        password, not somewhere public.
+        The file includes any threat-intel API keys in plain text and every user's bcrypt
+        password hash (same as data/config.backup.yaml already on disk) - store the download
+        like you would a password, not somewhere public.
       </p>
       <button type="button" class="secondary" id="export-config-btn">Download backup (.zip)</button>
+    </section>
+  </div>
+
+  <div id="subtab-users" class="subtab-panel">
+    <section>
+      <h2>Users</h2>
+      <p class="muted">
+        Administrators see and manage everything. A "user" account is read-mostly and limited to
+        whatever you grant below: which client IPs/CIDRs and/or client groups they see
+        results for, whether they can see threat-intel Enrich results and detected anomalies,
+        and whether they can block or whitelist a domain/host themselves. Signed-out visitors
+        see only the public Stats view (query trend + top blocked domains).
+      </p>
+      <table class="card-table">
+        <thead><tr><th>Username</th><th>Role</th><th>Allowed</th><th>Permissions</th><th></th></tr></thead>
+        <tbody id="users-rows"></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Add user</h2>
+      <form id="user-create-form">
+        <div class="field-grid">
+          <div class="field"><label>Username</label><input type="text" id="u-username" required></div>
+          <div class="field"><label>Password</label><input type="password" id="u-password" autocomplete="new-password" required></div>
+          <div class="field">
+            <label>Role</label>
+            <select id="u-role">
+              <option value="user">User (restricted)</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <div class="field"><label>Allowed client IPs/CIDRs (comma-separated)</label><input type="text" id="u-allowed-clients" placeholder="192.168.1.50, 192.168.1.0/28"></div>
+          <div class="field"><label>Allowed client groups (comma-separated names)</label><input type="text" id="u-allowed-groups" placeholder="Kids, Guests"></div>
+          <div class="field checkbox"><input type="checkbox" id="u-view-threat-intel"><label for="u-view-threat-intel">Can see threat-intel Enrich results</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-view-anomalies"><label for="u-view-anomalies">Can see detected anomalies</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-can-block"><label for="u-can-block">Can block a domain/host</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-can-whitelist"><label for="u-can-whitelist">Can whitelist a domain</label></div>
+        </div>
+        <p class="hint">The role/permission fields above are ignored for Administrator accounts - an admin always sees and does everything.</p>
+        <button type="submit">Add user</button>
+      </form>
     </section>
   </div>
 
@@ -1251,10 +1304,20 @@ const fmtShortDuration = (s) => {
 async function api(path, options = {}) {
   const res = await fetch(path, options);
   if (res.status === 401) {
-    document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+    // The session cookie is missing/expired - back to the login page,
+    // remembering where to return to afterwards.
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
     throw new Error("unauthorized");
   }
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = (await res.json()).detail || "";
+    } catch (err) {
+      detail = await res.text();
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
   return res.status === 204 ? null : res.json();
 }
 
@@ -1265,6 +1328,14 @@ let clientNames = {};
 // whether that button is clickable. Starts false so a button created before
 // the first loadSettings() response lands is disabled, not clickable-but-broken.
 let enrichmentAvailable = false;
+
+// Set once at boot from /api/whoami: null when signed out (the public-only
+// view), otherwise {username, role, permissions}. Read throughout to decide
+// what to show/hide - the backend enforces every one of these the same way
+// independently (see app/web/server.py's require_admin/require_permission),
+// so this is purely about not rendering controls a request would 403 on.
+let currentUser = null;
+let isAdmin = false;
 
 function updateEnrichButtons() {
   for (const btn of document.querySelectorAll(".enrich-btn")) {
@@ -2215,8 +2286,6 @@ async function loadSettings() {
 
   document.getElementById("s-web-listen-address").value = s.web.listen_address ?? "";
   document.getElementById("s-web-listen-port").value = s.web.listen_port ?? "";
-  document.getElementById("s-web-username").value = s.web.username ?? "";
-  document.getElementById("s-web-password").value = "";
   document.getElementById("s-web-theme").value = s.web.theme ?? "navy";
   document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
 
@@ -2817,8 +2886,13 @@ pollBrowserAnomalyNotifications();
 setInterval(pollBrowserAnomalyNotifications, 30000);
 
 async function refreshAll() {
+  if (!currentUser) return; // signed out - handled entirely by renderPublicView()
   await loadStatusAndStats();
   await loadTrend();
+  await loadQueryLog(true);
+  const canViewAnomalies = isAdmin || (currentUser.permissions && currentUser.permissions.view_anomalies);
+  if (canViewAnomalies) await loadAnomalies();
+  if (!isAdmin) return; // everything below is Settings-tab data, admin-only
   await loadBlocklists();
   await loadAllowSources();
   await loadBlocklistCatalog();
@@ -2829,10 +2903,9 @@ async function refreshAll() {
   await loadUpstreamHealth();
   await loadDomainUpstreams();
   await loadRewrites();
-  await loadQueryLog(true);
-  await loadAnomalies();
   await loadAlertDomains();
   await loadAlertSources();
+  await loadUsers();
 }
 
 document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
@@ -2879,15 +2952,12 @@ document.getElementById("upstreams-form").addEventListener("submit", async (e) =
 
 document.getElementById("web-settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const password = document.getElementById("s-web-password").value;
   const theme = document.getElementById("s-web-theme").value;
   const body = {
     listen_address: document.getElementById("s-web-listen-address").value.trim(),
     listen_port: intField("s-web-listen-port"),
-    username: document.getElementById("s-web-username").value.trim(),
     theme,
   };
-  if (password) body.password = password;
   document.documentElement.setAttribute("data-theme", theme);
   await api("/api/settings/web", {
     method: "PATCH",
@@ -2895,6 +2965,109 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
     body: JSON.stringify(body),
   });
   refreshAll();
+});
+
+document.getElementById("password-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const current_password = document.getElementById("s-current-password").value;
+  const new_password = document.getElementById("s-new-password").value;
+  if (!new_password) return;
+  try {
+    await api("/api/account/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password, new_password }),
+    });
+    document.getElementById("s-current-password").value = "";
+    document.getElementById("s-new-password").value = "";
+    alert("Password changed.");
+  } catch (err) {
+    alert("Failed to change password: " + (err && err.message ? err.message : err));
+  }
+});
+
+function splitCsv(value) {
+  return value.split(",").map((v) => v.trim()).filter(Boolean);
+}
+
+function permissionSummary(u) {
+  if (u.role === "admin") return "everything";
+  const perms = u.permissions || {};
+  const parts = [];
+  if (perms.view_threat_intel) parts.push("threat-intel");
+  if (perms.view_anomalies) parts.push("anomalies");
+  if (perms.can_block) parts.push("can block");
+  if (perms.can_whitelist) parts.push("can whitelist");
+  return parts.length ? parts.join(", ") : "read-only";
+}
+
+function allowedSummary(u) {
+  if (u.role === "admin") return "everything";
+  const perms = u.permissions || {};
+  const parts = [...(perms.allowed_clients || []), ...(perms.allowed_groups || [])];
+  return parts.length ? parts.join(", ") : "nothing yet";
+}
+
+async function loadUsers() {
+  const tbody = document.getElementById("users-rows");
+  if (!tbody) return;
+  let list;
+  try {
+    list = await api("/api/users");
+  } catch (err) {
+    return; // not an admin (or not logged in) - the Users subtab isn't shown anyway
+  }
+  tbody.innerHTML = "";
+  for (const u of list) {
+    const tr = el("tr", {}, [
+      el("td", { text: u.username }),
+      el("td", { text: u.role }),
+      el("td", { text: allowedSummary(u) }),
+      el("td", { text: permissionSummary(u) }),
+    ]);
+    const actions = el("td");
+    const delBtn = el("button", { type: "button", class: "secondary", text: "Delete" });
+    delBtn.onclick = async () => {
+      if (!confirm(`Delete user "${u.username}"?`)) return;
+      try {
+        await api("/api/users/" + encodeURIComponent(u.username), { method: "DELETE" });
+        loadUsers();
+      } catch (err) {
+        alert("Failed to delete user: " + (err && err.message ? err.message : err));
+      }
+    };
+    actions.appendChild(delBtn);
+    tr.appendChild(actions);
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById("user-create-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    username: document.getElementById("u-username").value.trim(),
+    password: document.getElementById("u-password").value,
+    role: document.getElementById("u-role").value,
+    permissions: {
+      allowed_clients: splitCsv(document.getElementById("u-allowed-clients").value),
+      allowed_groups: splitCsv(document.getElementById("u-allowed-groups").value),
+      view_threat_intel: document.getElementById("u-view-threat-intel").checked,
+      view_anomalies: document.getElementById("u-view-anomalies").checked,
+      can_block: document.getElementById("u-can-block").checked,
+      can_whitelist: document.getElementById("u-can-whitelist").checked,
+    },
+  };
+  try {
+    await api("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    e.target.reset();
+    loadUsers();
+  } catch (err) {
+    alert("Failed to add user: " + (err && err.message ? err.message : err));
+  }
 });
 
 document.getElementById("logging-settings-form").addEventListener("submit", async (e) => {
@@ -3284,9 +3457,8 @@ function setActiveTab(tab) {
 for (const btn of document.querySelectorAll(".tab-btn")) {
   btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
 }
-setActiveTab(localStorage.getItem("dnsshield-tab"));
 
-const SUBTAB_NAMES = ["general", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
+const SUBTAB_NAMES = ["general", "users", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
 
 function setActiveSubtab(subtab) {
   if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";
@@ -3302,7 +3474,6 @@ function setActiveSubtab(subtab) {
 for (const btn of document.querySelectorAll(".subtab-btn")) {
   btn.addEventListener("click", () => setActiveSubtab(btn.dataset.subtab));
 }
-setActiveSubtab(localStorage.getItem("dnsshield-settings-subtab"));
 
 document.getElementById("stats-range").value = trendRange;
 document.getElementById("stats-range").addEventListener("change", (e) => {
@@ -3311,8 +3482,96 @@ document.getElementById("stats-range").addEventListener("change", (e) => {
   loadTrend();
 });
 
-refreshAll();
-setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);
+// -- signed-out visitors: query trend + top blocked domains only, no Copy, -
+// no Enrich, no tabs, no "Blocking active" bar - see app/web/server.py's
+// unauthenticated GET /api/public/summary, the one API route besides
+// /api/whoami and /login-related endpoints that needs no session cookie.
+async function renderPublicView() {
+  document.getElementById("tabs").style.display = "none";
+  document.getElementById("pause-bar").style.display = "none";
+  document.getElementById("cards").style.display = "none";
+  for (const id of ["top-domains-rows", "top-clients-rows", "qtype-rows", "block-reason-rows"]) {
+    const table = document.getElementById(id).closest("section");
+    if (table) table.style.display = "none";
+  }
+  document.getElementById("tab-stats").classList.add("active");
+
+  const data = await fetch("/api/public/summary").then((r) => r.json());
+  renderTrendLegend();
+  renderTrendChart(data.timeseries);
+
+  const rows = document.getElementById("top-blocked-rows");
+  rows.innerHTML = "";
+  for (const [domain, count] of data.top_blocked_domains) {
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: domain, "data-label": "Domain" }),
+      el("td", { text: count, "data-label": "Count" }),
+    ]));
+  }
+}
+
+function renderAuthStatus() {
+  const el2 = document.getElementById("auth-status");
+  el2.innerHTML = "";
+  if (!currentUser) {
+    const link = el("a", { href: "/login", text: "Sign in" });
+    link.style.color = "var(--accent)";
+    el2.appendChild(link);
+    return;
+  }
+  el2.appendChild(document.createTextNode(`${currentUser.username} (${currentUser.role}) `));
+  const logoutBtn = el("button", { type: "button", class: "secondary", text: "Sign out", style: "margin-left:0.5rem;" });
+  logoutBtn.onclick = async () => {
+    await fetch("/api/logout", { method: "POST" });
+    location.reload();
+  };
+  el2.appendChild(logoutBtn);
+}
+
+// -- signed-in RBAC: hide what a "user" role can't act on. The backend
+// enforces every one of these independently (require_admin/
+// require_permission in app/web/server.py) - this is only about not
+// showing a control that would 403, never the actual access boundary.
+function applyRoleVisibility() {
+  if (isAdmin) return;
+  document.querySelector('.tab-btn[data-tab="settings"]').style.display = "none";
+  const canViewAnomalies = currentUser.permissions && currentUser.permissions.view_anomalies;
+  document.querySelector('.tab-btn[data-tab="anomalies"]').style.display = canViewAnomalies ? "" : "none";
+  document.getElementById("pause-bar").style.display = "none"; // "Blocking active" - Administrator only
+  const savedTab = localStorage.getItem("dnsshield-tab");
+  if (savedTab === "settings" || (savedTab === "anomalies" && !canViewAnomalies)) {
+    localStorage.setItem("dnsshield-tab", "logs");
+  }
+}
+
+async function boot() {
+  let whoami;
+  try {
+    whoami = await fetch("/api/whoami").then((r) => r.json());
+  } catch (err) {
+    whoami = { user: null, enrichment_available: false };
+  }
+  currentUser = whoami.user;
+  isAdmin = !!currentUser && currentUser.role === "admin";
+  renderAuthStatus();
+
+  if (!currentUser) {
+    await renderPublicView();
+    setInterval(renderPublicView, 30000);
+    return;
+  }
+
+  enrichmentAvailable = !!whoami.enrichment_available && (isAdmin || (currentUser.permissions && currentUser.permissions.view_threat_intel));
+  applyRoleVisibility();
+  setActiveTab(localStorage.getItem("dnsshield-tab"));
+  setActiveSubtab(localStorage.getItem("dnsshield-settings-subtab"));
+  document.getElementById("my-username").textContent = currentUser.username;
+
+  await refreshAll();
+  setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);
+}
+
+boot();
 </script>
 </body>
 </html>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNS-shield - Sign in</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNmRiNGZmIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMWEzYTdhIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHBhdGggZD0iTTEwMCwxMCBMMTcyLDM2IEwxNzIsOTYgQzE3MiwxNTAgMTQyLDE4NCAxMDAsMjAwIEM1OCwxODQgMjgsMTUwIDI4LDk2IEwyOCwzNiBaIiBmaWxsPSJ1cmwoI2cpIiBzdHJva2U9IiNlZWYyZmYiIHN0cm9rZS13aWR0aD0iNSIvPjxnIHN0cm9rZT0iI2VlZjJmZiIgc3Ryb2tlLXdpZHRoPSI2IiBmaWxsPSJub25lIj48cGF0aCBkPSJNNzUsNzggQTI1LDI1IDAgMCAxIDEyNSw3OCIvPjxwYXRoIGQ9Ik02NCw2OCBBNDAsNDAgMCAwIDEgMTM2LDY4Ii8+PC9nPjxjaXJjbGUgY3g9IjEwMCIgY3k9Ijg4IiByPSI3IiBmaWxsPSIjZWVmMmZmIi8+PHJlY3QgeD0iNjMiIHk9IjExMCIgd2lkdGg9Ijc0IiBoZWlnaHQ9IjQ0IiByeD0iMTAiIGZpbGw9IiMwYTExMjgiIHN0cm9rZT0iI2ZmNWQ3NSIgc3Ryb2tlLXdpZHRoPSI5Ii8+PGxpbmUgeDE9IjY4IiB5MT0iMTE0IiB4Mj0iMTMyIiB5Mj0iMTUwIiBzdHJva2U9IiNmZjVkNzUiIHN0cm9rZS13aWR0aD0iMTAiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a1128;
+    --panel: #121b3a;
+    --panel-border: #26355f;
+    --text: #e8ecfb;
+    --muted: #8b96c4;
+    --accent: #4d9fff;
+    --accent-text: #051029;
+    --danger: #ff5d75;
+    --danger-text: #33040f;
+    --input-bg: #0b1430;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 1.5rem;
+  }
+  .login-card {
+    width: 100%; max-width: 380px;
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px;
+    padding: 2.5rem 2rem; text-align: center;
+  }
+  .brand-icon { width: 88px; height: 88px; }
+  h1 { font-size: 1.5rem; margin: 1rem 0 0.25rem; }
+  .tagline { color: var(--muted); font-size: 0.9rem; margin: 0 0 2rem; }
+  form { display: flex; flex-direction: column; gap: 0.9rem; text-align: left; }
+  label { font-size: 0.85rem; color: var(--muted); }
+  input {
+    width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.3rem;
+    background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 8px;
+    color: var(--text); font-size: 1rem;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    margin-top: 0.5rem; padding: 0.7rem; border: none; border-radius: 8px;
+    background: var(--accent); color: var(--accent-text); font-size: 1rem; font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  #error {
+    display: none; background: var(--danger-text); color: var(--danger);
+    border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.88rem; margin-top: -0.3rem;
+  }
+  .public-link { display: block; margin-top: 1.5rem; color: var(--muted); font-size: 0.85rem; text-decoration: none; }
+  .public-link:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <svg class="brand-icon" viewBox="0 0 200 200" aria-hidden="true">
+    <defs>
+      <linearGradient id="brand-icon-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#6db4ff"/>
+        <stop offset="100%" stop-color="#1a3a7a"/>
+      </linearGradient>
+    </defs>
+    <path d="M100,10 L172,36 L172,96 C172,150 142,184 100,200 C58,184 28,150 28,96 L28,36 Z" fill="url(#brand-icon-grad)" stroke="#eef2ff" stroke-width="5"/>
+    <g stroke="#eef2ff" stroke-width="6" fill="none">
+      <path d="M75,78 A25,25 0 0 1 125,78"/>
+      <path d="M64,68 A40,40 0 0 1 136,68"/>
+    </g>
+    <circle cx="100" cy="88" r="7" fill="#eef2ff"/>
+    <rect x="63" y="110" width="74" height="44" rx="10" fill="#0a1128" stroke="#ff5d75" stroke-width="9"/>
+    <line x1="68" y1="114" x2="132" y2="150" stroke="#ff5d75" stroke-width="10" stroke-linecap="round"/>
+  </svg>
+  <h1>DNS-shield</h1>
+  <p class="tagline">Sign in to manage your DNS</p>
+  <div id="error"></div>
+  <form id="login-form">
+    <div>
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+    </div>
+    <div>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" id="submit-btn">Sign in</button>
+  </form>
+  <a class="public-link" href="/">View public stats without signing in &rarr;</a>
+</div>
+<script>
+const form = document.getElementById("login-form");
+const errorBox = document.getElementById("error");
+const submitBtn = document.getElementById("submit-btn");
+
+const params = new URLSearchParams(location.search);
+const nextUrl = params.get("next") || "/";
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorBox.style.display = "none";
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Signing in...";
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: document.getElementById("username").value,
+        password: document.getElementById("password").value,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || "Invalid username or password");
+    }
+    location.href = nextUrl.startsWith("/") ? nextUrl : "/";
+  } catch (err) {
+    errorBox.textContent = err.message || "Sign in failed";
+    errorBox.style.display = "block";
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Sign in";
+  }
+});
+</script>
+</body>
+</html>

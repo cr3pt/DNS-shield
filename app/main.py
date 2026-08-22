@@ -32,8 +32,10 @@ from app.dns_cache import DNSCache
 from app.dns_server import start_dns_servers
 from app.enrichment_store import EnrichmentStore
 from app.notifications import NotificationSender
+from app.sessions import SessionStore
 from app.stats import Stats
 from app.upstream_stats import UpstreamStats
+from app.users import UserStore
 from app.web.server import create_app
 
 DATA_DIR = Path(os.environ.get("DNSSHIELD_DATA_DIR", "/data"))
@@ -80,6 +82,13 @@ def main() -> None:
     )
     anomaly.start()
 
+    # Multi-user accounts + session-cookie login (app/users.py,
+    # app/sessions.py). UserStore migrates any pre-existing single
+    # web.username/web.password account into the new users list on first
+    # use, hashing its password with bcrypt in the process.
+    users = UserStore(config_store)
+    sessions = SessionStore()
+
     start_dns_servers(
         config_store, blocklist, stats, cache=cache, client_names=client_names, upstream_stats=upstream_stats
     )
@@ -103,6 +112,8 @@ def main() -> None:
         enrichment_store=enrichment_store,
         anomaly=anomaly,
         notifications=notifications,
+        users=users,
+        sessions=sessions,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))

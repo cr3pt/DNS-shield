@@ -4,3 +4,4 @@ uvicorn[standard]==0.30.6
 PyYAML==6.0.2
 requests==2.32.3
 python-multipart==0.0.12
+bcrypt==4.2.0

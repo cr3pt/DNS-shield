@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import io
 import re
-import secrets
 import sqlite3
 import tempfile
 import time
@@ -20,22 +19,22 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
+from app.auth import verify_password
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app.enrichment import enrich as run_enrichment
 from app.import_adguard import import_config
 from app.import_pihole import import_config as import_pihole_config
 from app.netmatch import ip_matches
+from app.sessions import COOKIE_NAME, SessionStore
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
+from app.users import UserStore, public_user
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-
-security = HTTPBasic()
 
 
 def _masked_key_preview(key: str | None) -> str:
@@ -168,9 +167,39 @@ class RewriteIn(BaseModel):
 class WebSettingsIn(BaseModel):
     listen_address: str | None = None
     listen_port: int | None = None
-    username: str | None = None
-    password: str | None = None  # blank/omitted = keep current password
     theme: str | None = None
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class UserPermissionsIn(BaseModel):
+    allowed_clients: list[str] = []
+    allowed_groups: list[str] = []
+    view_threat_intel: bool = False
+    view_anomalies: bool = False
+    can_block: bool = False
+    can_whitelist: bool = False
+
+
+class UserCreateIn(BaseModel):
+    username: str
+    password: str
+    role: str = "user"
+    permissions: UserPermissionsIn | None = None
+
+
+class UserUpdateIn(BaseModel):
+    password: str | None = None  # blank/omitted = keep current password
+    role: str | None = None
+    permissions: UserPermissionsIn | None = None
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class LoggingSettingsIn(BaseModel):
@@ -246,19 +275,129 @@ def create_app(
     enrichment_store=None,
     anomaly=None,
     notifications=None,
+    users: UserStore | None = None,
+    sessions: SessionStore | None = None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
-    def require_auth(credentials: HTTPBasicCredentials = Depends(security)) -> None:
-        username = str(config_store.get("web", "username", default="admin"))
-        password = str(config_store.get("web", "password", default="changeme"))
-        ok_user = secrets.compare_digest(credentials.username, username)
-        ok_pass = secrets.compare_digest(credentials.password, password)
-        if not (ok_user and ok_pass):
-            raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
+    users = users if users is not None else UserStore(config_store)
+    sessions = sessions if sessions is not None else SessionStore()
+
+    NO_CACHE = {"Cache-Control": "no-cache"}
+
+    def _current_user(request: Request) -> dict[str, Any] | None:
+        token = request.cookies.get(COOKIE_NAME)
+        username = sessions.username_for(token)
+        if username is None:
+            return None
+        return users.get(username)
+
+    def require_auth(request: Request) -> dict[str, Any]:
+        """Any signed-in user (admin or user role). Returns the full user
+        record (including its permissions dict) so endpoints can apply
+        RBAC/data-scoping without a second lookup.
+        """
+        user = _current_user(request)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return user
+
+    def require_admin(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Administrator access required")
+        return user
+
+    def require_permission(flag: str):
+        """A signed-in user is allowed through if they're an admin, or if
+        their stored permissions grant this specific flag (e.g. "can_block",
+        "view_threat_intel") - everyone else gets a 403.
+        """
+
+        def _dep(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+            if user.get("role") != "admin" and not (user.get("permissions") or {}).get(flag):
+                raise HTTPException(status_code=403, detail="You don't have permission to do this")
+            return user
+
+        return _dep
+
+    def _allowed_client_ips(user: dict[str, Any]) -> list[str] | None:
+        """The concrete client IPs `user` is allowed to see, resolved from
+        their allowed_clients patterns and allowed_groups' own match
+        patterns. None means "no restriction" (admin). An empty list means
+        "restricted, but nothing has been allowed yet" - not "everything".
+        """
+        if user.get("role") == "admin":
+            return None
+        perms = user.get("permissions") or {}
+        patterns = list(perms.get("allowed_clients") or [])
+        allowed_groups = set(perms.get("allowed_groups") or [])
+        if allowed_groups:
+            for group in config_store.get("client_groups", default=[]) or []:
+                if group.get("name") in allowed_groups:
+                    patterns.extend(group.get("match") or [])
+        if not patterns:
+            return []
+        return [ip for ip in stats.distinct_clients() if any(ip_matches(ip, p) for p in patterns)]
+
+    # -- login/logout: a dedicated page (not a browser Basic-Auth popup) --
+    @app.get("/login")
+    def login_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "login.html", headers=NO_CACHE)
+
+    @app.post("/api/login")
+    def login(body: LoginIn, response: Response) -> dict[str, Any]:
+        user = users.verify_login(body.username.strip(), body.password)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        token = sessions.create(user["username"])
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            httponly=True,
+            samesite="lax",
+            max_age=7 * 24 * 3600,
+            path="/",
+        )
+        return {"ok": True, "user": public_user(user)}
+
+    @app.post("/api/logout")
+    def logout(request: Request, response: Response) -> dict[str, Any]:
+        sessions.destroy(request.cookies.get(COOKIE_NAME))
+        response.delete_cookie(COOKIE_NAME, path="/")
+        return {"ok": True}
+
+    @app.get("/api/whoami")
+    def whoami(request: Request) -> dict[str, Any]:
+        user = _current_user(request)
+        enr = config_store.get("enrichment", default={}) or {}
+        public_ready = bool(enr.get("public_enabled")) and any(
+            enr.get(k) for k in ("virustotal_api_key", "abuseipdb_api_key", "otx_api_key")
+        )
+        local_ready = bool(enr.get("local_enabled")) and bool(enr.get("local_url"))
+        return {
+            "user": public_user(user) if user is not None else None,
+            # Whether Enrich is configured at all server-side - independent
+            # of a signed-in user's own view_threat_intel permission, which
+            # the dashboard combines with this to decide whether to show
+            # the Enrich button. A restricted user has no access to
+            # /api/settings to work this out for themselves otherwise.
+            "enrichment_available": public_ready or local_ready,
+        }
+
+    # -- public, unauthenticated view: query trend + top blocked domains --
+    # only - no client/domain-level detail, no Copy/Enrich (those live in
+    # the authenticated dashboard only). Everything else in this file
+    # requires a signed-in session.
+    @app.get("/api/public/summary")
+    def public_summary() -> dict[str, Any]:
+        snap = stats.snapshot(top_n=25, log_n=0)
+        return {
+            "top_blocked_domains": snap["top_blocked_domains"],
+            "timeseries": stats.timeseries("24h"),
+        }
 
     @app.get("/")
-    def index(_: None = Depends(require_auth)) -> FileResponse:
+    def index() -> FileResponse:
         # index.html is the entire dashboard (HTML+CSS+JS in one file) and
         # changes across restarts/updates - without an explicit Cache-Control,
         # a browser can heuristically cache it and keep serving a stale copy
@@ -266,10 +405,12 @@ def create_app(
         # the backend's actual API shape. no-cache forces revalidation on
         # every load (a fast 304 via the ETag/Last-Modified FileResponse
         # already sets when nothing changed, a fresh 200 when it has).
-        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+        # No auth here: index.html itself detects a logged-out session (via
+        # /api/whoami) and renders the public-only view described above.
+        return FileResponse(STATIC_DIR / "index.html", headers=NO_CACHE)
 
     @app.get("/api/status")
-    def status(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def status(_: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
         group_names = [g.get("name", "") for g in (config_store.get("client_groups", default=[]) or [])]
         return {
             "uptime_seconds": time.time() - started_at,
@@ -297,7 +438,7 @@ def create_app(
         }
 
     @app.post("/api/pause")
-    def pause_blocking(body: PauseIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def pause_blocking(body: PauseIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             pause_cfg = data.setdefault("pause", {})
             pause_cfg["active"] = True
@@ -307,7 +448,7 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.post("/api/resume")
-    def resume_blocking(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def resume_blocking(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             pause_cfg = data.setdefault("pause", {})
             pause_cfg["active"] = False
@@ -317,16 +458,20 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.get("/api/stats")
-    def get_stats(top_n: int = 25, log_n: int = 200, _: None = Depends(require_auth)) -> dict[str, Any]:
-        snapshot = stats.snapshot(top_n=top_n, log_n=log_n)
+    def get_stats(
+        top_n: int = 25, log_n: int = 200, user: dict[str, Any] = Depends(require_auth)
+    ) -> dict[str, Any]:
+        snapshot = stats.snapshot(top_n=top_n, log_n=log_n, client_ips=_allowed_client_ips(user))
         snapshot["client_names"] = client_names.snapshot() if client_names is not None else {}
         return snapshot
 
     @app.get("/api/stats/timeseries")
-    def get_stats_timeseries(range: str = "24h", _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def get_stats_timeseries(
+        range: str = "24h", user: dict[str, Any] = Depends(require_auth)
+    ) -> list[dict[str, Any]]:
         if range not in ("24h", "7d", "30d"):
             range = "24h"
-        return stats.timeseries(range)
+        return stats.timeseries(range, client_ips=_allowed_client_ips(user))
 
     @app.get("/api/query-log")
     def get_query_log(
@@ -338,7 +483,7 @@ def create_app(
         until: float | None = None,
         limit: int = 100,
         offset: int = 0,
-        _: None = Depends(require_auth),
+        user: dict[str, Any] = Depends(require_auth),
     ) -> dict[str, Any]:
         blocked_bool: bool | None = None
         if blocked == "true":
@@ -362,6 +507,7 @@ def create_app(
             until=until,
             limit=max(1, min(limit, 1000)),
             offset=max(0, offset),
+            restrict_client_ips=_allowed_client_ips(user),
         )
         return {
             "rows": rows,
@@ -370,12 +516,12 @@ def create_app(
         }
 
     @app.delete("/api/query-log")
-    def clear_query_log(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def clear_query_log(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         stats.clear()
         return {"ok": True}
 
     @app.post("/api/cache/clear")
-    def clear_cache(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def clear_cache(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         if cache is None:
             raise HTTPException(status_code=404, detail="Cache is disabled")
         cache.clear()
@@ -419,39 +565,39 @@ def create_app(
         return result
 
     @app.get("/api/blocklists")
-    def list_blocklists(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def list_blocklists(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _list_sources("sources")
 
     @app.post("/api/blocklists")
-    def add_blocklist(source: BlocklistSourceIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def add_blocklist(source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _add_source("sources", source)
 
     @app.delete("/api/blocklists/{index}")
-    def delete_blocklist(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def delete_blocklist(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _delete_source("sources", index)
 
     @app.post("/api/blocklists/{index}/toggle")
-    def toggle_blocklist(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def toggle_blocklist(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _toggle_source("sources", index)
 
     @app.get("/api/allow-sources")
-    def list_allow_sources(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def list_allow_sources(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _list_sources("allow_sources")
 
     @app.post("/api/allow-sources")
-    def add_allow_source(source: BlocklistSourceIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def add_allow_source(source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _add_source("allow_sources", source)
 
     @app.delete("/api/allow-sources/{index}")
-    def delete_allow_source(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def delete_allow_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _delete_source("allow_sources", index)
 
     @app.post("/api/allow-sources/{index}/toggle")
-    def toggle_allow_source(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def toggle_allow_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _toggle_source("allow_sources", index)
 
     @app.get("/api/blocklists/catalog")
-    def get_blocklist_catalog(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def get_blocklist_catalog(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         # An entry already present as a configured source has nothing left
         # to suggest, so it's dropped from the list entirely rather than
         # shown disabled - "added" is a one-way trip out of Suggested lists.
@@ -459,12 +605,12 @@ def create_app(
         return [entry for entry in BLOCKLIST_CATALOG if entry["url"] not in existing_urls]
 
     @app.post("/api/blocklists/refresh")
-    def refresh_blocklists(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def refresh_blocklists(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         blocklist.refresh()
         return {"ok": True, "domains": blocklist.total_count(), "allowed": blocklist.allowed_count()}
 
     @app.get("/api/rules")
-    def get_rules(_: None = Depends(require_auth)) -> dict[str, list[str]]:
+    def get_rules(_: dict[str, Any] = Depends(require_auth)) -> dict[str, list[str]]:
         return {
             "allowlist": config_store.get("allowlist", default=[]) or [],
             "denylist": config_store.get("denylist", default=[]) or [],
@@ -497,19 +643,19 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.post("/api/rules/allow")
-    def add_allow(body: DomainIn, _: None = Depends(require_auth)) -> list[str]:
+    def add_allow(body: DomainIn, _: dict[str, Any] = Depends(require_permission("can_whitelist"))) -> list[str]:
         return _add_rule("allowlist", body.domain)
 
     @app.delete("/api/rules/allow/{domain}")
-    def remove_allow(domain: str, _: None = Depends(require_auth)) -> list[str]:
+    def remove_allow(domain: str, _: dict[str, Any] = Depends(require_permission("can_whitelist"))) -> list[str]:
         return _remove_rule("allowlist", domain)
 
     @app.post("/api/rules/deny")
-    def add_deny(body: DomainIn, _: None = Depends(require_auth)) -> list[str]:
+    def add_deny(body: DomainIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _add_rule("denylist", body.domain)
 
     @app.delete("/api/rules/deny/{domain}")
-    def remove_deny(domain: str, _: None = Depends(require_auth)) -> list[str]:
+    def remove_deny(domain: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _remove_rule("denylist", domain)
 
     # -- denylist_regex: experimental, off by default (dns.regex_denylist_enabled) -
@@ -518,7 +664,7 @@ def create_app(
     # as a typical AdBlock-style regex rule. Compiled once and cached in
     # BlocklistManager, not per query - see blocklist.py.
     @app.post("/api/rules/deny-regex")
-    def add_deny_regex(body: RegexPatternIn, _: None = Depends(require_auth)) -> list[str]:
+    def add_deny_regex(body: RegexPatternIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         pattern = body.pattern.strip()
         if not pattern:
             raise HTTPException(status_code=400, detail="Empty pattern")
@@ -536,7 +682,7 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.delete("/api/rules/deny-regex/{pattern}")
-    def remove_deny_regex(pattern: str, _: None = Depends(require_auth)) -> list[str]:
+    def remove_deny_regex(pattern: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         def _mutate(data: dict[str, Any]) -> list[str]:
             items = data.setdefault("denylist_regex", [])
             if pattern in items:
@@ -549,11 +695,11 @@ def create_app(
     # domain - not a domain-scoped rule. Dashboard: "Block host" button next
     # to a client IP (query log, Stats, Enrich popup), or added by hand here.
     @app.post("/api/rules/deny-client")
-    def add_deny_client(body: ValueIn, _: None = Depends(require_auth)) -> list[str]:
+    def add_deny_client(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _add_rule("blocked_clients", body.value, label="client")
 
     @app.delete("/api/rules/deny-client/{client}")
-    def remove_deny_client(client: str, _: None = Depends(require_auth)) -> list[str]:
+    def remove_deny_client(client: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _remove_rule("blocked_clients", client)
 
     # -- log-ignore: excluded from the query log only, resolution/blocking is unaffected --
@@ -579,34 +725,34 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.get("/api/log-ignore")
-    def get_log_ignore(_: None = Depends(require_auth)) -> dict[str, list[str]]:
+    def get_log_ignore(_: dict[str, Any] = Depends(require_admin)) -> dict[str, list[str]]:
         return {
             "domains": config_store.get("logging", "ignored_domains", default=[]) or [],
             "clients": config_store.get("logging", "ignored_clients", default=[]) or [],
         }
 
     @app.post("/api/log-ignore/domains")
-    def add_ignored_domain(body: DomainIn, _: None = Depends(require_auth)) -> list[str]:
+    def add_ignored_domain(body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _add_nested_rule("logging", "ignored_domains", body.domain.strip().lower().rstrip("."))
 
     @app.delete("/api/log-ignore/domains/{value}")
-    def remove_ignored_domain(value: str, _: None = Depends(require_auth)) -> list[str]:
+    def remove_ignored_domain(value: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _remove_nested_rule("logging", "ignored_domains", value.strip().lower().rstrip("."))
 
     @app.post("/api/log-ignore/clients")
-    def add_ignored_client(body: ValueIn, _: None = Depends(require_auth)) -> list[str]:
+    def add_ignored_client(body: ValueIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _add_nested_rule("logging", "ignored_clients", body.value.strip())
 
     @app.delete("/api/log-ignore/clients/{value}")
-    def remove_ignored_client(value: str, _: None = Depends(require_auth)) -> list[str]:
+    def remove_ignored_client(value: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _remove_nested_rule("logging", "ignored_clients", value.strip())
 
     @app.get("/api/client-groups")
-    def list_client_groups(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def list_client_groups(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("client_groups", default=[]) or []
 
     @app.post("/api/client-groups")
-    def add_client_group(group: ClientGroupIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def add_client_group(group: ClientGroupIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
             groups.append(group.model_dump())
@@ -615,7 +761,7 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.delete("/api/client-groups/{index}")
-    def delete_client_group(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def delete_client_group(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
             if not 0 <= index < len(groups):
@@ -626,7 +772,7 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.post("/api/client-groups/{index}/toggle")
-    def toggle_client_group(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def toggle_client_group(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
             if not 0 <= index < len(groups):
@@ -670,23 +816,23 @@ def create_app(
         return _group_mutate(index, _fn)
 
     @app.post("/api/client-groups/{index}/allow")
-    def add_group_allow(index: int, body: DomainIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def add_group_allow(index: int, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _add_group_rule(index, "allowlist", body.domain)
 
     @app.delete("/api/client-groups/{index}/allow/{domain}")
-    def remove_group_allow(index: int, domain: str, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def remove_group_allow(index: int, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _remove_group_rule(index, "allowlist", domain)
 
     @app.post("/api/client-groups/{index}/deny")
-    def add_group_deny(index: int, body: DomainIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def add_group_deny(index: int, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _add_group_rule(index, "denylist", body.domain)
 
     @app.delete("/api/client-groups/{index}/deny/{domain}")
-    def remove_group_deny(index: int, domain: str, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def remove_group_deny(index: int, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _remove_group_rule(index, "denylist", domain)
 
     @app.put("/api/client-groups/{index}/upstreams")
-    def set_group_upstreams(index: int, body: UpstreamsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def set_group_upstreams(index: int, body: UpstreamsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["upstreams"] = body.upstreams
             return group
@@ -709,7 +855,7 @@ def create_app(
         return result
 
     @app.get("/api/client-groups/{index}/blocklist-sources")
-    def list_group_blocklist_sources(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def list_group_blocklist_sources(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         groups = config_store.get("client_groups", default=[]) or []
         if not 0 <= index < len(groups):
             raise HTTPException(status_code=404, detail="No such client group")
@@ -717,7 +863,7 @@ def create_app(
 
     @app.post("/api/client-groups/{index}/blocklist-sources")
     def add_group_blocklist_source(
-        index: int, source: BlocklistSourceIn, _: None = Depends(require_auth)
+        index: int, source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
             sources.append(source.model_dump())
@@ -727,7 +873,7 @@ def create_app(
 
     @app.delete("/api/client-groups/{index}/blocklist-sources/{source_index}")
     def delete_group_blocklist_source(
-        index: int, source_index: int, _: None = Depends(require_auth)
+        index: int, source_index: int, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if not 0 <= source_index < len(sources):
@@ -739,7 +885,7 @@ def create_app(
 
     @app.post("/api/client-groups/{index}/blocklist-sources/{source_index}/toggle")
     def toggle_group_blocklist_source(
-        index: int, source_index: int, _: None = Depends(require_auth)
+        index: int, source_index: int, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if not 0 <= source_index < len(sources):
@@ -751,11 +897,11 @@ def create_app(
 
     # -- per-domain upstream routing: [/domain/] -> specific resolvers, AdGuard-style --
     @app.get("/api/domain-upstreams")
-    def list_domain_upstreams(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def list_domain_upstreams(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("domain_upstreams", default=[]) or []
 
     @app.post("/api/domain-upstreams")
-    def add_domain_upstream(rule: DomainUpstreamIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def add_domain_upstream(rule: DomainUpstreamIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             rules = data.setdefault("domain_upstreams", [])
             rules.append(rule.model_dump())
@@ -764,7 +910,7 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.delete("/api/domain-upstreams/{index}")
-    def delete_domain_upstream(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def delete_domain_upstream(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             rules = data.setdefault("domain_upstreams", [])
             if not 0 <= index < len(rules):
@@ -778,11 +924,11 @@ def create_app(
     # choose, entirely locally - see app/dns_rewrites.py for the matching
     # rule and where this sits in the resolution order.
     @app.get("/api/rewrites")
-    def list_rewrites(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def list_rewrites(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("dns_rewrites", default=[]) or []
 
     @app.post("/api/rewrites")
-    def add_rewrite(rewrite: RewriteIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def add_rewrite(rewrite: RewriteIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         name = rewrite.name.strip().lower().rstrip(".")
         rtype = rewrite.type.strip().upper()
         value = rewrite.value.strip()
@@ -799,7 +945,7 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.delete("/api/rewrites/{index}")
-    def delete_rewrite(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def delete_rewrite(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             rewrites = data.setdefault("dns_rewrites", [])
             if not 0 <= index < len(rewrites):
@@ -818,7 +964,7 @@ def create_app(
     # freeze the entire web UI for every user until every source timed out
     # or responded.
     @app.post("/api/import/adguard")
-    def import_adguard(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
+    def import_adguard(file: UploadFile = File(...), _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         raw = file.file.read()
         try:
             adguard = yaml.safe_load(raw)
@@ -842,7 +988,7 @@ def create_app(
     # Same sync-def reasoning as import_adguard above: blocklist.refresh()
     # makes blocking HTTP calls for every configured source.
     @app.post("/api/import/pihole")
-    def import_pihole(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
+    def import_pihole(file: UploadFile = File(...), _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         raw = file.file.read()
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             tmp.write(raw)
@@ -866,18 +1012,21 @@ def create_app(
     # machine, at your own request (a button click) - nothing is sent
     # anywhere else. It's a full, unmasked snapshot (same as
     # config.backup.yaml already on disk), including any threat-intel API
-    # keys and your web login password in plain text, so the README.txt
-    # bundled alongside it says the same: treat the download like you would
-    # a password.
+    # keys in plain text and every user's bcrypt password hash, so the
+    # README.txt bundled alongside it says the same: treat the download
+    # like you would a password (a bcrypt hash can't be reversed to the
+    # original password, but it's still worth guessing offline, so don't
+    # publish it either).
     _EXPORT_README = """DNS-shield configuration backup
 ================================
 
 config.yaml is a full snapshot of this instance's config.db at the time of
 export: blocklists, allow/deny rules, client groups, DNS/web settings,
-custom DNS records - and yes, any threat-intel API keys and your web login
-password, all in plain text (same as data/config.backup.yaml already on
-disk). Treat this file like a password: back it up somewhere you'd store
-a password, not somewhere public.
+custom DNS records - and yes, any threat-intel API keys in plain text and
+every user's bcrypt password hash (same as data/config.backup.yaml already
+on disk). A bcrypt hash can't be turned back into the original password,
+but treat this file like a password anyway: back it up somewhere you'd
+store a password, not somewhere public.
 
 To restore into a FRESH instance (no data/config.db yet):
   cp config.yaml <your data volume>/config.backup.yaml
@@ -891,7 +1040,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 """
 
     @app.get("/api/export")
-    def export_config(_: None = Depends(require_auth)) -> Response:
+    def export_config(_: dict[str, Any] = Depends(require_admin)) -> Response:
         snap = config_store.snapshot()
         config_yaml = yaml.safe_dump(snap, sort_keys=False)
 
@@ -914,7 +1063,7 @@ To restore into an EXISTING instance (data/config.db already exists):
     # was true at export time. blocklist.refresh() below makes blocking
     # HTTP calls, same sync-def reasoning as the other importers above.
     @app.post("/api/import/backup")
-    def import_backup(file: UploadFile = File(...), _: None = Depends(require_auth)) -> dict[str, Any]:
+    def import_backup(file: UploadFile = File(...), _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         raw = file.file.read()
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as zf:
@@ -939,6 +1088,10 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         config_store.mutate(_mutate)
         blocklist.refresh()
+        # A backup taken before multi-user accounts existed has no `users`
+        # key - without this, restoring one would wipe every account and
+        # lock everyone out until a restart re-ran the startup migration.
+        users.ensure_default_admin()
 
         return {"ok": True}
 
@@ -946,7 +1099,7 @@ To restore into an EXISTING instance (data/config.db already exists):
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
 
     @app.get("/api/settings")
-    def get_settings(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def get_settings(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         snap = config_store.snapshot()
         dns_cfg = dict(snap.get("dns", {}))
         upstreams = dns_cfg.pop("upstreams", [])
@@ -957,7 +1110,6 @@ To restore into an EXISTING instance (data/config.db already exists):
             "web": {
                 "listen_address": web_cfg.get("listen_address"),
                 "listen_port": web_cfg.get("listen_port"),
-                "username": web_cfg.get("username"),
                 "theme": web_cfg.get("theme", "navy"),
             },
             "logging": snap.get("logging", {}),
@@ -992,7 +1144,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         }
 
     @app.patch("/api/settings/dns")
-    def update_dns_settings(body: DnsSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def update_dns_settings(body: DnsSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             dns_cfg = data.setdefault("dns", {})
             # None means "the client left this field blank" (e.g. a numeric
@@ -1005,7 +1157,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.put("/api/settings/upstreams")
-    def update_upstreams(body: UpstreamsIn, _: None = Depends(require_auth)) -> list[str]:
+    def update_upstreams(body: UpstreamsIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         # A leading "#" marks an upstream as disabled - kept in the list
         # (so re-enabling doesn't mean re-typing it) but skipped by
         # FilteringResolver - see app.upstream.is_disabled. Only truly
@@ -1020,7 +1172,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.post("/api/settings/upstreams/{index}/toggle")
-    def toggle_upstream(index: int, _: None = Depends(require_auth)) -> list[str]:
+    def toggle_upstream(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         def _mutate(data: dict[str, Any]) -> list[str]:
             upstreams = data.setdefault("dns", {}).setdefault("upstreams", [])
             if not 0 <= index < len(upstreams):
@@ -1032,7 +1184,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.delete("/api/settings/upstreams/{index}")
-    def delete_upstream(index: int, _: None = Depends(require_auth)) -> list[str]:
+    def delete_upstream(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         def _mutate(data: dict[str, Any]) -> list[str]:
             upstreams = data.setdefault("dns", {}).setdefault("upstreams", [])
             if not 0 <= index < len(upstreams):
@@ -1043,20 +1195,17 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.patch("/api/settings/web")
-    def update_web_settings(body: WebSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def update_web_settings(body: WebSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             web_cfg = data.setdefault("web", {})
             payload = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
-            password = payload.pop("password", None)
             web_cfg.update(payload)
-            if password:
-                web_cfg["password"] = password
-            return {k: v for k, v in web_cfg.items() if k != "password"}
+            return web_cfg
 
         return config_store.mutate(_mutate)
 
     @app.patch("/api/settings/logging")
-    def update_logging_settings(body: LoggingSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def update_logging_settings(body: LoggingSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             logging_cfg = data.setdefault("logging", {})
             logging_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
@@ -1065,7 +1214,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.patch("/api/settings/blocklists")
-    def update_blocklist_settings(body: BlocklistSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def update_blocklist_settings(body: BlocklistSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             bl_cfg = data.setdefault("blocklists", {})
             bl_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
@@ -1074,7 +1223,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.patch("/api/settings/enrichment")
-    def update_enrichment_settings(body: EnrichmentSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def update_enrichment_settings(body: EnrichmentSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         # API-key-shaped fields: blank/omitted means "keep the current
         # value" (these are masked password inputs - the form never shows
         # the real key back, so an empty field must not overwrite it).
@@ -1106,7 +1255,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.patch("/api/settings/anomaly")
-    def update_anomaly_settings(body: AnomalySettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def update_anomaly_settings(body: AnomalySettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             anomaly_cfg = data.setdefault("anomaly", {})
             anomaly_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
@@ -1115,7 +1264,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.patch("/api/settings/alert-rules")
-    def update_alert_rules_settings(body: AlertRulesSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def update_alert_rules_settings(body: AlertRulesSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             cfg = data.setdefault("alert_rules", {})
             cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
@@ -1156,23 +1305,23 @@ To restore into an EXISTING instance (data/config.db already exists):
         return result
 
     @app.get("/api/alert-rules/domains")
-    def list_alert_domains(_: None = Depends(require_auth)) -> list[str]:
+    def list_alert_domains(_: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return config_store.get("alert_rules", "domains", default=[]) or []
 
     @app.post("/api/alert-rules/domains")
-    def add_alert_domain(body: DomainIn, _: None = Depends(require_auth)) -> list[str]:
+    def add_alert_domain(body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _add_alert_domain(body.domain)
 
     @app.delete("/api/alert-rules/domains/{domain}")
-    def remove_alert_domain(domain: str, _: None = Depends(require_auth)) -> list[str]:
+    def remove_alert_domain(domain: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _remove_alert_domain(domain)
 
     @app.get("/api/alert-rules/sources")
-    def list_alert_sources(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def list_alert_sources(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("alert_rules", "sources", default=[]) or []
 
     @app.post("/api/alert-rules/sources")
-    def add_alert_source(source: BlocklistSourceIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def add_alert_source(source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
             sources.append(source.model_dump())
@@ -1183,7 +1332,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return result
 
     @app.delete("/api/alert-rules/sources/{index}")
-    def delete_alert_source(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def delete_alert_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
             if not 0 <= index < len(sources):
@@ -1196,7 +1345,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return result
 
     @app.post("/api/alert-rules/sources/{index}/toggle")
-    def toggle_alert_source(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def toggle_alert_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
             if not 0 <= index < len(sources):
@@ -1210,7 +1359,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.patch("/api/settings/notifications/email")
     def update_notification_email_settings(
-        body: NotificationEmailSettingsIn, _: None = Depends(require_auth)
+        body: NotificationEmailSettingsIn, _: dict[str, Any] = Depends(require_admin)
     ) -> dict[str, Any]:
         # smtp_password is masked like the threat-intel API keys - blank/
         # omitted means "keep the current value", never "clear it".
@@ -1225,7 +1374,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.post("/api/notifications/test-email")
-    def send_test_email(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def send_test_email(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         if notifications is None:
             raise HTTPException(status_code=503, detail="Notifications are not available")
         try:
@@ -1240,31 +1389,39 @@ To restore into an EXISTING instance (data/config.db already exists):
     # local - see app/anomaly.py.
     @app.get("/api/anomalies")
     def list_anomalies(
-        include_acknowledged: bool = True, limit: int = 200, _: None = Depends(require_auth)
+        include_acknowledged: bool = True,
+        limit: int = 200,
+        user: dict[str, Any] = Depends(require_permission("view_anomalies")),
     ) -> list[dict[str, Any]]:
         if anomaly is None:
             return []
-        return anomaly.list(include_acknowledged=include_acknowledged, limit=max(1, min(limit, 1000)))
+        rows = anomaly.list(include_acknowledged=include_acknowledged, limit=max(1, min(limit, 1000)))
+        allowed = _allowed_client_ips(user)
+        if allowed is not None:
+            rows = [r for r in rows if r.get("client") in allowed]
+        return rows
 
     @app.get("/api/anomalies/count")
-    def anomalies_count(_: None = Depends(require_auth)) -> dict[str, int]:
+    def anomalies_count(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> dict[str, int]:
         return {"unacknowledged": anomaly.unacknowledged_count() if anomaly is not None else 0}
 
     @app.post("/api/anomalies/check-now")
-    def anomalies_check_now(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def anomalies_check_now(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> list[dict[str, Any]]:
         if anomaly is None:
             return []
         return anomaly.check_once()
 
     @app.post("/api/anomalies/reanalyze")
-    def anomalies_reanalyze(body: ReanalyzeIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def anomalies_reanalyze(body: ReanalyzeIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         if anomaly is None:
             return []
         hours = max(1.0, min(body.hours, 24 * 30))  # cap at 30 days, matching the dashboard's longest option
         return anomaly.reanalyze(hours)
 
     @app.get("/api/anomalies/{anomaly_id}/domains")
-    def anomaly_domains(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def anomaly_domains(
+        anomaly_id: int, user: dict[str, Any] = Depends(require_permission("view_anomalies"))
+    ) -> dict[str, Any]:
         # The actual domain names behind an anomaly's aggregate count (e.g.
         # "12 distinct blocked domains") - not stored on the anomaly row
         # itself, reconstructed on demand from the query log using the same
@@ -1275,6 +1432,9 @@ To restore into an EXISTING instance (data/config.db already exists):
             raise HTTPException(status_code=404, detail="No such anomaly")
         row = anomaly.get(anomaly_id)
         if row is None:
+            raise HTTPException(status_code=404, detail="No such anomaly")
+        allowed = _allowed_client_ips(user)
+        if allowed is not None and row.get("client") not in allowed:
             raise HTTPException(status_code=404, detail="No such anomaly")
         kind = row["kind"]
         details = row["details"] or {}
@@ -1290,26 +1450,42 @@ To restore into an EXISTING instance (data/config.db already exists):
         domains = stats.domains_for_client_window(row["client"], since_ts, until_ts, blocked_only=blocked_only)
         return {"domains": domains, "blocked_only": blocked_only}
 
+    def _check_anomaly_in_scope(anomaly_id: int, user: dict[str, Any]) -> None:
+        if anomaly is None:
+            raise HTTPException(status_code=404, detail="No such anomaly")
+        allowed = _allowed_client_ips(user)
+        if allowed is None:
+            return
+        row = anomaly.get(anomaly_id)
+        if row is None or row.get("client") not in allowed:
+            raise HTTPException(status_code=404, detail="No such anomaly")
+
     @app.post("/api/anomalies/{anomaly_id}/acknowledge")
-    def acknowledge_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def acknowledge_anomaly(
+        anomaly_id: int, user: dict[str, Any] = Depends(require_permission("view_anomalies"))
+    ) -> dict[str, Any]:
+        _check_anomaly_in_scope(anomaly_id, user)
         if anomaly is None or not anomaly.acknowledge(anomaly_id):
             raise HTTPException(status_code=404, detail="No such anomaly")
         return {"ok": True}
 
     @app.post("/api/anomalies/{anomaly_id}/unacknowledge")
-    def unacknowledge_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def unacknowledge_anomaly(
+        anomaly_id: int, user: dict[str, Any] = Depends(require_permission("view_anomalies"))
+    ) -> dict[str, Any]:
+        _check_anomaly_in_scope(anomaly_id, user)
         if anomaly is None or not anomaly.unacknowledge(anomaly_id):
             raise HTTPException(status_code=404, detail="No such anomaly")
         return {"ok": True}
 
     @app.delete("/api/anomalies/{anomaly_id}")
-    def delete_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def delete_anomaly(anomaly_id: int, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         if anomaly is None or not anomaly.delete(anomaly_id):
             raise HTTPException(status_code=404, detail="No such anomaly")
         return {"ok": True}
 
     @app.delete("/api/anomalies")
-    def clear_anomalies(_: None = Depends(require_auth)) -> dict[str, Any]:
+    def clear_anomalies(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         if anomaly is not None:
             anomaly.clear()
         return {"ok": True}
@@ -1318,7 +1494,7 @@ To restore into an EXISTING instance (data/config.db already exists):
     # button in the dashboard. Never called automatically, never on a
     # schedule, never as a side effect of a DNS query.
     @app.post("/api/enrich")
-    def enrich_target(body: EnrichIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+    def enrich_target(body: EnrichIn, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> dict[str, Any]:
         target = body.target.strip()
         target_type = body.type if body.type in ("domain", "ip") else "domain"
         if not target:
@@ -1341,12 +1517,78 @@ To restore into an EXISTING instance (data/config.db already exists):
         return result
 
     @app.get("/api/enrich/history")
-    def enrichment_history(limit: int = 100, target: str | None = None, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+    def enrichment_history(limit: int = 100, target: str | None = None, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> list[dict[str, Any]]:
         if enrichment_store is None:
             return []
         limit = max(1, min(limit, 500))
         if target:
             return enrichment_store.history_for(target.strip(), limit=limit)
         return enrichment_store.recent(limit=limit)
+
+    # -- multi-user accounts + roles (admin-only management) --------------
+    # "admin" sees and does everything; "user" is restricted to whatever an
+    # admin grants below via permissions - see app/users.py for the exact
+    # shape. Passwords are always bcrypt (app/auth.py), never sent back to
+    # the browser once saved.
+    @app.get("/api/users")
+    def list_users(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        return [public_user(u) for u in users.list()]
+
+    @app.post("/api/users")
+    def create_user(body: UserCreateIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        try:
+            user = users.create(
+                body.username,
+                body.password,
+                body.role,
+                body.permissions.model_dump() if body.permissions else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return public_user(user)
+
+    @app.patch("/api/users/{username}")
+    def update_user(username: str, body: UserUpdateIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        try:
+            user = users.update(
+                username,
+                password=body.password or None,
+                role=body.role,
+                permissions=body.permissions.model_dump() if body.permissions is not None else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if body.password:
+            # A changed password invalidates every session that account is
+            # currently signed in with - forces a fresh login with the new
+            # credentials everywhere, rather than leaving old browser
+            # sessions valid under a password that no longer works.
+            sessions.destroy_all_for(username)
+        return public_user(user)
+
+    @app.delete("/api/users/{username}")
+    def delete_user(username: str, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        if username == admin.get("username"):
+            raise HTTPException(status_code=400, detail="Can't delete the account you're signed in with")
+        try:
+            users.delete(username)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        sessions.destroy_all_for(username)
+        return {"ok": True}
+
+    # -- self-service password change, for any signed-in user (admin or ---
+    # restricted) - the account-management endpoints above are admin-only,
+    # but every user still needs a way to change their own password.
+    @app.post("/api/account/password")
+    def change_own_password(
+        body: ChangePasswordIn, user: dict[str, Any] = Depends(require_auth)
+    ) -> dict[str, Any]:
+        if not verify_password(body.current_password, user.get("password_hash", "")):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if not body.new_password:
+            raise HTTPException(status_code=400, detail="New password is required")
+        users.update(user["username"], password=body.new_password)
+        return {"ok": True}
 
     return app

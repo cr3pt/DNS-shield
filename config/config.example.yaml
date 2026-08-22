@@ -184,12 +184,41 @@ client_groups: []
 web:
   listen_address: "0.0.0.0"
   listen_port: 3000
-  username: "admin"
-  # CHANGE THIS before exposing the web UI beyond your own machine.
-  password: "changeme"
   # Dashboard color theme, paired dark/light by hue: "navy"/"daylight",
   # "slate"/"mist", "forest"/"meadow", or "plum"/"lilac".
   theme: "navy"
+
+# Dashboard accounts. On first boot (or upgrading from a version that only
+# had web.username/web.password above), a single admin account is created
+# here automatically from that old username/password, with the password
+# converted to a bcrypt hash - nothing to redo by hand. From then on this
+# list - and every password in it - lives only here, bcrypt-hashed, managed
+# from Settings -> Users (admin only).
+#
+# "admin" can see and do everything, including managing other users.
+# "user" is read-mostly and restricted to whatever an admin grants via
+# permissions: which client IPs/CIDRs and/or client_groups (by name) they
+# can see results for, whether they can see threat-intel Enrich results and
+# detected anomalies, and whether they're allowed to block or whitelist a
+# domain/host themselves. A signed-out visitor sees only the public Stats
+# view (query trend + top blocked domains, no Copy/Enrich) - see README.
+#
+# users:
+#   - username: "admin"
+#     password_hash: "$2b$12$..."   # never edit by hand - set via the dashboard
+#     role: "admin"
+#     permissions: {}
+#   - username: "household"
+#     password_hash: "$2b$12$..."
+#     role: "user"
+#     permissions:
+#       allowed_clients: ["192.168.1.50"]
+#       allowed_groups: ["Kids"]
+#       view_threat_intel: false
+#       view_anomalies: true
+#       can_block: true
+#       can_whitelist: false
+users: []
 
 logging:
   level: "INFO"
