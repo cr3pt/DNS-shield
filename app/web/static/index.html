@@ -1181,13 +1181,28 @@
           <label for="anomaly-show-acknowledged">Show acknowledged</label>
         </div>
         <button type="button" class="secondary" id="anomaly-check-now">Check now</button>
+        <select id="reanalyze-range">
+          <option value="12">Last 12 hours</option>
+          <option value="24" selected>Last 24 hours</option>
+          <option value="48">Last 48 hours</option>
+          <option value="168">Last 7 days</option>
+          <option value="336">Last 14 days</option>
+          <option value="720">Last 30 days</option>
+        </select>
+        <button type="button" class="secondary" id="reanalyze-btn">Reanalyse</button>
         <button type="button" class="danger" id="anomaly-clear-all">Clear all</button>
       </div>
     </div>
     <p class="muted">
       Local anomaly detection and alert-rule hits both land here - configure thresholds and
-      watched domains/lists in Settings -> Anomalies.
+      watched domains/lists in Settings -> Anomalies. "Check now" runs the heuristics against
+      the live window; "Reanalyse" instead walks back over the selected historical range,
+      re-checking it as if the detector had been running the whole time - useful after
+      changing thresholds, or just to audit history you didn't have detection on for. Ranges
+      of 7 days or longer scan a lot of data and can take a while; it doesn't send any
+      notifications for what it finds (this is a retroactive audit, not a live event).
     </p>
+    <p class="muted" id="reanalyze-status"></p>
     <table>
       <thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Severity</th><th>Details</th><th></th></tr></thead>
       <tbody id="anomaly-rows"></tbody>
@@ -2453,6 +2468,47 @@ function severityTag(severity) {
   });
 }
 
+function openAnomalyDomainsWindow(a, domains, blockedOnly) {
+  const w = window.open("", "_blank", "width=480,height=560");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the domain list.");
+    return;
+  }
+  const kindLabel = blockedOnly ? "blocked domains" : "domains";
+  const listHtml = domains.length
+    ? `<ul>${domains.map((d) => `<li><code>${escapeHtml(d)}</code></li>`).join("")}</ul>`
+    : `<p class="muted">No domains found for this window - they may have aged out of the query log's retention.</p>`;
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(a.client)} - ${escapeHtml(kindLabel)}</title>
+<style>
+  body { margin:0; padding:1.5rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  h1 { font-size:1.05rem; margin:0 0 0.3rem; word-break:break-all; }
+  .muted { color:#8a9ab8; font-size:0.85rem; }
+  ul { list-style:none; margin:1rem 0 0; padding:0; max-height:70vh; overflow-y:auto; }
+  li { padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); word-break:break-all; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; }
+  button { margin-top:1rem; padding:0.5rem 1rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.85rem; }
+</style></head>
+<body>
+  <h1>${escapeHtml(a.client)}</h1>
+  <p class="muted">${domains.length} ${escapeHtml(kindLabel)} - ${escapeHtml(a.summary)}</p>
+  ${listHtml}
+  ${domains.length ? '<button type="button" id="copy-domains-btn">Copy all</button>' : ""}
+  <script>
+    const btn = document.getElementById("copy-domains-btn");
+    if (btn) {
+      btn.onclick = () => {
+        navigator.clipboard.writeText(${JSON.stringify(domains.join("\n"))}).then(() => {
+          btn.textContent = "Copied!";
+          setTimeout(() => { btn.textContent = "Copy all"; }, 1500);
+        });
+      };
+    }
+  <\/script>
+</body></html>`);
+  w.document.close();
+}
+
 function renderAnomalyRow(a) {
   const delBtn = el("button", { class: "danger", text: "Remove" });
   delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
@@ -2464,12 +2520,28 @@ function renderAnomalyRow(a) {
     actions.unshift(ackBtn);
   }
 
+  const showDomainsBtn = el("button", { class: "secondary", text: "Show domains" });
+  showDomainsBtn.onclick = async () => {
+    showDomainsBtn.disabled = true;
+    try {
+      const result = await api(`/api/anomalies/${a.id}/domains`);
+      openAnomalyDomainsWindow(a, result.domains, result.blocked_only);
+    } catch (err) {
+      alert("Failed to load domains: " + err.message);
+    } finally {
+      showDomainsBtn.disabled = false;
+    }
+  };
+
   return el("tr", {}, [
     el("td", { text: fmtTime(a.ts) }),
     addressCell(clientLabel(a.client), isIpAddress(a.client) ? [enrichButton(a.client, "ip"), clientBlockButton(a.client)] : [], a.client, "Client"),
     el("td", { text: a.kind_label }),
     el("td", {}, [severityTag(a.severity)]),
-    el("td", { text: a.summary }),
+    el("td", {}, [
+      el("div", { text: a.summary }),
+      el("div", { style: "margin-top:0.3rem;" }, [showDomainsBtn]),
+    ]),
     el("td", {}, [el("div", { class: "row-actions" }, actions)]),
   ]);
 }
@@ -2516,6 +2588,34 @@ document.getElementById("anomaly-show-acknowledged").addEventListener("change", 
 document.getElementById("anomaly-check-now").addEventListener("click", async () => {
   await api("/api/anomalies/check-now", { method: "POST" });
   loadAnomalies();
+});
+
+document.getElementById("reanalyze-btn").addEventListener("click", async () => {
+  const select = document.getElementById("reanalyze-range");
+  const hours = parseFloat(select.value);
+  const label = select.options[select.selectedIndex].text.toLowerCase();
+  if (hours >= 168) {
+    if (!confirm(`Reanalyse ${label}? Scanning that much history can take a while - the page will stay usable, but this may take a minute or more.`)) return;
+  }
+  const btn = document.getElementById("reanalyze-btn");
+  const status = document.getElementById("reanalyze-status");
+  btn.disabled = true;
+  status.textContent = `Reanalysing ${label}...`;
+  try {
+    const found = await api("/api/anomalies/reanalyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours }),
+    });
+    status.textContent = found.length
+      ? `Reanalysis of ${label} found ${found.length} anomal${found.length === 1 ? "y" : "ies"}.`
+      : `Reanalysis of ${label} found nothing new.`;
+    loadAnomalies();
+  } catch (err) {
+    status.textContent = "Reanalysis failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 document.getElementById("anomaly-clear-all").addEventListener("click", async () => {

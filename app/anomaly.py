@@ -194,13 +194,55 @@ class AnomalyDetector:
 
     # -- detection ------------------------------------------------------
     def check_once(self) -> list[dict[str, Any]]:
-        """Runs one detection pass over the current window and stores any
-        newly-flagged anomalies (subject to a per-client/kind cooldown so a
-        persistent condition doesn't spam a fresh row every cycle). Returns
-        what was newly recorded. Safe to call directly (e.g. a dashboard
-        "Check now" button), not just from the background loop.
+        """Runs one detection pass over the *live* window (ending now) and
+        stores any newly-flagged anomalies, notifying about them. Safe to
+        call directly (e.g. a dashboard "Check now" button), not just from
+        the background loop. See reanalyze() for scanning historical data.
         """
         window_minutes = float(self._config.get("anomaly", "window_minutes", default=15) or 15)
+        return self._evaluate_window(window_minutes, time.time(), notify=True)
+
+    def reanalyze(self, hours: float) -> list[dict[str, Any]]:
+        """Re-runs the exact same heuristics as check_once(), but walks
+        backward over `hours` of history in anomaly.window_minutes-sized
+        slices instead of just the live window - as if the detector had
+        been ticking continuously throughout that period. Slices are
+        walked oldest-first so the per-client/kind cooldown applies in
+        chronological order: a burst spanning several consecutive slices
+        still only files once per cooldown window, not once per slice.
+
+        Unlike check_once()/check_watched_domains(), this never triggers
+        the notification callback - it's a retroactive audit the user
+        asked for, not a live event worth paging anyone about. Anomalies
+        it finds still land in the normal Detected-anomalies list, each
+        stamped with the timestamp of the historical slice it came from
+        (not "now"), so they sort correctly among live-detected ones.
+
+        This does a database query per slice (two if a slice crosses the
+        domain-burst threshold), so a long range (weeks) can take a real
+        amount of wall-clock time - the dashboard warns about this before
+        calling it for anything beyond a day or so.
+        """
+        window_minutes = float(self._config.get("anomaly", "window_minutes", default=15) or 15)
+        window_seconds = max(window_minutes, 1.0) * 60
+        end_ts = time.time()
+        cursor = end_ts - max(float(hours), 1.0) * 3600
+
+        found: list[dict[str, Any]] = []
+        while cursor < end_ts:
+            slice_end = min(cursor + window_seconds, end_ts)
+            found.extend(self._evaluate_window(window_minutes, slice_end, notify=False))
+            cursor = slice_end
+        return found
+
+    def _evaluate_window(self, window_minutes: float, until_ts: float, notify: bool) -> list[dict[str, Any]]:
+        """Core heuristic pass shared by check_once() (until_ts=now) and
+        reanalyze() (until_ts=each historical slice's end). `until_ts` is
+        also the timestamp stamped on anything found here and the "now"
+        used for cooldown comparisons, so a reanalyze() walk applies
+        cooldown in the same chronological order the events actually
+        happened in, not the wall-clock time reanalysis happens to run at.
+        """
         min_queries = int(self._config.get("anomaly", "min_queries", default=20) or 20)
         blocked_ratio_threshold = float(self._config.get("anomaly", "blocked_ratio_threshold", default=0.5) or 0.5)
         domain_burst_threshold = int(self._config.get("anomaly", "domain_burst_threshold", default=50) or 50)
@@ -217,8 +259,8 @@ class AnomalyDetector:
         cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
 
-        activity = self._stats.client_activity(window_minutes * 60)
-        now = time.time()
+        activity = self._stats.client_activity(window_minutes * 60, until_ts=until_ts)
+        now = until_ts
         found: list[dict[str, Any]] = []
 
         # Only fetch actual domain names (for entropy scoring) for clients
@@ -226,7 +268,7 @@ class AnomalyDetector:
         # common case is nobody does, so this stays a no-op query most of
         # the time instead of pulling every domain on every check.
         needs_domains = any(row["distinct_domains"] >= domain_burst_threshold for row in activity)
-        domains_by_client = self._stats.client_domains(window_minutes * 60) if needs_domains else {}
+        domains_by_client = self._stats.client_domains(window_minutes * 60, until_ts=until_ts) if needs_domains else {}
 
         with self._lock:
             conn = self._connect()
@@ -316,7 +358,7 @@ class AnomalyDetector:
 
         if found:
             logger.info("anomaly check: %d new anomal%s flagged", len(found), "y" if len(found) == 1 else "ies")
-            if self._on_new_anomalies is not None:
+            if notify and self._on_new_anomalies is not None:
                 try:
                     self._on_new_anomalies(found)
                 except Exception:  # noqa: BLE001 - a notification failure must never break detection
@@ -425,6 +467,15 @@ class AnomalyDetector:
         finally:
             conn.close()
         return [self._row_to_dict(row) for row in rows]
+
+    def get(self, anomaly_id: int) -> dict[str, Any] | None:
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM anomalies WHERE id = ?", (anomaly_id,)).fetchone()
+        finally:
+            conn.close()
+        return self._row_to_dict(row) if row else None
 
     def unacknowledged_count(self) -> int:
         conn = self._connect()

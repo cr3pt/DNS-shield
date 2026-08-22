@@ -341,14 +341,18 @@ class Stats:
         )
 
     # -- per-client window activity (anomaly detector) ---------------------
-    def client_activity(self, window_seconds: float) -> list[dict[str, Any]]:
-        """Per-client aggregate counts over the last `window_seconds` -
-        total/blocked query counts plus distinct (and distinct-blocked)
-        domain counts. Used by app/anomaly.py to spot a client suddenly
-        hammering many blocked domains, or cycling through an unusual
-        number of distinct domains (DGA-malware-like behavior).
+    def client_activity(self, window_seconds: float, until_ts: float | None = None) -> list[dict[str, Any]]:
+        """Per-client aggregate counts over the `window_seconds` ending at
+        `until_ts` (default: now) - total/blocked query counts plus
+        distinct (and distinct-blocked) domain counts. Used by
+        app/anomaly.py to spot a client suddenly hammering many blocked
+        domains, or cycling through an unusual number of distinct domains
+        (DGA-malware-like behavior). `until_ts` lets AnomalyDetector.reanalyze()
+        run this same aggregate against a historical slice instead of the
+        live "now" window.
         """
-        since = time.time() - window_seconds
+        until_ts = time.time() if until_ts is None else until_ts
+        since = until_ts - window_seconds
         conn = self._connect()
         try:
             conn.row_factory = sqlite3.Row
@@ -356,8 +360,8 @@ class Stats:
                 "SELECT client, COUNT(*) AS total, SUM(blocked) AS blocked, "
                 "COUNT(DISTINCT domain) AS distinct_domains, "
                 "COUNT(DISTINCT CASE WHEN blocked = 1 THEN domain END) AS distinct_blocked_domains "
-                "FROM queries WHERE ts >= ? GROUP BY client",
-                (since,),
+                "FROM queries WHERE ts >= ? AND ts < ? GROUP BY client",
+                (since, until_ts),
             ).fetchall()
         finally:
             conn.close()
@@ -372,19 +376,21 @@ class Stats:
             for row in rows
         ]
 
-    def client_domains(self, window_seconds: float) -> dict[str, list[str]]:
-        """Distinct domains queried by each client over the last
-        `window_seconds`, grouped by client. Used by app/anomaly.py to
-        score a domain_burst candidate's *domain names themselves* (e.g.
-        Shannon entropy - do they look randomly generated?), not just how
-        many there were - see AnomalyDetector._looks_like_dga.
+    def client_domains(self, window_seconds: float, until_ts: float | None = None) -> dict[str, list[str]]:
+        """Distinct domains queried by each client over the `window_seconds`
+        ending at `until_ts` (default: now), grouped by client. Used by
+        app/anomaly.py to score a domain_burst candidate's *domain names
+        themselves* (e.g. Shannon entropy - do they look randomly
+        generated?), not just how many there were - see
+        AnomalyDetector._looks_like_dga.
         """
-        since = time.time() - window_seconds
+        until_ts = time.time() if until_ts is None else until_ts
+        since = until_ts - window_seconds
         conn = self._connect()
         try:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT DISTINCT client, domain FROM queries WHERE ts >= ?", (since,)
+                "SELECT DISTINCT client, domain FROM queries WHERE ts >= ? AND ts < ?", (since, until_ts)
             ).fetchall()
         finally:
             conn.close()
@@ -427,6 +433,31 @@ class Stats:
             {"id": row["id"], "ts": row["ts"], "domain": row["domain"], "client": row["client"], "alert_rule": row["alert_rule"]}
             for row in rows
         ]
+
+    def domains_for_client_window(
+        self, client: str, since_ts: float, until_ts: float, blocked_only: bool = False
+    ) -> list[str]:
+        """Distinct domains `client` queried in [since_ts, until_ts) -
+        the actual domain names behind one of app/anomaly.py's aggregate
+        counts (e.g. "12 distinct blocked domains"), for the dashboard's
+        "Show domains" button on a detected anomaly. `blocked_only`
+        restricts to domains that were blocked at least once in that
+        window. A domain/client on logging.ignored_domains/ignored_clients
+        never appears here since it was never written to this table in
+        the first place - see record().
+        """
+        where_blocked = "AND blocked = 1" if blocked_only else ""
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"SELECT DISTINCT domain FROM queries WHERE client = ? AND ts >= ? AND ts < ? {where_blocked} "
+                "ORDER BY domain",
+                (client, since_ts, until_ts),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [row["domain"] for row in rows]
 
     # -- time-series trend (Stats tab chart) -------------------------------
     def timeseries(self, range_key: str = "24h") -> list[dict[str, Any]]:

@@ -214,6 +214,10 @@ class AnomalySettingsIn(BaseModel):
     cooldown_minutes: float | None = None
 
 
+class ReanalyzeIn(BaseModel):
+    hours: float
+
+
 class AlertRulesSettingsIn(BaseModel):
     check_interval_seconds: float | None = None
     cooldown_minutes: float | None = None
@@ -255,7 +259,14 @@ def create_app(
 
     @app.get("/")
     def index(_: None = Depends(require_auth)) -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        # index.html is the entire dashboard (HTML+CSS+JS in one file) and
+        # changes across restarts/updates - without an explicit Cache-Control,
+        # a browser can heuristically cache it and keep serving a stale copy
+        # for a while even across a normal reload, silently mismatched with
+        # the backend's actual API shape. no-cache forces revalidation on
+        # every load (a fast 304 via the ETag/Last-Modified FileResponse
+        # already sets when nothing changed, a fresh 200 when it has).
+        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/status")
     def status(_: None = Depends(require_auth)) -> dict[str, Any]:
@@ -1244,6 +1255,40 @@ To restore into an EXISTING instance (data/config.db already exists):
         if anomaly is None:
             return []
         return anomaly.check_once()
+
+    @app.post("/api/anomalies/reanalyze")
+    def anomalies_reanalyze(body: ReanalyzeIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        if anomaly is None:
+            return []
+        hours = max(1.0, min(body.hours, 24 * 30))  # cap at 30 days, matching the dashboard's longest option
+        return anomaly.reanalyze(hours)
+
+    @app.get("/api/anomalies/{anomaly_id}/domains")
+    def anomaly_domains(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+        # The actual domain names behind an anomaly's aggregate count (e.g.
+        # "12 distinct blocked domains") - not stored on the anomaly row
+        # itself, reconstructed on demand from the query log using the same
+        # client/window the heuristic evaluated. Domains on
+        # logging.ignored_domains/ignored_clients never appear here, since
+        # they're never written to the query log in the first place.
+        if anomaly is None:
+            raise HTTPException(status_code=404, detail="No such anomaly")
+        row = anomaly.get(anomaly_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="No such anomaly")
+        kind = row["kind"]
+        details = row["details"] or {}
+        if kind.startswith("watched_domain:"):
+            domain = details.get("domain")
+            return {"domains": [domain] if domain else [], "blocked_only": False}
+        window_minutes = details.get("window_minutes")
+        if window_minutes is None:
+            return {"domains": [], "blocked_only": False}
+        until_ts = row["ts"]
+        since_ts = until_ts - float(window_minutes) * 60
+        blocked_only = kind in ("high_blocked_ratio", "blocked_domain_burst")
+        domains = stats.domains_for_client_window(row["client"], since_ts, until_ts, blocked_only=blocked_only)
+        return {"domains": domains, "blocked_only": blocked_only}
 
     @app.post("/api/anomalies/{anomaly_id}/acknowledge")
     def acknowledge_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:

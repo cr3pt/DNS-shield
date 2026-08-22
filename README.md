@@ -713,8 +713,8 @@ no equivalent "allowlist this IP" action to offer.
 
 ### Local anomaly detection
 
-Settings -> Anomalies has an optional background check over your own
-query log for a handful of simple, per-client statistical red flags -
+Settings -> Anomalies configures an optional background check over your
+own query log for a handful of simple, per-client statistical red flags -
 no ML, no cloud call, nothing beyond arithmetic over data already
 sitting in `stats.db`. **Off by default.** Turn it on and DNS-shield
 re-checks recent activity on a timer (`anomaly.check_interval_minutes`,
@@ -753,15 +753,45 @@ client that's queried it in that window:
   ad-heavy page reloading the same handful of ad domains.
 
 Every flagged anomaly is stored locally in `data/anomalies.db` and shown
-in a table right below the settings form, with the client, what tripped,
-a human-readable summary, and (reusing the same buttons as the query
+in its own top-level **Anomalies** tab (between Logs and Stats, with an
+unacknowledged-count badge), with the client, what tripped, a
+human-readable summary, and (reusing the same buttons as the query
 log/Stats/Enrich popup) quick **Enrich**/**Block host** actions on the
 client IP - **Acknowledge** to dismiss it from the default view without
 deleting it, or **Remove** to delete it outright; **Clear all** wipes
-the table. A **Check now** button runs a check immediately instead of
-waiting for the timer, handy right after changing thresholds. A
-persistent condition doesn't spam a fresh row every cycle: once a given
-client/anomaly-type combination fires, it's suppressed for
+the table. Settings -> Anomalies holds the configuration (thresholds,
+watched domains/lists) - the same split as the Logs tab (data) vs.
+Settings -> Logging (config).
+
+A **Show domains** button on any row opens a popup listing the actual
+domain names behind that anomaly's aggregate count (e.g. which 12
+domains made up a "12 distinct blocked domains" hit) - reconstructed on
+demand from the query log for that client and time window, not stored
+redundantly on the anomaly itself. A domain on
+`logging.ignored_domains`/`ignored_clients` never appears here, for the
+same reason it never appears in the query log at all: it's never written
+to `stats.db` in the first place (Settings -> Logging -> "Excluded from
+the log").
+
+A **Check now** button runs a check immediately instead of waiting for
+the timer, handy right after changing thresholds. **Reanalyse** does
+something different: pick a historical range (12/24/48 hours, or 7/14/30
+days) and it walks that whole range in `anomaly.window_minutes`-sized
+slices, re-running the exact same heuristics against each slice as if
+the detector had been ticking continuously throughout that period -
+useful after changing thresholds, or to audit a stretch of history you
+didn't have detection turned on for. The per-client/anomaly-type cooldown
+still applies, in chronological order, so a burst spanning several
+consecutive slices only fires once. It never sends a notification for
+what it finds (a retroactive audit isn't a live event worth paging
+anyone about), though results still land in the normal anomalies list,
+timestamped to when the historical activity actually happened rather
+than when you ran the reanalysis. A range of 7 days or longer scans a
+real amount of data and can take a while - the dashboard warns about
+this before running one.
+
+A persistent condition doesn't spam a fresh row every cycle: once a
+given client/anomaly-type combination fires, it's suppressed for
 `anomaly.cooldown_minutes` (default 60) before it can fire again.
 
 This runs entirely on its own background thread, decoupled from DNS
@@ -782,7 +812,7 @@ formats, fetch/parse/cache behavior as the global Blocklists section -
 see [Blocklists, multiple formats & the Suggested-lists catalog](#blocklists-multiple-formats--the-suggested-lists-catalog)
 above). Querying anything on either list raises an alert - **whether or
 not the query is actually blocked** - and shows up as a "high"-severity
-row in the same Detected anomalies table, going through the exact same
+row in the same top-level Anomalies tab, going through the exact same
 Acknowledge/Remove/Clear-all controls and the same email/browser
 notification pipeline described above. No separate on/off switch: an
 empty domains/sources list simply never matches anything, the same as
