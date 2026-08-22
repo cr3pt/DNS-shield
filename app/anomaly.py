@@ -494,6 +494,16 @@ class AnomalyDetector:
             finally:
                 conn.close()
 
+    def unacknowledge(self, anomaly_id: int) -> bool:
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute("UPDATE anomalies SET acknowledged = 0 WHERE id = ?", (anomaly_id,))
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
     def delete(self, anomaly_id: int) -> bool:
         with self._lock:
             conn = self._connect()

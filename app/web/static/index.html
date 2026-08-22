@@ -2550,7 +2550,11 @@ function renderAnomalyRow(a) {
   delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
 
   const actions = [delBtn];
-  if (!a.acknowledged) {
+  if (a.acknowledged) {
+    const unackBtn = el("button", { class: "secondary", text: "Unacknowledge" });
+    unackBtn.onclick = async () => { await api(`/api/anomalies/${a.id}/unacknowledge`, { method: "POST" }); loadAnomalies(); };
+    actions.unshift(unackBtn);
+  } else {
     const ackBtn = el("button", { class: "secondary", text: "Acknowledge" });
     ackBtn.onclick = async () => { await api(`/api/anomalies/${a.id}/acknowledge`, { method: "POST" }); loadAnomalies(); };
     actions.unshift(ackBtn);

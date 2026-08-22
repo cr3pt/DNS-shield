@@ -1296,6 +1296,12 @@ To restore into an EXISTING instance (data/config.db already exists):
             raise HTTPException(status_code=404, detail="No such anomaly")
         return {"ok": True}
 
+    @app.post("/api/anomalies/{anomaly_id}/unacknowledge")
+    def unacknowledge_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+        if anomaly is None or not anomaly.unacknowledge(anomaly_id):
+            raise HTTPException(status_code=404, detail="No such anomaly")
+        return {"ok": True}
+
     @app.delete("/api/anomalies/{anomaly_id}")
     def delete_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
         if anomaly is None or not anomaly.delete(anomaly_id):
