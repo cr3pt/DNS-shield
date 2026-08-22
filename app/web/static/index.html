@@ -2468,15 +2468,20 @@ function severityTag(severity) {
   });
 }
 
-function openAnomalyDomainsWindow(a, domains, blockedOnly) {
-  const w = window.open("", "_blank", "width=480,height=560");
+function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable) {
+  const w = window.open("", "_blank", "width=520,height=580");
   if (!w) {
     alert("Popup blocked - allow popups for this page to see the domain list.");
     return;
   }
   const kindLabel = blockedOnly ? "blocked domains" : "domains";
   const listHtml = domains.length
-    ? `<ul>${domains.map((d) => `<li><code>${escapeHtml(d)}</code></li>`).join("")}</ul>`
+    ? `<ul>${domains
+        .map(
+          (d) =>
+            `<li><code>${escapeHtml(d)}</code><button type="button" class="enrich-domain-btn" data-domain="${escapeHtml(d)}">Enrich</button></li>`
+        )
+        .join("")}</ul>`
     : `<p class="muted">No domains found for this window - they may have aged out of the query log's retention.</p>`;
   w.document.write(`<!doctype html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(a.client)} - ${escapeHtml(kindLabel)}</title>
@@ -2485,9 +2490,12 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly) {
   h1 { font-size:1.05rem; margin:0 0 0.3rem; word-break:break-all; }
   .muted { color:#8a9ab8; font-size:0.85rem; }
   ul { list-style:none; margin:1rem 0 0; padding:0; max-height:70vh; overflow-y:auto; }
-  li { padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); word-break:break-all; }
+  li { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); }
+  li code { word-break:break-all; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; }
-  button { margin-top:1rem; padding:0.5rem 1rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.85rem; }
+  button { padding:0.35rem 0.8rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.8rem; white-space:nowrap; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  #copy-domains-btn { margin-top:1rem; }
 </style></head>
 <body>
   <h1>${escapeHtml(a.client)}</h1>
@@ -2504,6 +2512,34 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly) {
         });
       };
     }
+
+    const enrichAvailable = ${JSON.stringify(!!enrichAvailable)};
+    document.querySelectorAll(".enrich-domain-btn").forEach((ebtn) => {
+      if (!enrichAvailable) {
+        ebtn.disabled = true;
+        ebtn.title = "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
+        return;
+      }
+      ebtn.onclick = async () => {
+        const domain = ebtn.dataset.domain;
+        ebtn.disabled = true;
+        const original = ebtn.textContent;
+        ebtn.textContent = "...";
+        try {
+          const result = await window.opener.api("/api/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: domain, type: "domain" }),
+          });
+          window.opener.openEnrichmentWindow(result);
+        } catch (err) {
+          alert("Enrichment failed: " + (err && err.message ? err.message : err));
+        } finally {
+          ebtn.disabled = false;
+          ebtn.textContent = original;
+        }
+      };
+    });
   <\/script>
 </body></html>`);
   w.document.close();
@@ -2525,7 +2561,7 @@ function renderAnomalyRow(a) {
     showDomainsBtn.disabled = true;
     try {
       const result = await api(`/api/anomalies/${a.id}/domains`);
-      openAnomalyDomainsWindow(a, result.domains, result.blocked_only);
+      openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable);
     } catch (err) {
       alert("Failed to load domains: " + err.message);
     } finally {
