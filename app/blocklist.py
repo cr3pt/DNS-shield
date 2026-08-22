@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 import threading
@@ -104,6 +105,47 @@ def describe_format(format_counts: dict[str, int]) -> str:
     return f"mixed formats ({labels})"
 
 
+_IP_FORMAT_LABELS = {"ip": "IP list", "cidr": "CIDR list"}
+
+
+def parse_ip_list(text: str) -> tuple[set[str], dict[str, int]]:
+    entries: set[str] = set()
+    format_counts: dict[str, int] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(("#", "!", ";")):
+            continue
+        candidate = line.split()[0] if line.split() else ""
+        candidate = candidate.rstrip(",")
+        if not candidate:
+            continue
+        if "/" in candidate:
+            try:
+                ipaddress.ip_network(candidate, strict=False)
+            except ValueError:
+                continue
+            fmt = "cidr"
+        else:
+            try:
+                ipaddress.ip_address(candidate)
+            except ValueError:
+                continue
+            fmt = "ip"
+        entries.add(candidate)
+        format_counts[fmt] = format_counts.get(fmt, 0) + 1
+    return entries, format_counts
+
+
+def describe_ip_format(format_counts: dict[str, int]) -> str:
+    if not format_counts:
+        return "unknown"
+    present = list(format_counts.keys())
+    if len(present) == 1:
+        return _IP_FORMAT_LABELS.get(present[0], present[0])
+    labels = " + ".join(_IP_FORMAT_LABELS.get(fmt, fmt) for fmt in sorted(present, key=lambda f: -format_counts[f]))
+    return f"mixed ({labels})"
+
+
 class BlocklistManager:
 
     def __init__(self, config_store, cache_dir: Path):
@@ -134,6 +176,12 @@ class BlocklistManager:
         self._regex_lock = threading.Lock()
         self._regex_cache_key: tuple[str, ...] | None = None
         self._regex_cache_compiled: list[tuple[str, re.Pattern]] = []
+
+        self._answer_ip_exact: frozenset[str] = frozenset()
+        self._answer_ip_nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+        self._answer_ip_source: dict[str, str] = {}
+        self._answer_ip_source_counts: dict[str, int] = {}
+        self._answer_ip_source_formats: dict[str, str] = {}
 
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
         return self.block_reason(qname, client_ip) is not None
@@ -255,10 +303,30 @@ class BlocklistManager:
     def answer_ip_blocked(self, ip: str | None) -> str | None:
         if not ip:
             return None
-        for pattern in self._config.get("blocked_answer_ips", default=[]) or []:
-            if ip_matches(ip, pattern):
-                return pattern
+        with self._lock:
+            exact, nets, source = self._answer_ip_exact, self._answer_ip_nets, self._answer_ip_source
+        if ip in exact:
+            return source.get(ip, ip)
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return None
+        for net in nets:
+            if addr in net:
+                return str(net)
         return None
+
+    def answer_ip_source_counts(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._answer_ip_source_counts)
+
+    def answer_ip_source_formats(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._answer_ip_source_formats)
+
+    def answer_ip_total_count(self) -> int:
+        with self._lock:
+            return len(self._answer_ip_exact) + len(self._answer_ip_nets)
 
     def source_counts(self) -> dict[str, int]:
         with self._lock:
@@ -315,7 +383,7 @@ class BlocklistManager:
         safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
         return self._cache_dir / f"{safe}.cache"
 
-    def _fetch_one(self, name: str, url: str) -> tuple[set[str], dict[str, int]]:
+    def _fetch_one(self, name: str, url: str, parser=parse_list) -> tuple[set[str], dict[str, int]]:
         cache_path = self._cache_path(name)
         try:
             resp = requests.get(url, timeout=15)
@@ -328,10 +396,10 @@ class BlocklistManager:
                 text = cache_path.read_text(encoding="utf-8")
             else:
                 return set(), {}
-        return parse_list(text)
+        return parser(text)
 
     def _fetch_sources(
-        self, sources: Iterable[dict]
+        self, sources: Iterable[dict], parser=parse_list, describer=describe_format
     ) -> tuple[set[str], dict[str, int], dict[str, str], dict[str, str]]:
         merged: set[str] = set()
         counts: dict[str, int] = {}
@@ -344,9 +412,9 @@ class BlocklistManager:
             url = source.get("url")
             if not url:
                 continue
-            domains, format_counts = self._fetch_one(name, url)
+            domains, format_counts = self._fetch_one(name, url, parser)
             counts[name] = len(domains)
-            formats[name] = describe_format(format_counts)
+            formats[name] = describer(format_counts)
             merged |= domains
             for domain in domains:
                 domain_source.setdefault(domain, name)
@@ -385,6 +453,27 @@ class BlocklistManager:
                 group_source_counts[name] = g_counts
                 group_source_formats[name] = g_formats
 
+            answer_ip_sources = self._config.get("blocked_answer_ip_sources", default=[]) or []
+            answer_ip_merged, answer_ip_counts, answer_ip_formats, answer_ip_source = self._fetch_sources(
+                answer_ip_sources, parser=parse_ip_list, describer=describe_ip_format
+            )
+            manual_answer_ips = {
+                v.strip() for v in (self._config.get("blocked_answer_ips", default=[]) or []) if v.strip()
+            }
+            answer_ip_merged |= manual_answer_ips
+            for value in manual_answer_ips:
+                answer_ip_source.setdefault(value, "manually added")
+            answer_ip_exact: set[str] = set()
+            answer_ip_nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+            for value in answer_ip_merged:
+                if "/" in value:
+                    try:
+                        answer_ip_nets.append(ipaddress.ip_network(value, strict=False))
+                    except ValueError:
+                        continue
+                else:
+                    answer_ip_exact.add(value)
+
             with self._lock:
                 self._blocked = frozenset(merged)
                 self._source_counts = counts
@@ -401,13 +490,18 @@ class BlocklistManager:
                 self._alert_domain_source = alert_domain_source
                 self._alert_source_counts = alert_counts
                 self._alert_source_formats = alert_formats
+                self._answer_ip_exact = frozenset(answer_ip_exact)
+                self._answer_ip_nets = answer_ip_nets
+                self._answer_ip_source = answer_ip_source
+                self._answer_ip_source_counts = answer_ip_counts
+                self._answer_ip_source_formats = answer_ip_formats
                 self._last_refresh = time.time()
             logger.info(
                 "blocklist refresh complete: %d blocked domains from %d sources, "
                 "%d allow-listed domains from %d sources, %d client group(s) with extra sources, "
-                "%d alert-rule domain(s)",
+                "%d alert-rule domain(s), %d blocked destination IP entries from %d sources",
                 len(merged), len(counts), len(allow_merged), len(allow_counts), len(group_blocked),
-                len(alert_merged),
+                len(alert_merged), len(answer_ip_exact) + len(answer_ip_nets), len(answer_ip_counts),
             )
 
     def start(self) -> None:

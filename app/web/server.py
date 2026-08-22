@@ -381,6 +381,9 @@ def create_app(
             "alert_domains": blocklist.alert_total_count(),
             "alert_sources": blocklist.alert_source_counts(),
             "alert_source_formats": blocklist.alert_source_formats(),
+            "answer_ip_entries": blocklist.answer_ip_total_count(),
+            "answer_ip_sources": blocklist.answer_ip_source_counts(),
+            "answer_ip_source_formats": blocklist.answer_ip_source_formats(),
             "cache": cache.stats() if cache is not None else None,
             "upstream_stats": upstream_stats.snapshot() if upstream_stats is not None else {},
             "pause": {
@@ -646,11 +649,62 @@ def create_app(
 
     @app.post("/api/rules/deny-answer-ip")
     def add_deny_answer_ip(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
-        return _add_rule("blocked_answer_ips", body.value, label="IP")
+        result = _add_rule("blocked_answer_ips", body.value, label="IP")
+        blocklist.refresh()
+        return result
 
     @app.delete("/api/rules/deny-answer-ip/{value}")
     def remove_deny_answer_ip(value: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
-        return _remove_rule("blocked_answer_ips", value)
+        result = _remove_rule("blocked_answer_ips", value)
+        blocklist.refresh()
+        return result
+
+    @app.get("/api/answer-ip-sources")
+    def list_answer_ip_sources(_: dict[str, Any] = Depends(require_permission("can_block"))) -> list[dict[str, Any]]:
+        return config_store.get("blocked_answer_ip_sources", default=[]) or []
+
+    @app.post("/api/answer-ip-sources")
+    def add_answer_ip_source(
+        source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_permission("can_block"))
+    ) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            sources = data.setdefault("blocked_answer_ip_sources", [])
+            sources.append(source.model_dump())
+            return sources
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
+
+    @app.delete("/api/answer-ip-sources/{index}")
+    def delete_answer_ip_source(
+        index: int, _: dict[str, Any] = Depends(require_permission("can_block"))
+    ) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            sources = data.setdefault("blocked_answer_ip_sources", [])
+            if not 0 <= index < len(sources):
+                raise HTTPException(status_code=404, detail="No such list")
+            sources.pop(index)
+            return sources
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
+
+    @app.post("/api/answer-ip-sources/{index}/toggle")
+    def toggle_answer_ip_source(
+        index: int, _: dict[str, Any] = Depends(require_permission("can_block"))
+    ) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            sources = data.setdefault("blocked_answer_ip_sources", [])
+            if not 0 <= index < len(sources):
+                raise HTTPException(status_code=404, detail="No such list")
+            sources[index]["enabled"] = not sources[index].get("enabled", True)
+            return sources
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
 
     def _add_nested_rule(section: str, list_name: str, value: str) -> list[str]:
         if not value.strip():

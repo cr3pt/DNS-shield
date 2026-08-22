@@ -508,6 +508,23 @@ blocked_answer_ips:
   - "203.0.113.0/24"
 ```
 
+Beyond the manual list, "Malicious-IP lists" in that same section lets you
+subscribe to a URL the same way as Blocklists: one IP or CIDR per line
+(`#`/`!`/`;` for comments, everything else auto-parsed - most public
+threat-intel IP feeds already look like this), fetched/cached/refreshed
+on the same `blocklists.refresh_interval_hours` schedule as the domain
+blocklists, with the same fetch-failure fallback to the last good cached
+copy. Matching is O(1) for an exact IP and a short linear scan for CIDR
+ranges, computed once per refresh rather than per query, so a large
+subscribed feed doesn't add per-query overhead.
+
+```yaml
+blocked_answer_ip_sources:
+  - name: "Example threat feed"
+    url: "https://example.org/malicious-ips.txt"
+    enabled: true
+```
+
 ### Disabling IPv6
 
 If your network doesn't use IPv6, turn on `dns.block_ipv6` (dashboard:

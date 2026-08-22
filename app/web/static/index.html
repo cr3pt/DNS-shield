@@ -1090,16 +1090,28 @@
     <section>
       <h2>Blocked destination IPs</h2>
       <p class="muted">
-        Blocks a query the moment its answer resolves to one of these IPs/CIDRs - even for a
-        domain on the allowlist above. Catches a trusted domain that's been compromised or
-        rebound to point at a known-bad address; the domain allowlist still governs everything
-        else about that domain.
+        Blocks a query the moment its answer resolves to one of these IPs/CIDRs, or one from a
+        subscribed list below - even for a domain on the allowlist above. Catches a trusted
+        domain that's been compromised or rebound to point at a known-bad address; the domain
+        allowlist still governs everything else about that domain.
       </p>
       <form class="inline" id="add-deny-answer-ip-form">
         <input type="text" id="deny-answer-ip" placeholder="203.0.113.5 or 203.0.113.0/24" required>
         <button type="submit">Add</button>
       </form>
       <table><tbody id="deny-answer-ip-rows"></tbody></table>
+
+      <h3 style="margin-top:1rem;">Malicious-IP lists</h3>
+      <p class="muted">Subscribed lists of IPs/CIDRs (one per line, "#" for comments) - fetched, cached, and refreshed on the same schedule as Blocklists.</p>
+      <form class="inline" id="add-answer-ip-source-form">
+        <input type="text" id="answer-ip-source-name" placeholder="list name" style="width:9rem;">
+        <input type="text" id="answer-ip-source-url" placeholder="https://..." style="flex:1;min-width:12rem;">
+        <button type="submit">Add list</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>URL</th><th>Entries</th><th>Status</th><th></th></tr></thead>
+        <tbody id="answer-ip-source-rows"></tbody>
+      </table>
     </section>
   </div>
 
@@ -2017,6 +2029,12 @@ async function loadRules() {
     delBtn.onclick = async () => { await api(`/api/rules/deny-answer-ip/${encodeURIComponent(value)}`, { method: "DELETE" }); refreshAll(); };
     denyAnswerIpRows.appendChild(el("tr", {}, [el("td", { text: value }), el("td", {}, [delBtn])]));
   }
+
+  await loadAnswerIpSources();
+}
+
+async function loadAnswerIpSources() {
+  await loadSourceTable("/api/answer-ip-sources", "answer-ip-source-rows", "answer_ip_sources", "answer_ip_source_formats");
 }
 
 function buildRuleEditor(title, items, onAdd, onRemove) {
@@ -3357,6 +3375,20 @@ document.getElementById("add-deny-answer-ip-form").addEventListener("submit", as
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ value }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-answer-ip-source-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("answer-ip-source-name").value.trim();
+  const url = document.getElementById("answer-ip-source-url").value.trim();
+  if (!name || !url) return;
+  await api("/api/answer-ip-sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, url }),
   });
   e.target.reset();
   refreshAll();
