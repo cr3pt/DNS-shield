@@ -770,6 +770,40 @@ own `anomalies.db`, never touching the query-answering path at all. A
 bug here can, at worst, stop producing new alerts; it cannot break or
 slow down DNS resolution.
 
+### Alert rules (watched domains and lists)
+
+The three heuristics above are statistical guesses over a rolling window -
+useful for "something looks off", but not for "tell me the instant this
+*specific* domain gets queried". Alert rules cover that instead: still in
+Settings -> Anomalies, right below the anomaly-detection settings, is a
+"Watched domains & lists" section where you list exact domains (and their
+subdomains) and/or subscribe to watch lists (same hosts/AdBlock/plain
+formats, fetch/parse/cache behavior as the global Blocklists section -
+see [Blocklists, multiple formats & the Suggested-lists catalog](#blocklists-multiple-formats--the-suggested-lists-catalog)
+above). Querying anything on either list raises an alert - **whether or
+not the query is actually blocked** - and shows up as a "high"-severity
+row in the same Detected anomalies table, going through the exact same
+Acknowledge/Remove/Clear-all controls and the same email/browser
+notification pipeline described above. No separate on/off switch: an
+empty domains/sources list simply never matches anything, the same as
+the blocklist/allowlist sources it mirrors. A matching query also gets a
+small red "watched" tag next to it in the Logs tab, so you can spot it
+without leaving the query log.
+
+Matching itself happens exactly like blocklist matching - a cheap,
+in-memory check against a set refreshed on the normal blocklist refresh
+cycle (and immediately whenever you add/remove a watched domain or
+source from the dashboard) - so it costs nothing extra on the DNS hot
+path. What's checked roughly every `alert_rules.check_interval_seconds`
+(default 15) is a separate, much lighter background loop: it polls the
+query log for newly-logged hits and turns each into an alert, the same
+"cheap poll, heavier work stays off the DNS path" separation as anomaly
+detection itself. `alert_rules.cooldown_minutes` (default 15) works the
+same way as the anomaly detector's cooldown: once a given client/domain
+combination fires, it's suppressed for that long before firing again, so
+a client repeatedly hitting the same watched domain doesn't flood the
+table.
+
 ### Notifications
 
 Settings -> Notifications has two independent ways to hear about a newly
@@ -950,9 +984,10 @@ app/
                       truth, exported to data/config.backup.yaml every 12h
   netmatch.py         shared IP/CIDR matching for client groups and log-ignore rules
   blocklist.py        fetches + parses hosts/AdBlock/plain-domain lists (auto-detecting
-                       each source's format) for block and allow, refreshes on a timer,
-                       caches lists to disk for offline restarts, and (experimental) matches
-                       an in-memory cache of compiled regex denylist patterns
+                       each source's format) for block, allow, and alert-rule watch lists,
+                       refreshes on a timer, caches lists to disk for offline restarts, and
+                       (experimental) matches an in-memory cache of compiled regex denylist
+                       patterns
   blocklist_catalog.py  fixed list of well-known public blocklists offered as one-click
                        "Suggested lists" in the dashboard's Blocklists section
   dns_server.py        dnslib-based UDP/TCP DNS server; blocks locally, answers a custom
@@ -973,8 +1008,9 @@ app/
   enrichment.py         VirusTotal/AbuseIPDB/OTX reputation lookups - only ever called from
                         the "Enrich" button's endpoint, never on its own (see above)
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
-  anomaly.py             local, heuristic anomaly detection over the query log - its own
-                        background thread, SQLite storage (data/anomalies.db) (see above)
+  anomaly.py             local, heuristic anomaly detection over the query log, plus the
+                        watched-domain/alert-rules background loop - SQLite storage
+                        (data/anomalies.db) (see above)
   notifications.py       optional email for new anomalies, straight to the SMTP server you
                         configure (stdlib smtplib only) - never called on its own (see above)
   web/server.py        FastAPI REST API + basic-auth, backing the dashboard

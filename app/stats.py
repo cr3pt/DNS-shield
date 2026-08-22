@@ -55,7 +55,7 @@ class Stats:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._config = config_store
         self._flush_interval = flush_interval
-        self._queue: "queue.Queue[tuple[float, str, str, str, int, str | None, str | None]]" = queue.Queue()
+        self._queue: "queue.Queue[tuple[float, str, str, str, int, str | None, str | None, str | None]]" = queue.Queue()
         self._started_at = time.time()
         self._stop_event = threading.Event()
 
@@ -85,6 +85,8 @@ class Stats:
                 conn.execute("ALTER TABLE queries ADD COLUMN reason TEXT")
             if "answer_ip" not in columns:
                 conn.execute("ALTER TABLE queries ADD COLUMN answer_ip TEXT")
+            if "alert_rule" not in columns:
+                conn.execute("ALTER TABLE queries ADD COLUMN alert_rule TEXT")
             conn.commit()
         finally:
             conn.close()
@@ -98,13 +100,17 @@ class Stats:
         qtype: str,
         reason: str | None = None,
         answer_ip: str | None = None,
+        alert_rule: str | None = None,
     ) -> None:
         """Non-blocking: just hands the row to the writer thread.
 
         A domain/client on logging.ignored_domains/ignored_clients is
         simply never written here - resolution and blocking already
         happened before this is called, so this only affects what shows
-        up in the query log, not how the query itself was answered.
+        up in the query log, not how the query itself was answered. An
+        alert-rule match on an ignored domain/client is likewise never
+        recorded - alert_hits_since() below is purely a view over this
+        same table, so nothing to alert on means nothing gets logged.
 
         answer_ip is whatever A/AAAA address was actually handed back to
         the client - the null IP for a null_ip-blocked query, a rewrite's
@@ -112,10 +118,17 @@ class Stats:
         upstream reply (skipping any CNAME hops). None for NXDOMAIN
         blocks, non-A/AAAA query types, and anything else with no address
         in the answer.
+
+        alert_rule is the matched domain from BlocklistManager.alert_match()
+        (app/blocklist.py) - independent of blocked/reason, since an alert
+        rule can match a query that resolves completely normally. None
+        when the query didn't match any configured alert_rules.domains/
+        sources. AnomalyDetector's watched-domain loop (app/anomaly.py)
+        polls alert_hits_since() for newly-written non-null values.
         """
         if self._is_ignored(qname, client_ip):
             return
-        self._queue.put((time.time(), qname, qtype, client_ip, int(blocked), reason, answer_ip))
+        self._queue.put((time.time(), qname, qtype, client_ip, int(blocked), reason, answer_ip, alert_rule))
 
     def _is_ignored(self, qname: str, client_ip: str) -> bool:
         ignored_domains = self._config.get("logging", "ignored_domains", default=[]) or []
@@ -145,8 +158,8 @@ class Stats:
                     except queue.Empty:
                         break
                 conn.executemany(
-                    "INSERT INTO queries (ts, domain, qtype, client, blocked, reason, answer_ip) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO queries (ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     batch,
                 )
                 conn.commit()
@@ -214,7 +227,7 @@ class Stats:
                 (top_n,),
             ).fetchall()
             recent = conn.execute(
-                "SELECT ts, domain, qtype, client, blocked, reason, answer_ip FROM queries "
+                "SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule FROM queries "
                 "ORDER BY id DESC LIMIT ?",
                 (log_n,),
             ).fetchall()
@@ -239,6 +252,7 @@ class Stats:
                     "blocked": bool(row["blocked"]),
                     "reason": row["reason"],
                     "answer_ip": row["answer_ip"],
+                    "alert_rule": row["alert_rule"],
                 }
                 for row in recent
             ],
@@ -302,7 +316,7 @@ class Stats:
             conn.row_factory = sqlite3.Row
             total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_sql}", params).fetchone()["c"]
             rows = conn.execute(
-                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip FROM queries {where_sql} "
+                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule FROM queries {where_sql} "
                 "ORDER BY id DESC LIMIT ? OFFSET ?",
                 params + [limit, offset],
             ).fetchall()
@@ -319,6 +333,7 @@ class Stats:
                     "blocked": bool(row["blocked"]),
                     "reason": row["reason"],
                     "answer_ip": row["answer_ip"],
+                    "alert_rule": row["alert_rule"],
                 }
                 for row in rows
             ],
@@ -377,6 +392,41 @@ class Stats:
         for row in rows:
             by_client.setdefault(row["client"], []).append(row["domain"])
         return by_client
+
+    # -- alert-rule hits (watched domain/list matches) ----------------------
+    def max_query_id(self) -> int:
+        """The current highest row id in `queries`, or 0 if empty. Used by
+        AnomalyDetector's watched-domain loop (app/anomaly.py) to establish
+        a starting cursor on first run, so a fresh/restarted watcher only
+        ever alerts on *new* hits going forward, never replays history.
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute("SELECT MAX(id) FROM queries").fetchone()
+            return row[0] or 0
+        finally:
+            conn.close()
+
+    def alert_hits_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
+        """Rows with id > last_id that matched an alert rule (alert_rule IS
+        NOT NULL), oldest first. The watcher advances its cursor to the
+        highest id seen here after processing, so nothing gets replayed on
+        the next poll.
+        """
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, ts, domain, client, alert_rule FROM queries "
+                "WHERE id > ? AND alert_rule IS NOT NULL ORDER BY id ASC LIMIT ?",
+                (last_id, limit),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {"id": row["id"], "ts": row["ts"], "domain": row["domain"], "client": row["client"], "alert_rule": row["alert_rule"]}
+            for row in rows
+        ]
 
     # -- time-series trend (Stats tab chart) -------------------------------
     def timeseries(self, range_key: str = "24h") -> list[dict[str, Any]]:

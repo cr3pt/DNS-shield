@@ -262,6 +262,30 @@ anomaly:
   # spam a fresh row every check cycle.
   cooldown_minutes: 60
 
+# Alert rules: raise an alert the instant a watched domain is queried,
+# rather than waiting for a statistical pattern like the heuristics above -
+# whether or not the query is actually blocked. Domains here are checked
+# roughly every check_interval_seconds; a hit is stored as an anomaly
+# (kind "watched_domain:<domain>", severity "high") and goes through the
+# same cooldown/notification pipeline as everything else in this file.
+# Purely observational - never changes how a query resolves. No separate
+# on/off switch: an empty domains/sources list simply never matches
+# anything, same as the blocklist/allowlist sources above.
+alert_rules:
+  check_interval_seconds: 15
+  # Once a given client/domain combination fires, it's suppressed for this
+  # long before it can fire again.
+  cooldown_minutes: 15
+  # Exact domains (and their subdomains) to always alert on.
+  domains: []
+  # Subscribed lists of domains to watch - same hosts/AdBlock/plain
+  # formats, fetch/parse/cache behavior as the global Blocklists section.
+  # sources:
+  #   - name: "Known-bad C2 domains"
+  #     url: "https://example.org/watch-list.txt"
+  #     enabled: true
+  sources: []
+
 # Optional email notification when a new anomaly is detected - sent
 # straight to the SMTP server *you* configure below (your own mail server,
 # or your own account at any provider), using nothing but Python's stdlib

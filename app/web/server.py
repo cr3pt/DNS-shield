@@ -73,6 +73,16 @@ def _anomaly_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {key: cfg.get(key, default) for key, default in _ANOMALY_DEFAULTS.items()}
 
 
+_ALERT_RULES_DEFAULTS: dict[str, Any] = {
+    "check_interval_seconds": 15,
+    "cooldown_minutes": 15,
+}
+
+
+def _alert_rules_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {key: cfg.get(key, default) for key, default in _ALERT_RULES_DEFAULTS.items()}
+
+
 def _notification_email_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "enabled": bool(cfg.get("enabled", False)),
@@ -204,6 +214,11 @@ class AnomalySettingsIn(BaseModel):
     cooldown_minutes: float | None = None
 
 
+class AlertRulesSettingsIn(BaseModel):
+    check_interval_seconds: float | None = None
+    cooldown_minutes: float | None = None
+
+
 class NotificationEmailSettingsIn(BaseModel):
     enabled: bool | None = None
     smtp_host: str | None = None
@@ -259,6 +274,9 @@ def create_app(
             "group_blocklist_domains": {n: blocklist.group_total_count(n) for n in group_names},
             "group_blocklist_sources": {n: blocklist.group_source_counts(n) for n in group_names},
             "group_blocklist_source_formats": {n: blocklist.group_source_formats(n) for n in group_names},
+            "alert_domains": blocklist.alert_total_count(),
+            "alert_sources": blocklist.alert_source_counts(),
+            "alert_source_formats": blocklist.alert_source_formats(),
             "cache": cache.stats() if cache is not None else None,
             "upstream_stats": upstream_stats.snapshot() if upstream_stats is not None else {},
             "pause": {
@@ -947,6 +965,7 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "local_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("local_api_key")),
             },
             "anomaly": _anomaly_settings(snap.get("anomaly", {})),
+            "alert_rules": _alert_rules_settings(snap.get("alert_rules", {})),
             "notifications": {
                 "email": _notification_email_settings(snap.get("notifications", {}).get("email", {})),
             },
@@ -1083,6 +1102,100 @@ To restore into an EXISTING instance (data/config.db already exists):
             return _anomaly_settings(anomaly_cfg)
 
         return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/alert-rules")
+    def update_alert_rules_settings(body: AlertRulesSettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            cfg = data.setdefault("alert_rules", {})
+            cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            return _alert_rules_settings(cfg)
+
+        return config_store.mutate(_mutate)
+
+    # -- alert rules: watched domains/lists - purely observational, never --
+    # affects blocking/resolution, only whether a query gets logged as an
+    # alert for AnomalyDetector's watched-domain loop to pick up. Mirrors
+    # the global blocklist-source CRUD pattern above.
+    def _add_alert_domain(domain: str) -> list[str]:
+        domain = domain.strip().lower().rstrip(".")
+        if not domain:
+            raise HTTPException(status_code=400, detail="Empty domain")
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            domains = data.setdefault("alert_rules", {}).setdefault("domains", [])
+            if domain not in domains:
+                domains.append(domain)
+            return domains
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
+
+    def _remove_alert_domain(domain: str) -> list[str]:
+        domain = domain.strip().lower().rstrip(".")
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            domains = data.setdefault("alert_rules", {}).setdefault("domains", [])
+            if domain in domains:
+                domains.remove(domain)
+            return domains
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
+
+    @app.get("/api/alert-rules/domains")
+    def list_alert_domains(_: None = Depends(require_auth)) -> list[str]:
+        return config_store.get("alert_rules", "domains", default=[]) or []
+
+    @app.post("/api/alert-rules/domains")
+    def add_alert_domain(body: DomainIn, _: None = Depends(require_auth)) -> list[str]:
+        return _add_alert_domain(body.domain)
+
+    @app.delete("/api/alert-rules/domains/{domain}")
+    def remove_alert_domain(domain: str, _: None = Depends(require_auth)) -> list[str]:
+        return _remove_alert_domain(domain)
+
+    @app.get("/api/alert-rules/sources")
+    def list_alert_sources(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        return config_store.get("alert_rules", "sources", default=[]) or []
+
+    @app.post("/api/alert-rules/sources")
+    def add_alert_source(source: BlocklistSourceIn, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
+            sources.append(source.model_dump())
+            return sources
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
+
+    @app.delete("/api/alert-rules/sources/{index}")
+    def delete_alert_source(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
+            if not 0 <= index < len(sources):
+                raise HTTPException(status_code=404, detail="No such list")
+            sources.pop(index)
+            return sources
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
+
+    @app.post("/api/alert-rules/sources/{index}/toggle")
+    def toggle_alert_source(index: int, _: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
+            if not 0 <= index < len(sources):
+                raise HTTPException(status_code=404, detail="No such list")
+            sources[index]["enabled"] = not sources[index].get("enabled", True)
+            return sources
+
+        result = config_store.mutate(_mutate)
+        blocklist.refresh()
+        return result
 
     @app.patch("/api/settings/notifications/email")
     def update_notification_email_settings(

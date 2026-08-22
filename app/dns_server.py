@@ -56,6 +56,14 @@ class FilteringResolver:
         reason = self._blocklist.block_reason(qname, client_ip) if qname else None
         blocked = reason is not None
 
+        # Alert rules: purely observational, independent of blocked/reason
+        # above - a watched domain still resolves completely normally, this
+        # only tags the query-log row so AnomalyDetector's watched-domain
+        # loop (app/anomaly.py) can pick it up and notify. Cheap in-memory
+        # lookup, safe on this hot path same as block_reason() above.
+        alert_match = self._blocklist.alert_match(qname) if qname else None
+        alert_rule = alert_match[0] if alert_match else None
+
         if blocked:
             response = self._blocked_reply(request)
         else:
@@ -69,7 +77,7 @@ class FilteringResolver:
                     if self._cache is not None:
                         self._cache.put(request, response)
 
-        self._stats.record(qname, blocked, client_ip, qtype_name, reason, self._answer_ip(response))
+        self._stats.record(qname, blocked, client_ip, qtype_name, reason, self._answer_ip(response), alert_rule)
         return response
 
     @staticmethod

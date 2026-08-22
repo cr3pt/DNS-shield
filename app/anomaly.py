@@ -30,6 +30,17 @@ A bug in this module can, at worst, stop producing new anomaly alerts -
 it never touches DNS resolution. check_once() only reads from stats.db on
 a timer and writes to its own anomalies.db; the background loop wraps it
 in try/except so a heuristic bug can't take the process down.
+
+A fourth, independent check runs on its own (much shorter) interval:
+check_watched_domains() polls Stats.alert_hits_since() for queries that
+matched an alert rule (a manually-watched domain, or one from a
+subscribed watch list - see BlocklistManager.alert_match() in
+app/blocklist.py and dns_server.py, which tags each matching query as
+it's logged). Unlike the three heuristics above this isn't a statistical
+guess over a window - it's a direct "you queried something on your watch
+list" - so it's recorded as kind "watched_domain:<domain>" at "high"
+severity and goes through the exact same storage/cooldown/notification
+path as everything else here.
 """
 
 from __future__ import annotations
@@ -123,6 +134,12 @@ class AnomalyDetector:
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._watch_thread: threading.Thread | None = None
+        # Row-id cursor for the watched-domain loop - None until the first
+        # tick, which sets it to the then-current max query id so a fresh
+        # (or just-restarted) watcher only ever alerts on hits going
+        # forward, never replays whatever's already in stats.db's history.
+        self._watch_last_id: int | None = None
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, timeout=10)
@@ -141,6 +158,8 @@ class AnomalyDetector:
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, name="anomaly-detector", daemon=True)
         self._thread.start()
+        self._watch_thread = threading.Thread(target=self._watch_loop, name="alert-rule-watcher", daemon=True)
+        self._watch_thread.start()
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -157,6 +176,21 @@ class AnomalyDetector:
                 self.check_once()
             except Exception:  # noqa: BLE001 - a heuristic bug must never take the process down
                 logger.exception("anomaly check failed")
+
+    def _watch_loop(self) -> None:
+        # No "enabled" gate here, unlike _loop() above - an empty
+        # alert_rules.domains/sources means alert_match() never fires in
+        # the first place, so this is already a no-op until you configure
+        # something, same as the blocklist/allowlist sources pattern.
+        while not self._stop_event.is_set():
+            interval_seconds = self._config.get("alert_rules", "check_interval_seconds", default=15) or 15
+            interval = max(float(interval_seconds), 1.0)
+            if self._stop_event.wait(interval):
+                return
+            try:
+                self.check_watched_domains()
+            except Exception:  # noqa: BLE001 - a bug here must never take the process down
+                logger.exception("watched-domain check failed")
 
     # -- detection ------------------------------------------------------
     def check_once(self) -> list[dict[str, Any]]:
@@ -289,15 +323,91 @@ class AnomalyDetector:
                     logger.exception("on_new_anomalies callback failed")
         return found
 
+    # -- alert rules: watched domains/lists ----------------------------
+    def check_watched_domains(self) -> list[dict[str, Any]]:
+        """Polls Stats.alert_hits_since() for queries newly tagged by an
+        alert rule and turns each into a "watched_domain:<domain>" anomaly
+        row (subject to the same per-client/kind cooldown as everything
+        else here). Safe to call directly, not just from the watch loop.
+        """
+        if self._watch_last_id is None:
+            # First tick: establish a baseline so we never replay whatever
+            # was already sitting in stats.db before this process started.
+            self._watch_last_id = self._stats.max_query_id()
+            return []
+
+        hits = self._stats.alert_hits_since(self._watch_last_id)
+        if not hits:
+            return []
+
+        cooldown_minutes = float(self._config.get("alert_rules", "cooldown_minutes", default=15) or 15)
+        cooldown_seconds = max(cooldown_minutes, 1.0) * 60
+        now = time.time()
+        found: list[dict[str, Any]] = []
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.row_factory = sqlite3.Row
+                last_fired = {
+                    (row["client"], row["kind"]): row["last_ts"]
+                    for row in conn.execute(
+                        "SELECT client, kind, MAX(ts) AS last_ts FROM anomalies GROUP BY client, kind"
+                    ).fetchall()
+                }
+
+                for hit in hits:
+                    client = hit["client"]
+                    domain = hit["domain"]
+                    kind = f"watched_domain:{domain}"
+                    last = last_fired.get((client, kind))
+                    if last is not None and now - last < cooldown_seconds:
+                        continue
+                    summary = f'Queried watched domain "{domain}" (rule: {hit["alert_rule"]})'
+                    details = {"domain": domain, "alert_rule": hit["alert_rule"], "query_ts": hit["ts"]}
+                    conn.execute(
+                        "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
+                        "VALUES (?, ?, ?, 'high', ?, ?, 0)",
+                        (now, client, kind, summary, json.dumps(details)),
+                    )
+                    last_fired[(client, kind)] = now
+                    found.append({"ts": now, "client": client, "kind": kind, "severity": "high", "summary": summary})
+
+                conn.commit()
+            finally:
+                conn.close()
+
+        # Advance the cursor past every hit we just looked at, regardless
+        # of whether cooldown suppressed some of them - a suppressed hit
+        # was still *seen*, so it must never be re-fetched on the next poll.
+        self._watch_last_id = max(hit["id"] for hit in hits)
+
+        if found:
+            logger.info(
+                "watched-domain check: %d new alert%s flagged", len(found), "" if len(found) == 1 else "s"
+            )
+            if self._on_new_anomalies is not None:
+                try:
+                    self._on_new_anomalies(found)
+                except Exception:  # noqa: BLE001 - a notification failure must never break detection
+                    logger.exception("on_new_anomalies callback failed")
+        return found
+
     # -- reading/managing -------------------------------------------------
     @staticmethod
-    def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    def _kind_label(kind: str) -> str:
+        if kind.startswith("watched_domain:"):
+            return f"Watched domain: {kind.split(':', 1)[1]}"
+        return KIND_LABELS.get(kind, kind)
+
+    @classmethod
+    def _row_to_dict(cls, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
             "ts": row["ts"],
             "client": row["client"],
             "kind": row["kind"],
-            "kind_label": KIND_LABELS.get(row["kind"], row["kind"]),
+            "kind_label": cls._kind_label(row["kind"]),
             "severity": row["severity"],
             "summary": row["summary"],
             "details": json.loads(row["details_json"]),

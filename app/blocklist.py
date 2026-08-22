@@ -172,6 +172,17 @@ class BlocklistManager:
         self._group_domain_source: dict[str, dict[str, str]] = {}
         self._group_source_counts: dict[str, dict[str, int]] = {}
         self._group_source_formats: dict[str, dict[str, str]] = {}
+        # Alert rules: domains that should raise an anomaly-log alert when
+        # queried, whether or not they're actually blocked - a manual list
+        # (alert_rules.domains) plus subscribed lists (alert_rules.sources,
+        # fetched/parsed the same way as blocklists). Purely observational:
+        # never affects blocking/resolution, only what alert_match() reports
+        # for the DNS resolver to log alongside the query - see dns_server.py
+        # and AnomalyDetector's watched-domain loop (app/anomaly.py).
+        self._alert_matched: frozenset[str] = frozenset()
+        self._alert_domain_source: dict[str, str] = {}
+        self._alert_source_counts: dict[str, int] = {}
+        self._alert_source_formats: dict[str, str] = {}
         self._last_refresh: float | None = None
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -295,6 +306,23 @@ class BlocklistManager:
 
         return None
 
+    def alert_match(self, qname: str) -> tuple[str, str | None] | None:
+        """Returns (matched_domain, source_name) if `qname` hits an alert
+        rule (alert_rules.domains or alert_rules.sources), else None.
+        Purely observational - independent of blocking, pause-blocking, and
+        client groups, since alerting "you visited this" is a different
+        concern from "should this resolve". Cheap in-memory frozenset
+        lookup, safe to call synchronously from the DNS resolver per query
+        (dns_server.py) same as block_reason() already is.
+        """
+        qname = qname.rstrip(".").lower()
+        with self._lock:
+            alert_matched, alert_domain_source = self._alert_matched, self._alert_domain_source
+        matched = self._find_match(qname, alert_matched)
+        if matched is None:
+            return None
+        return matched, alert_domain_source.get(matched)
+
     def _compiled_regex_patterns(self) -> list[tuple[str, re.Pattern]]:
         patterns = tuple(self._config.get("denylist_regex", default=[]) or [])
         with self._regex_lock:
@@ -376,6 +404,18 @@ class BlocklistManager:
         with self._lock:
             return len(self._group_blocked.get(group_name, frozenset()))
 
+    def alert_source_counts(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._alert_source_counts)
+
+    def alert_source_formats(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._alert_source_formats)
+
+    def alert_total_count(self) -> int:
+        with self._lock:
+            return len(self._alert_matched)
+
     def last_refresh(self) -> float | None:
         return self._last_refresh
 
@@ -429,6 +469,16 @@ class BlocklistManager:
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
             allow_merged, allow_counts, allow_formats, _ = self._fetch_sources(allow_sources)
 
+            alert_sources = self._config.get("alert_rules", "sources", default=[]) or []
+            alert_merged, alert_counts, alert_formats, alert_domain_source = self._fetch_sources(alert_sources)
+            manual_alert_domains = {
+                d.strip().rstrip(".").lower() for d in (self._config.get("alert_rules", "domains", default=[]) or [])
+                if d.strip()
+            }
+            alert_merged |= manual_alert_domains
+            for domain in manual_alert_domains:
+                alert_domain_source.setdefault(domain, "manually added")
+
             group_blocked: dict[str, frozenset[str]] = {}
             group_domain_source: dict[str, dict[str, str]] = {}
             group_source_counts: dict[str, dict[str, int]] = {}
@@ -456,11 +506,17 @@ class BlocklistManager:
                 self._group_domain_source = group_domain_source
                 self._group_source_counts = group_source_counts
                 self._group_source_formats = group_source_formats
+                self._alert_matched = frozenset(alert_merged)
+                self._alert_domain_source = alert_domain_source
+                self._alert_source_counts = alert_counts
+                self._alert_source_formats = alert_formats
                 self._last_refresh = time.time()
             logger.info(
                 "blocklist refresh complete: %d blocked domains from %d sources, "
-                "%d allow-listed domains from %d sources, %d client group(s) with extra sources",
+                "%d allow-listed domains from %d sources, %d client group(s) with extra sources, "
+                "%d alert-rule domain(s)",
                 len(merged), len(counts), len(allow_merged), len(allow_counts), len(group_blocked),
+                len(alert_merged),
             )
 
     # -- background thread ------------------------------------------------
