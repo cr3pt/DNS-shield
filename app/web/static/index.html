@@ -472,6 +472,7 @@
 
   <div class="tabs" id="tabs">
     <button type="button" class="tab-btn" data-tab="logs">Logs</button>
+    <button type="button" class="tab-btn" data-tab="anomalies">Anomalies<span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
     <button type="button" class="tab-btn" data-tab="stats">Stats</button>
     <button type="button" class="tab-btn" data-tab="settings">Settings</button>
   </div>
@@ -544,7 +545,7 @@
     <button type="button" class="subtab-btn" data-subtab="dns">DNS</button>
     <button type="button" class="subtab-btn" data-subtab="logging">Logging</button>
     <button type="button" class="subtab-btn" data-subtab="threat-intel">Threat intelligence</button>
-    <button type="button" class="subtab-btn" data-subtab="anomalies">Anomalies<span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
+    <button type="button" class="subtab-btn" data-subtab="anomalies">Anomalies</button>
     <button type="button" class="subtab-btn" data-subtab="notifications">Notifications</button>
     <button type="button" class="subtab-btn" data-subtab="import">Import</button>
     <button type="button" class="subtab-btn" data-subtab="blocklists">Blocklists</button>
@@ -862,25 +863,6 @@
       </div>
       <button type="button" id="alert-rules-settings-save">Save alert rule settings</button>
     </section>
-
-    <section>
-      <div class="row">
-        <h2>Detected anomalies</h2>
-        <div class="inline" style="align-items:center;">
-          <div class="field checkbox" style="margin:0;">
-            <input type="checkbox" id="anomaly-show-acknowledged">
-            <label for="anomaly-show-acknowledged">Show acknowledged</label>
-          </div>
-          <button type="button" class="secondary" id="anomaly-check-now">Check now</button>
-          <button type="button" class="danger" id="anomaly-clear-all">Clear all</button>
-        </div>
-      </div>
-      <table>
-        <thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Severity</th><th>Details</th><th></th></tr></thead>
-        <tbody id="anomaly-rows"></tbody>
-      </table>
-      <p class="muted" id="anomaly-empty" style="display:none;">No anomalies detected.</p>
-    </section>
   </div>
 
   <div id="subtab-notifications" class="subtab-panel">
@@ -1186,6 +1168,31 @@
     <div style="margin-top:0.5rem;">
       <button type="button" class="secondary" id="query-log-load-more" style="display:none;">Load more</button>
     </div>
+  </section>
+  </div>
+
+  <div id="tab-anomalies" class="tab-panel">
+  <section>
+    <div class="row">
+      <h2>Detected anomalies</h2>
+      <div class="inline" style="align-items:center;">
+        <div class="field checkbox" style="margin:0;">
+          <input type="checkbox" id="anomaly-show-acknowledged">
+          <label for="anomaly-show-acknowledged">Show acknowledged</label>
+        </div>
+        <button type="button" class="secondary" id="anomaly-check-now">Check now</button>
+        <button type="button" class="danger" id="anomaly-clear-all">Clear all</button>
+      </div>
+    </div>
+    <p class="muted">
+      Local anomaly detection and alert-rule hits both land here - configure thresholds and
+      watched domains/lists in Settings -> Anomalies.
+    </p>
+    <table>
+      <thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Severity</th><th>Details</th><th></th></tr></thead>
+      <tbody id="anomaly-rows"></tbody>
+    </table>
+    <p class="muted" id="anomaly-empty" style="display:none;">No anomalies detected.</p>
   </section>
   </div>
 </main>
@@ -3121,7 +3128,7 @@ document.getElementById("resume-btn").addEventListener("click", async () => {
   loadStatusAndStats();
 });
 
-const TAB_NAMES = ["logs", "stats", "settings"];
+const TAB_NAMES = ["logs", "anomalies", "stats", "settings"];
 
 function setActiveTab(tab) {
   if (!TAB_NAMES.includes(tab)) tab = "logs";
