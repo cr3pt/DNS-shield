@@ -192,7 +192,7 @@ class UserCreateIn(BaseModel):
 
 
 class UserUpdateIn(BaseModel):
-    password: str | None = None  # blank/omitted = keep current password
+    password: str | None = None
     role: str | None = None
     permissions: UserPermissionsIn | None = None
 
@@ -293,10 +293,6 @@ def create_app(
         return users.get(username)
 
     def require_auth(request: Request) -> dict[str, Any]:
-        """Any signed-in user (admin or user role). Returns the full user
-        record (including its permissions dict) so endpoints can apply
-        RBAC/data-scoping without a second lookup.
-        """
         user = _current_user(request)
         if user is None:
             raise HTTPException(status_code=401, detail="Unauthorized")
@@ -308,11 +304,6 @@ def create_app(
         return user
 
     def require_permission(flag: str):
-        """A signed-in user is allowed through if they're an admin, or if
-        their stored permissions grant this specific flag (e.g. "can_block",
-        "view_threat_intel") - everyone else gets a 403.
-        """
-
         def _dep(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
             if user.get("role") != "admin" and not (user.get("permissions") or {}).get(flag):
                 raise HTTPException(status_code=403, detail="You don't have permission to do this")
@@ -321,11 +312,6 @@ def create_app(
         return _dep
 
     def _allowed_client_ips(user: dict[str, Any]) -> list[str] | None:
-        """The concrete client IPs `user` is allowed to see, resolved from
-        their allowed_clients patterns and allowed_groups' own match
-        patterns. None means "no restriction" (admin). An empty list means
-        "restricted, but nothing has been allowed yet" - not "everything".
-        """
         if user.get("role") == "admin":
             return None
         perms = user.get("permissions") or {}
@@ -339,7 +325,6 @@ def create_app(
             return []
         return [ip for ip in stats.distinct_clients() if any(ip_matches(ip, p) for p in patterns)]
 
-    # -- login/logout: a dedicated page (not a browser Basic-Auth popup) --
     @app.get("/login")
     def login_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "login.html", headers=NO_CACHE)
@@ -376,18 +361,9 @@ def create_app(
         local_ready = bool(enr.get("local_enabled")) and bool(enr.get("local_url"))
         return {
             "user": public_user(user) if user is not None else None,
-            # Whether Enrich is configured at all server-side - independent
-            # of a signed-in user's own view_threat_intel permission, which
-            # the dashboard combines with this to decide whether to show
-            # the Enrich button. A restricted user has no access to
-            # /api/settings to work this out for themselves otherwise.
             "enrichment_available": public_ready or local_ready,
         }
 
-    # -- public, unauthenticated view: query trend + top blocked domains --
-    # only - no client/domain-level detail, no Copy/Enrich (those live in
-    # the authenticated dashboard only). Everything else in this file
-    # requires a signed-in session.
     @app.get("/api/public/summary")
     def public_summary() -> dict[str, Any]:
         snap = stats.snapshot(top_n=25, log_n=0)
@@ -405,8 +381,6 @@ def create_app(
         # the backend's actual API shape. no-cache forces revalidation on
         # every load (a fast 304 via the ETag/Last-Modified FileResponse
         # already sets when nothing changed, a fresh 200 when it has).
-        # No auth here: index.html itself detects a logged-out session (via
-        # /api/whoami) and renders the public-only view described above.
         return FileResponse(STATIC_DIR / "index.html", headers=NO_CACHE)
 
     @app.get("/api/status")
@@ -1088,9 +1062,6 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         config_store.mutate(_mutate)
         blocklist.refresh()
-        # A backup taken before multi-user accounts existed has no `users`
-        # key - without this, restoring one would wipe every account and
-        # lock everyone out until a restart re-ran the startup migration.
         users.ensure_default_admin()
 
         return {"ok": True}
@@ -1525,11 +1496,6 @@ To restore into an EXISTING instance (data/config.db already exists):
             return enrichment_store.history_for(target.strip(), limit=limit)
         return enrichment_store.recent(limit=limit)
 
-    # -- multi-user accounts + roles (admin-only management) --------------
-    # "admin" sees and does everything; "user" is restricted to whatever an
-    # admin grants below via permissions - see app/users.py for the exact
-    # shape. Passwords are always bcrypt (app/auth.py), never sent back to
-    # the browser once saved.
     @app.get("/api/users")
     def list_users(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return [public_user(u) for u in users.list()]
@@ -1559,10 +1525,6 @@ To restore into an EXISTING instance (data/config.db already exists):
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if body.password:
-            # A changed password invalidates every session that account is
-            # currently signed in with - forces a fresh login with the new
-            # credentials everywhere, rather than leaving old browser
-            # sessions valid under a password that no longer works.
             sessions.destroy_all_for(username)
         return public_user(user)
 
@@ -1577,9 +1539,6 @@ To restore into an EXISTING instance (data/config.db already exists):
         sessions.destroy_all_for(username)
         return {"ok": True}
 
-    # -- self-service password change, for any signed-in user (admin or ---
-    # restricted) - the account-management endpoints above are admin-only,
-    # but every user still needs a way to change their own password.
     @app.post("/api/account/password")
     def change_own_password(
         body: ChangePasswordIn, user: dict[str, Any] = Depends(require_auth)

@@ -1,11 +1,3 @@
-"""In-memory login sessions.
-
-A session is just a random token mapped to a username, held in process
-memory only - nothing written to disk. A container restart signs
-everyone out, which is a reasonable trade for a small self-hosted app:
-no session table to migrate, no stale tokens to prune from a database.
-"""
-
 from __future__ import annotations
 
 import secrets

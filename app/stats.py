@@ -200,11 +200,6 @@ class Stats:
 
     # -- reading ----------------------------------------------------------
     def distinct_clients(self) -> list[str]:
-        """Every client IP that has ever made a query still in the log -
-        used to resolve a restricted user's allowed_clients/allowed_groups
-        IP/CIDR patterns (app/netmatch.ip_matches) down to a concrete list
-        of client IPs before filtering stats/query-log/anomalies.
-        """
         conn = self._connect()
         try:
             rows = conn.execute("SELECT DISTINCT client FROM queries").fetchall()
@@ -213,10 +208,6 @@ class Stats:
         return [row[0] for row in rows]
 
     def snapshot(self, top_n: int = 25, log_n: int = 200, client_ips: list[str] | None = None) -> dict[str, Any]:
-        # client_ips (when not None) restricts every query below to that
-        # exact set of clients - used to scope a restricted user's view to
-        # only the hosts/groups an admin allowed them to see. An empty list
-        # means "no clients allowed", not "no filter".
         where_clients = ""
         base_params: list[Any] = []
         if client_ips is not None:
@@ -311,11 +302,6 @@ class Stats:
         client_like (a substring against the stored IP) are OR'd together
         when both are given, so a client filter can match either an IP
         fragment or a resolved display name.
-
-        restrict_client_ips, when not None, is ANDed with everything else -
-        it scopes a restricted user's view to only the hosts/groups an
-        admin allowed them to see, regardless of what they searched for.
-        An empty list means "no clients allowed", not "no restriction".
         """
         where: list[str] = []
         params: list[Any] = []
@@ -511,10 +497,6 @@ class Stats:
         Stats tab's trend chart. Always returns one entry per bucket over
         the full range, zero-filled where there's no data, so the chart has
         a continuous, evenly-spaced x-axis regardless of gaps in traffic.
-
-        client_ips, when not None, restricts to that exact set of clients -
-        same scoping use as snapshot() above. Empty list means "no clients
-        allowed".
         """
         window_seconds, bucket_seconds = _TIMESERIES_RANGES.get(range_key, _TIMESERIES_RANGES["24h"])
         since = time.time() - window_seconds

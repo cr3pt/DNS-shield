@@ -82,10 +82,6 @@ def main() -> None:
     )
     anomaly.start()
 
-    # Multi-user accounts + session-cookie login (app/users.py,
-    # app/sessions.py). UserStore migrates any pre-existing single
-    # web.username/web.password account into the new users list on first
-    # use, hashing its password with bcrypt in the process.
     users = UserStore(config_store)
     sessions = SessionStore()
 

@@ -1311,8 +1311,6 @@ const fmtShortDuration = (s) => {
 async function api(path, options = {}) {
   const res = await fetch(path, options);
   if (res.status === 401) {
-    // The session cookie is missing/expired - back to the login page,
-    // remembering where to return to afterwards.
     location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
     throw new Error("unauthorized");
   }
@@ -1336,11 +1334,6 @@ let clientNames = {};
 // the first loadSettings() response lands is disabled, not clickable-but-broken.
 let enrichmentAvailable = false;
 
-// Set once at boot from /api/whoami: null when signed out (the public-only
-// view), otherwise {username, role, permissions}. Read throughout to decide
-// what to show/hide - the backend enforces every one of these the same way
-// independently (see app/web/server.py's require_admin/require_permission),
-// so this is purely about not rendering controls a request would 403 on.
 let currentUser = null;
 let isAdmin = false;
 
@@ -2700,9 +2693,6 @@ async function loadAlertSources() {
   await loadAlertSourcePicker();
 }
 
-// Dropdown of lists already configured in Settings -> Blocklists, so
-// watching one of them doesn't mean retyping its name/URL - only lists
-// not already being watched are offered.
 async function loadAlertSourcePicker() {
   const [blocklists, watched] = await Promise.all([
     api("/api/blocklists"),
@@ -2930,13 +2920,13 @@ pollBrowserAnomalyNotifications();
 setInterval(pollBrowserAnomalyNotifications, 30000);
 
 async function refreshAll() {
-  if (!currentUser) return; // signed out - handled entirely by renderPublicView()
+  if (!currentUser) return;
   await loadStatusAndStats();
   await loadTrend();
   await loadQueryLog(true);
   const canViewAnomalies = isAdmin || (currentUser.permissions && currentUser.permissions.view_anomalies);
   if (canViewAnomalies) await loadAnomalies();
-  if (!isAdmin) return; // everything below is Settings-tab data, admin-only
+  if (!isAdmin) return;
   await loadBlocklists();
   await loadAllowSources();
   await loadBlocklistCatalog();
@@ -3059,7 +3049,7 @@ async function loadUsers() {
   try {
     list = await api("/api/users");
   } catch (err) {
-    return; // not an admin (or not logged in) - the Users subtab isn't shown anyway
+    return;
   }
   tbody.innerHTML = "";
   for (const u of list) {
@@ -3526,10 +3516,6 @@ document.getElementById("stats-range").addEventListener("change", (e) => {
   loadTrend();
 });
 
-// -- signed-out visitors: query trend + top blocked domains only, no Copy, -
-// no Enrich, no tabs, no "Blocking active" bar - see app/web/server.py's
-// unauthenticated GET /api/public/summary, the one API route besides
-// /api/whoami and /login-related endpoints that needs no session cookie.
 async function renderPublicView() {
   document.getElementById("tabs").style.display = "none";
   document.getElementById("pause-bar").style.display = "none";
@@ -3572,16 +3558,12 @@ function renderAuthStatus() {
   el2.appendChild(logoutBtn);
 }
 
-// -- signed-in RBAC: hide what a "user" role can't act on. The backend
-// enforces every one of these independently (require_admin/
-// require_permission in app/web/server.py) - this is only about not
-// showing a control that would 403, never the actual access boundary.
 function applyRoleVisibility() {
   if (isAdmin) return;
   document.querySelector('.tab-btn[data-tab="settings"]').style.display = "none";
   const canViewAnomalies = currentUser.permissions && currentUser.permissions.view_anomalies;
   document.querySelector('.tab-btn[data-tab="anomalies"]').style.display = canViewAnomalies ? "" : "none";
-  document.getElementById("pause-bar").style.display = "none"; // "Blocking active" - Administrator only
+  document.getElementById("pause-bar").style.display = "none";
   const savedTab = localStorage.getItem("dnsshield-tab");
   if (savedTab === "settings" || (savedTab === "anomalies" && !canViewAnomalies)) {
     localStorage.setItem("dnsshield-tab", "logs");

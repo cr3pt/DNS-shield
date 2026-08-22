@@ -1,31 +1,3 @@
-"""Multi-user accounts + role-based permissions.
-
-Replaces the old single web.username/web.password pair with a `users`
-list in the config store, each entry:
-
-    {
-      "username": str,
-      "password_hash": str,        # bcrypt, never plain text
-      "role": "admin" | "user",
-      "permissions": {
-          "allowed_clients": [str],   # IP/CIDR patterns; empty = all
-          "allowed_groups": [str],    # client_group names; empty = all
-          "view_threat_intel": bool,
-          "view_anomalies": bool,
-          "can_block": bool,
-          "can_whitelist": bool,
-      },
-    }
-
-"admin" always has every permission regardless of what's stored in
-"permissions" - the fields there only matter for role "user". The very
-first boot (or an upgrade from a version that only had web.username/
-web.password) migrates that single account into one admin user here,
-converting its existing plain-text password to a bcrypt hash in place -
-the account and its password keep working exactly as before, just
-hashed from now on.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -55,7 +27,6 @@ def _normalized_permissions(raw: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
-    """A user record with password_hash stripped, safe to send to the browser."""
     return {
         "username": user["username"],
         "role": user["role"],
@@ -68,15 +39,7 @@ class UserStore:
         self._config = config_store
         self.ensure_default_admin()
 
-    # -- migration from the old single web.username/web.password ---------
     def ensure_default_admin(self) -> None:
-        """Idempotent: creates the migrated admin account if `users` is
-        empty, otherwise a no-op. Called on startup, and again after any
-        endpoint that wholesale-replaces the config (restoring an old
-        backup, importing an AdGuard Home/Pi-hole config) - those can leave
-        `users` empty if the source predates this feature or never had one,
-        which would otherwise lock everyone out until a restart.
-        """
         def _mutate(data: dict[str, Any]) -> None:
             users = data.get("users")
             if users:
@@ -92,16 +55,12 @@ class UserStore:
                     "permissions": dict(DEFAULT_PERMISSIONS),
                 }
             ]
-            # The plain-text password is no longer the source of truth for
-            # login (the hash above is) - drop it so it doesn't linger
-            # in config.db/config.backup.yaml/exported backups.
             web_cfg.pop("password", None)
             web_cfg.pop("username", None)
             data["web"] = web_cfg
 
         self._config.mutate(_mutate)
 
-    # -- reads --------------------------------------------------------
     def list(self) -> list[dict[str, Any]]:
         return self._config.get("users", default=[]) or []
 
@@ -119,7 +78,6 @@ class UserStore:
             return None
         return user
 
-    # -- writes ---------------------------------------------------------
     def create(
         self,
         username: str,
