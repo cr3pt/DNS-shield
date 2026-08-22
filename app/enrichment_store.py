@@ -1,12 +1,3 @@
-"""Local storage for threat-intel enrichment results (VirusTotal,
-AbuseIPDB, AlienVault OTX).
-
-Every result from a manual "Enrich" click in the dashboard is stored
-here, in enrichment.db, purely as a local record you can review later -
-nothing in this module ever leaves the host, and nothing here triggers
-an enrichment lookup by itself (see app/enrichment.py for that).
-"""
-
 from __future__ import annotations
 
 import json

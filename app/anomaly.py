@@ -1,48 +1,3 @@
-"""Local, heuristic anomaly detection over the query log.
-
-Runs periodically on its own background thread, reading recent per-client
-activity from Stats (app/stats.py) and flagging simple statistical red
-flags - no ML, no cloud call, nothing beyond arithmetic over data already
-sitting in stats.db. Off by default (anomaly.enabled); when off the loop
-still ticks but does nothing, same "always exists, no-ops when disabled"
-pattern as DNSCache/ClientNameResolver/UpstreamStats.
-
-Three heuristics, evaluated independently per client on every check:
-  - high_blocked_ratio: a large fraction of a client's queries in the
-    window are blocked - a compromised app/device hammering ad/tracker/
-    malware domains typically looks like this.
-  - domain_burst: a client resolves an unusually large number of
-    *distinct* domains in the window, and a meaningful fraction of them
-    look randomly generated (see _looks_like_dga below) rather than real
-    words - typical of DGA (domain generation algorithm) malware cycling
-    through candidate C2 domains. The entropy check is what keeps this
-    from firing on ordinary high-cardinality traffic that isn't actually
-    suspicious - a news page pulling in thirty different real ad/tracker
-    vendor domains is a distinct-domain burst too, but none of those
-    domains look like "kq7xzpqm3f.info".
-  - blocked_domain_burst: a client hits an unusually large number of
-    distinct *blocked* domains in the window - a stronger signal than the
-    ratio check alone, since it can't be explained by one noisy ad-heavy
-    page reloading the same handful of ad domains. Already blocklist-
-    confirmed, so no entropy check is applied here.
-
-A bug in this module can, at worst, stop producing new anomaly alerts -
-it never touches DNS resolution. check_once() only reads from stats.db on
-a timer and writes to its own anomalies.db; the background loop wraps it
-in try/except so a heuristic bug can't take the process down.
-
-A fourth, independent check runs on its own (much shorter) interval:
-check_watched_domains() polls Stats.alert_hits_since() for queries that
-matched an alert rule (a manually-watched domain, or one from a
-subscribed watch list - see BlocklistManager.alert_match() in
-app/blocklist.py and dns_server.py, which tags each matching query as
-it's logged). Unlike the three heuristics above this isn't a statistical
-guess over a window - it's a direct "you queried something on your watch
-list" - so it's recorded as kind "watched_domain:<domain>" at "high"
-severity and goes through the exact same storage/cooldown/notification
-path as everything else here.
-"""
-
 from __future__ import annotations
 
 import json
@@ -59,24 +14,11 @@ logger = logging.getLogger("dnsshield.anomaly")
 
 
 def _registrable_label(domain: str) -> str:
-    """Best-effort "interesting" label to score for randomness: the label
-    right before the last one (e.g. "kq7xzpqm3f" out of
-    "kq7xzpqm3f.info", or out of "www.kq7xzpqm3f.info"). This is a plain
-    split on ".", not a public-suffix-list lookup, so a domain under a
-    multi-part TLD (e.g. "example.co.uk") scores its "example" label
-    instead of the true registrable name - an acceptable approximation
-    for a local heuristic, not a certainty.
-    """
     labels = domain.rstrip(".").split(".")
     return labels[-2] if len(labels) >= 2 else labels[0]
 
 
 def _shannon_entropy(s: str) -> float:
-    """Bits of entropy per character. A real word ("shopping") sits
-    noticeably lower than a randomly generated string of the same length
-    ("xk4qzpwm") - not a certainty for any single domain, but a useful
-    signal in aggregate across a burst of them.
-    """
     if not s:
         return 0.0
     length = len(s)
@@ -85,11 +27,6 @@ def _shannon_entropy(s: str) -> float:
 
 
 def _looks_like_dga(domain: str, min_label_length: int, min_entropy: float) -> bool:
-    """True if `domain`'s registrable label is long enough and random-
-    looking enough to plausibly be machine-generated rather than a real
-    word. Short labels are skipped entirely (min_label_length) - entropy
-    on a handful of characters is too noisy to mean anything.
-    """
     label = _registrable_label(domain)
     if len(label) < min_label_length:
         return False
@@ -125,20 +62,12 @@ class AnomalyDetector:
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        # Optional callback(list[dict]) fired at the end of check_once() with
-        # whatever was newly recorded - e.g. NotificationSender.notify_anomalies
-        # (app/notifications.py), wired in by main.py. Never required: detection
-        # and storage above work identically with this left as None.
         self._on_new_anomalies = on_new_anomalies
         self._init_schema()
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._watch_thread: threading.Thread | None = None
-        # Row-id cursor for the watched-domain loop - None until the first
-        # tick, which sets it to the then-current max query id so a fresh
-        # (or just-restarted) watcher only ever alerts on hits going
-        # forward, never replays whatever's already in stats.db's history.
         self._watch_last_id: int | None = None
 
     def _connect(self) -> sqlite3.Connection:
@@ -154,7 +83,6 @@ class AnomalyDetector:
         finally:
             conn.close()
 
-    # -- background thread -------------------------------------------------
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, name="anomaly-detector", daemon=True)
         self._thread.start()
@@ -174,14 +102,10 @@ class AnomalyDetector:
                 continue
             try:
                 self.check_once()
-            except Exception:  # noqa: BLE001 - a heuristic bug must never take the process down
+            except Exception:
                 logger.exception("anomaly check failed")
 
     def _watch_loop(self) -> None:
-        # No "enabled" gate here, unlike _loop() above - an empty
-        # alert_rules.domains/sources means alert_match() never fires in
-        # the first place, so this is already a no-op until you configure
-        # something, same as the blocklist/allowlist sources pattern.
         while not self._stop_event.is_set():
             interval_seconds = self._config.get("alert_rules", "check_interval_seconds", default=15) or 15
             interval = max(float(interval_seconds), 1.0)
@@ -189,40 +113,14 @@ class AnomalyDetector:
                 return
             try:
                 self.check_watched_domains()
-            except Exception:  # noqa: BLE001 - a bug here must never take the process down
+            except Exception:
                 logger.exception("watched-domain check failed")
 
-    # -- detection ------------------------------------------------------
     def check_once(self) -> list[dict[str, Any]]:
-        """Runs one detection pass over the *live* window (ending now) and
-        stores any newly-flagged anomalies, notifying about them. Safe to
-        call directly (e.g. a dashboard "Check now" button), not just from
-        the background loop. See reanalyze() for scanning historical data.
-        """
         window_minutes = float(self._config.get("anomaly", "window_minutes", default=15) or 15)
         return self._evaluate_window(window_minutes, time.time(), notify=True)
 
     def reanalyze(self, hours: float) -> list[dict[str, Any]]:
-        """Re-runs the exact same heuristics as check_once(), but walks
-        backward over `hours` of history in anomaly.window_minutes-sized
-        slices instead of just the live window - as if the detector had
-        been ticking continuously throughout that period. Slices are
-        walked oldest-first so the per-client/kind cooldown applies in
-        chronological order: a burst spanning several consecutive slices
-        still only files once per cooldown window, not once per slice.
-
-        Unlike check_once()/check_watched_domains(), this never triggers
-        the notification callback - it's a retroactive audit the user
-        asked for, not a live event worth paging anyone about. Anomalies
-        it finds still land in the normal Detected-anomalies list, each
-        stamped with the timestamp of the historical slice it came from
-        (not "now"), so they sort correctly among live-detected ones.
-
-        This does a database query per slice (two if a slice crosses the
-        domain-burst threshold), so a long range (weeks) can take a real
-        amount of wall-clock time - the dashboard warns about this before
-        calling it for anything beyond a day or so.
-        """
         window_minutes = float(self._config.get("anomaly", "window_minutes", default=15) or 15)
         window_seconds = max(window_minutes, 1.0) * 60
         end_ts = time.time()
@@ -236,13 +134,6 @@ class AnomalyDetector:
         return found
 
     def _evaluate_window(self, window_minutes: float, until_ts: float, notify: bool) -> list[dict[str, Any]]:
-        """Core heuristic pass shared by check_once() (until_ts=now) and
-        reanalyze() (until_ts=each historical slice's end). `until_ts` is
-        also the timestamp stamped on anything found here and the "now"
-        used for cooldown comparisons, so a reanalyze() walk applies
-        cooldown in the same chronological order the events actually
-        happened in, not the wall-clock time reanalysis happens to run at.
-        """
         min_queries = int(self._config.get("anomaly", "min_queries", default=20) or 20)
         blocked_ratio_threshold = float(self._config.get("anomaly", "blocked_ratio_threshold", default=0.5) or 0.5)
         domain_burst_threshold = int(self._config.get("anomaly", "domain_burst_threshold", default=50) or 50)
@@ -263,10 +154,6 @@ class AnomalyDetector:
         now = until_ts
         found: list[dict[str, Any]] = []
 
-        # Only fetch actual domain names (for entropy scoring) for clients
-        # that already cross the raw distinct-domain threshold - the far
-        # common case is nobody does, so this stays a no-op query most of
-        # the time instead of pulling every domain on every check.
         needs_domains = any(row["distinct_domains"] >= domain_burst_threshold for row in activity)
         domains_by_client = self._stats.client_domains(window_minutes * 60, until_ts=until_ts) if needs_domains else {}
 
@@ -274,9 +161,6 @@ class AnomalyDetector:
             conn = self._connect()
             try:
                 conn.row_factory = sqlite3.Row
-                # Last time each (client, kind) pair fired, read from the DB
-                # rather than kept in memory - so the cooldown survives a
-                # process restart instead of re-firing immediately after one.
                 last_fired = {
                     (row["client"], row["kind"]): row["last_ts"]
                     for row in conn.execute(
@@ -291,7 +175,7 @@ class AnomalyDetector:
                     distinct_domains = row["distinct_domains"]
                     distinct_blocked_domains = row["distinct_blocked_domains"]
 
-                    candidates: list[tuple[str, str, str]] = []  # (kind, severity, summary)
+                    candidates: list[tuple[str, str, str]] = []
                     domain_burst_entropy_pct: int | None = None
                     domain_burst_random_count: int | None = None
 
@@ -361,20 +245,12 @@ class AnomalyDetector:
             if notify and self._on_new_anomalies is not None:
                 try:
                     self._on_new_anomalies(found)
-                except Exception:  # noqa: BLE001 - a notification failure must never break detection
+                except Exception:
                     logger.exception("on_new_anomalies callback failed")
         return found
 
-    # -- alert rules: watched domains/lists ----------------------------
     def check_watched_domains(self) -> list[dict[str, Any]]:
-        """Polls Stats.alert_hits_since() for queries newly tagged by an
-        alert rule and turns each into a "watched_domain:<domain>" anomaly
-        row (subject to the same per-client/kind cooldown as everything
-        else here). Safe to call directly, not just from the watch loop.
-        """
         if self._watch_last_id is None:
-            # First tick: establish a baseline so we never replay whatever
-            # was already sitting in stats.db before this process started.
             self._watch_last_id = self._stats.max_query_id()
             return []
 
@@ -419,9 +295,6 @@ class AnomalyDetector:
             finally:
                 conn.close()
 
-        # Advance the cursor past every hit we just looked at, regardless
-        # of whether cooldown suppressed some of them - a suppressed hit
-        # was still *seen*, so it must never be re-fetched on the next poll.
         self._watch_last_id = max(hit["id"] for hit in hits)
 
         if found:
@@ -431,11 +304,10 @@ class AnomalyDetector:
             if self._on_new_anomalies is not None:
                 try:
                     self._on_new_anomalies(found)
-                except Exception:  # noqa: BLE001 - a notification failure must never break detection
+                except Exception:
                     logger.exception("on_new_anomalies callback failed")
         return found
 
-    # -- reading/managing -------------------------------------------------
     @staticmethod
     def _kind_label(kind: str) -> str:
         if kind.startswith("watched_domain:"):

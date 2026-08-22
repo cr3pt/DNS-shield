@@ -4,9 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DNS-shield</title>
-<!-- Favicon: a shield (protection) with a DNS "ping" signal and a blocked
-     ad-banner glyph, inlined as base64 SVG - no external asset/CDN request,
-     consistent with the rest of this single-file dashboard. -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNmRiNGZmIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMWEzYTdhIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHBhdGggZD0iTTEwMCwxMCBMMTcyLDM2IEwxNzIsOTYgQzE3MiwxNTAgMTQyLDE4NCAxMDAsMjAwIEM1OCwxODQgMjgsMTUwIDI4LDk2IEwyOCwzNiBaIiBmaWxsPSJ1cmwoI2cpIiBzdHJva2U9IiNlZWYyZmYiIHN0cm9rZS13aWR0aD0iNSIvPjxnIHN0cm9rZT0iI2VlZjJmZiIgc3Ryb2tlLXdpZHRoPSI2IiBmaWxsPSJub25lIj48cGF0aCBkPSJNNzUsNzggQTI1LDI1IDAgMCAxIDEyNSw3OCIvPjxwYXRoIGQ9Ik02NCw2OCBBNDAsNDAgMCAwIDEgMTM2LDY4Ii8+PC9nPjxjaXJjbGUgY3g9IjEwMCIgY3k9Ijg4IiByPSI3IiBmaWxsPSIjZWVmMmZmIi8+PHJlY3QgeD0iNjMiIHk9IjExMCIgd2lkdGg9Ijc0IiBoZWlnaHQ9IjQ0IiByeD0iMTAiIGZpbGw9IiMwYTExMjgiIHN0cm9rZT0iI2ZmNWQ3NSIgc3Ryb2tlLXdpZHRoPSI5Ii8+PGxpbmUgeDE9IjY4IiB5MT0iMTE0IiB4Mj0iMTMyIiB5Mj0iMTUwIiBzdHJva2U9IiNmZjVkNzUiIHN0cm9rZS13aWR0aD0iMTAiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==">
 <style>
   :root {
@@ -62,8 +59,7 @@
     --warn: #ffb454;
     --input-bg: #130c22;
   }
-  /* Light counterparts, one per dark theme above, same hue family. */
-  :root[data-theme="daylight"] {
+    :root[data-theme="daylight"] {
     color-scheme: light;
     --bg: #f4f7fd;
     --panel: #ffffff;
@@ -166,10 +162,7 @@
     padding: 1rem 1.25rem;
   }
   section h2 { font-size: 1rem; margin: 0 0 0.75rem; }
-  /* Subtle theme-matched tint: mixes the current theme's accent/danger
-     color into the panel background/border, so it stays correct across
-     every color theme without hardcoding per-theme values here. */
-  section.section-allow {
+    section.section-allow {
     background: color-mix(in srgb, var(--accent) 7%, var(--panel));
     border-color: color-mix(in srgb, var(--accent) 30%, var(--panel-border));
   }
@@ -201,30 +194,13 @@
     user-select: none;
   }
   .info-icon:hover { border-color: var(--danger); color: var(--danger); }
-  /* Name on its own line, action buttons (Copy/Enrich/Block host) in a
-     wrapping row underneath - keeps the domain/client name readable
-     instead of competing with buttons for the same line, especially once
-     a row has 2-3 of them. */
-  .addr-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
-  /* A long domain/IP is otherwise one unbreakable "word" to the browser,
-     forcing its table column (and column) wide enough to fit the whole
-     thing on one line - this lets it wrap instead, which matters most on
-     narrow/mobile screens where that column has little room to spare. */
-  .addr-cell > span { overflow-wrap: anywhere; min-width: 0; }
+    .addr-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
+    .addr-cell > span { overflow-wrap: anywhere; min-width: 0; }
   .addr-cell-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
   .resolved-ip { margin-top: 0.35rem; }
-  /* A table's Enable/Disable + Remove action cell: "Enable" and "Disable"
-     are different widths, so without a fixed min-width on the toggle
-     button, Remove drifts left/right from row to row - .row-actions
-     gives consistent spacing between the two buttons, .toggle-btn gives
-     the toggle a fixed width so Remove lines up down the whole column. */
-  .row-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .row-actions { display: flex; align-items: center; gap: 0.5rem; }
   .toggle-btn { min-width: 5rem; text-align: center; }
-  /* A long blocklist/upstream URL is otherwise one unbreakable "word",
-     forcing its table column - and the whole table - wider than the
-     page; this lets it wrap onto a second line within its own cell
-     instead, same reasoning as .addr-cell > span above. */
-  .url-cell { overflow-wrap: anywhere; word-break: break-all; }
+    .url-cell { overflow-wrap: anywhere; word-break: break-all; }
   .icon-btn {
     background: transparent;
     border: 1px solid var(--panel-border);
@@ -309,22 +285,14 @@
     font-family: inherit;
   }
   textarea { width: 100%; min-height: 80px; resize: vertical; font-family: ui-monospace, monospace; }
-  .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; align-items: end; }
   .field { display: flex; flex-direction: column; gap: 0.3rem; }
   .field label { font-size: 0.78rem; color: var(--muted); }
-  /* flex-start (not center) + a nudge on the checkbox itself, so a label
-     long enough to wrap to 2+ lines on a narrow screen still lines up with
-     its checkbox at the top instead of floating in the middle of the
-     wrapped text. */
-  .field.checkbox { flex-direction: row; align-items: flex-start; gap: 0.5rem; }
+    .field.checkbox { flex-direction: row; align-items: flex-start; gap: 0.5rem; }
   .field.checkbox input[type="checkbox"] { flex-shrink: 0; margin-top: 0.2rem; }
   .field.checkbox label { font-size: 0.85rem; color: var(--text); }
   .hint { font-size: 0.75rem; color: var(--warn); margin: 0.4rem 0; }
-  /* A hint paragraph explaining the checkbox right above it sits close
-     underneath - but always a fixed *positive* offset from the checkbox
-     row's own bottom edge, never a negative one, so it can never climb up
-     into a label that's wrapped onto a second or third line. */
-  .field.checkbox + .hint { margin-top: 0.15rem; }
+    .field.checkbox + .hint { margin-top: 0.15rem; }
   .settings-group h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin: 1.25rem 0 0.6rem; }
   .settings-group:first-child h3 { margin-top: 0; }
   button {
@@ -353,22 +321,8 @@
     .tabs { width: 100%; }
     .tab-btn { flex: 1 1 0; padding: 0.5rem 0.4rem; }
     .subtab-btn { padding: 0.4rem 0.6rem; font-size: 0.76rem; }
-    /* A simple 2-3 short-column table (allow/deny lists, blocked clients,
-       blocklist sources, rewrites, query types...) still just scrolls
-       horizontally within its own box rather than forcing the whole page
-       to - table children keep their own table-context display values
-       (table-row-group etc.) from the UA stylesheet regardless of the
-       table element's own display, so this still renders as a normal
-       table, just in a block box that can scroll on its own. */
-    table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    /* .card-table (query log, Stats' domain/client breakdowns) goes further:
-       these have enough columns - several carrying a wrapped address plus a
-       cluster of buttons - that even a horizontally-scrollable table left
-       most of a row's content permanently off-screen. Each row becomes its
-       own card instead, cells stacked top-to-bottom with a small caption
-       (from the cell's data-label, set in JS) standing in for the column
-       header that a card layout has no header row for. */
-    .card-table { overflow-x: visible; }
+        table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .card-table { overflow-x: visible; }
     .card-table, .card-table tbody, .card-table tr, .card-table td { display: block; width: 100%; }
     .card-table thead { display: none; }
     .card-table tr {
@@ -390,10 +344,7 @@
       letter-spacing: 0.03em;
       margin-bottom: 0.15rem;
     }
-    /* Query type is almost always "A" in practice and the least useful
-       column here - drop it, card or not, to keep the row focused on what
-       actually varies (domain, client, result, actions). */
-    .col-qtype, .card-table .col-qtype { display: none; }
+        .col-qtype, .card-table .col-qtype { display: none; }
   }
   .trend-legend { display: flex; gap: 1.1rem; margin-bottom: 0.6rem; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
   .trend-legend .swatch { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -1135,6 +1086,21 @@
       </form>
       <table><tbody id="deny-regex-rows"></tbody></table>
     </section>
+
+    <section>
+      <h2>Blocked destination IPs</h2>
+      <p class="muted">
+        Blocks a query the moment its answer resolves to one of these IPs/CIDRs - even for a
+        domain on the allowlist above. Catches a trusted domain that's been compromised or
+        rebound to point at a known-bad address; the domain allowlist still governs everything
+        else about that domain.
+      </p>
+      <form class="inline" id="add-deny-answer-ip-form">
+        <input type="text" id="deny-answer-ip" placeholder="203.0.113.5 or 203.0.113.0/24" required>
+        <button type="submit">Add</button>
+      </form>
+      <table><tbody id="deny-answer-ip-rows"></tbody></table>
+    </section>
   </div>
 
   <div id="subtab-clients" class="subtab-panel">
@@ -1275,10 +1241,6 @@
 <script>
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString();
 
-// Reads a numeric input as int/float, or undefined if left blank - never
-// NaN. JSON.stringify drops undefined keys entirely (unlike NaN, which it
-// silently turns into null), so a blank field is omitted from the PATCH
-// body instead of overwriting the stored value with null.
 function intField(id) {
   const raw = document.getElementById(id).value.trim();
   if (raw === "") return undefined;
@@ -1298,8 +1260,6 @@ const fmtDuration = (s) => {
   const m = Math.floor(s / 60);
   return (d ? d + "d " : "") + h + "h " + m + "m";
 };
-// For short countdowns (pause duration) - fmtDuration's h/m granularity
-// would show "0h 0m" for anything under a minute.
 const fmtShortDuration = (s) => {
   s = Math.max(0, Math.floor(s));
   const m = Math.floor(s / 60);
@@ -1327,11 +1287,6 @@ async function api(path, options = {}) {
 }
 
 let clientNames = {};
-// Whether at least one enrichment source is actually usable right now (public
-// lookups switched on with a key, and/or a local service switched on with a
-// URL) - set by loadSettings(), read by every enrichButton() to decide
-// whether that button is clickable. Starts false so a button created before
-// the first loadSettings() response lands is disabled, not clickable-but-broken.
 let enrichmentAvailable = false;
 
 let currentUser = null;
@@ -1348,11 +1303,6 @@ function updateEnrichButtons() {
 }
 const clientLabel = (ip) => (clientNames[ip] ? `${clientNames[ip]} (${ip})` : ip);
 
-// Clients with every query blocked outright (Settings -> blocked_clients),
-// populated by loadRules(). Membership here is an exact-string match, so a
-// manually-added CIDR entry won't make an individual IP within it show as
-// blocked here - the backend's actual blocking (app.netmatch.ip_matches) is
-// CIDR-aware regardless; this only affects the button's initial label.
 let blockedClients = new Set();
 const isClientBlocked = (ip) => blockedClients.has(ip);
 
@@ -1377,8 +1327,6 @@ function copyButton(text) {
     try {
       await navigator.clipboard.writeText(text);
     } catch (err) {
-      // Clipboard API can be unavailable (e.g. insecure context) - fall back
-      // to a temporary hidden textarea + execCommand, then give up quietly.
       try {
         const ta = document.createElement("textarea");
         ta.value = text;
@@ -1409,12 +1357,6 @@ function addressCell(displayText, extra = [], copyValue = null, label = null) {
   ])]);
 }
 
-// Query log's Domain column: the domain itself, plus - when known - the
-// actual A/AAAA address that was handed back to the client for that one
-// query (skipped for NXDOMAIN blocks and non-address query types, where
-// there's nothing to show). Enrich works on either independently, since
-// they're two different lookup targets (a domain's reputation isn't the
-// same question as the IP it happened to resolve to just now).
 function domainCell(domain, answerIp) {
   const rows = [
     el("div", { class: "addr-cell" }, [
@@ -1431,9 +1373,6 @@ function domainCell(domain, answerIp) {
   return el("td", { "data-label": "Domain" }, rows);
 }
 
-// Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX) - only
-// ever runs when this button is clicked. Never automatic, never on page
-// load or refresh.
 const VERDICT_COLORS = {
   safe: { bg: "#0d3b26", fg: "#d6f5e3", accent: "#22c55e" },
   low: { bg: "#173a1f", fg: "#e3f5c9", accent: "#84cc16" },
@@ -1493,9 +1432,6 @@ function openEnrichmentWindow(result) {
       </div>`
     : "";
 
-  // Only ever shown for an IP target - in this app that's always a client
-  // that queried DNS-shield (see enrichButton() call sites), never an
-  // arbitrary resolved address, so "block this host" is always meaningful.
   const clientBlockHtml =
     result.type === "ip"
       ? `<div class="client-block">
@@ -1504,12 +1440,6 @@ function openEnrichmentWindow(result) {
         </div>`
       : "";
 
-  // Only for a domain target that came back "safe" - DNS-shield's
-  // allowlist/denylist match query names, not IP literals, so there's no
-  // equivalent "allowlist this IP" action to offer for an IP target (its
-  // Block/Unblock-host control above already covers "let this client back
-  // through" for the one IP-shaped case that does have a real mechanism -
-  // a client, not an arbitrary resolved address).
   const safeAllowHtml =
     result.type === "domain" && result.overall_verdict === "safe"
       ? `<div class="safe-allow">
@@ -1557,12 +1487,6 @@ function openEnrichmentWindow(result) {
   <script>
     (function () {
       var btn = document.getElementById("block-client-btn");
-      // Calls back into the opener (the dashboard tab that opened this
-      // popup) rather than fetching directly - this document was created
-      // via document.write() on a window.open("") target, and a relative
-      // fetch() from that context doesn't reliably resolve/authenticate
-      // against the dashboard's origin. window.opener.api() is the exact
-      // same helper the rest of the dashboard already uses successfully.
       if (!btn || !window.opener || !window.opener.api) return;
       btn.onclick = function () {
         var target = btn.getAttribute("data-target");
@@ -1595,10 +1519,6 @@ function openEnrichmentWindow(result) {
       btn.onclick = function () {
         var target = btn.getAttribute("data-target");
         btn.disabled = true;
-        // Same two-step cleanup as the query log's Unblock button: a
-        // denylist entry always wins over the allowlist, so a stale
-        // manual deny would otherwise silently keep this blocked even
-        // after adding it to the allowlist.
         window.opener
           .api("/api/rules/deny/" + encodeURIComponent(target), { method: "DELETE" })
           .then(function () {
@@ -1655,8 +1575,6 @@ function enrichButton(target, type) {
   return btn;
 }
 
-// Blocks/unblocks ALL communication from a client IP through DNS-shield -
-// every domain, not just the one this button happens to be shown next to.
 function clientBlockButtonLabel(blocked) {
   return blocked ? "Unblock host" : "Block host";
 }
@@ -1822,12 +1740,6 @@ async function loadStatusAndStats() {
   }
 }
 
-// -- Query trend chart (Stats tab) --------------------------------------
-// Plain inline SVG, no charting library - matches the rest of this
-// single-file dashboard. Total/blocked share one axis (never dual-axis);
-// colors reuse the same --accent/--danger tokens the "allowed"/"blocked"
-// tags elsewhere already use, so a series never means something different
-// depending which part of the dashboard you're looking at.
 let trendRange = localStorage.getItem("dnsshield-trend-range") || "24h";
 
 function fmtTrendLabel(ts, rangeKey) {
@@ -1879,8 +1791,6 @@ function renderTrendChart(data) {
 
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none" });
 
-  // Recessive gridlines/labels at 0, half, and max - never more than that,
-  // this is a trend overview, not a chart meant to be read to the exact count.
   for (const frac of [0, 0.5, 1]) {
     const y = padT + plotH * (1 - frac);
     const line = svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y });
@@ -1892,8 +1802,6 @@ function renderTrendChart(data) {
     svg.appendChild(label);
   }
 
-  // A handful of evenly spaced x-axis labels, not one per bucket - 24-30
-  // labels would collide and add nothing a hover-tooltip doesn't already say.
   const labelCount = Math.min(5, n);
   for (let k = 0; k < labelCount; k++) {
     const i = labelCount > 1 ? Math.round((k / (labelCount - 1)) * (n - 1)) : 0;
@@ -2043,9 +1951,6 @@ async function loadAllowSources() {
 }
 
 async function loadBlocklistCatalog() {
-  // The API already excludes anything matching a currently-configured
-  // blocklist URL - once you've added a suggestion, it has nothing left
-  // to suggest, so it just doesn't come back in this list.
   const catalog = await api("/api/blocklists/catalog");
   const rows = document.getElementById("blocklist-catalog-rows");
   rows.innerHTML = "";
@@ -2104,6 +2009,14 @@ async function loadRules() {
     blockedClientRows.appendChild(el("tr", {}, [el("td", { text: clientLabel(client) }), el("td", {}, [delBtn])]));
   }
   updateClientBlockButtons();
+
+  const denyAnswerIpRows = document.getElementById("deny-answer-ip-rows");
+  denyAnswerIpRows.innerHTML = "";
+  for (const value of rules.blocked_answer_ips || []) {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/rules/deny-answer-ip/${encodeURIComponent(value)}`, { method: "DELETE" }); refreshAll(); };
+    denyAnswerIpRows.appendChild(el("tr", {}, [el("td", { text: value }), el("td", {}, [delBtn])]));
+  }
 }
 
 function buildRuleEditor(title, items, onAdd, onRemove) {
@@ -2454,9 +2367,6 @@ function renderQueryLogRow(q) {
   const blockBtn = el("button", { class: "secondary", text: q.blocked ? "Unblock" : "Block" });
   blockBtn.onclick = async () => {
     if (q.blocked) {
-      // Covers both ways a domain ends up blocked: a manual denylist entry
-      // (removed here) and a blocklist-source match (overridden by adding
-      // to the allowlist, which always takes precedence).
       await api(`/api/rules/deny/${encodeURIComponent(q.domain)}`, { method: "DELETE" });
       await api("/api/rules/allow", {
         method: "POST",
@@ -2852,19 +2762,22 @@ document.getElementById("notif-send-test-email").addEventListener("click", async
   }
 });
 
-// Browser notifications: no server component at all - this browser polls
-// the dashboard's own unacknowledged-anomaly count and decides locally
-// whether to pop a native Notification, entirely client-side.
 const BROWSER_NOTIF_KEY = "dnsshield-browser-notifications";
 let lastKnownAnomalyCount = null;
 
 function browserNotifSupported() {
-  return typeof window !== "undefined" && "Notification" in window;
+  return typeof window !== "undefined" && "Notification" in window && window.isSecureContext;
 }
 
 function updateBrowserNotifStatus() {
   const statusEl = document.getElementById("notif-browser-status");
   const checkbox = document.getElementById("s-notif-browser-enabled");
+  if (typeof window !== "undefined" && "Notification" in window && !window.isSecureContext) {
+    statusEl.textContent = "Browser notifications need HTTPS (or opening this dashboard via localhost) - not available over a plain-HTTP LAN address like this one. Put a reverse proxy with TLS in front if you want this.";
+    checkbox.disabled = true;
+    checkbox.checked = false;
+    return;
+  }
   if (!browserNotifSupported()) {
     statusEl.textContent = "Your browser doesn't support notifications.";
     checkbox.disabled = true;
@@ -2911,7 +2824,6 @@ async function pollBrowserAnomalyNotifications() {
     }
     lastKnownAnomalyCount = info.unacknowledged;
   } catch (err) {
-    // Auth/network hiccups shouldn't spam the console on a background poll.
   }
 }
 
@@ -3429,6 +3341,19 @@ document.getElementById("add-blocked-client-form").addEventListener("submit", as
   const value = document.getElementById("blocked-client-value").value.trim();
   if (!value) return;
   await api("/api/rules/deny-client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-deny-answer-ip-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = document.getElementById("deny-answer-ip").value.trim();
+  if (!value) return;
+  await api("/api/rules/deny-answer-ip", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ value }),

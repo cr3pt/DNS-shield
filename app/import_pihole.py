@@ -1,39 +1,3 @@
-"""One-off importer: bring your Pi-hole blocklist/allow/deny/client data
-over from a `gravity.db` export into a DNS-shield config.
-
-Pi-hole keeps its list/domain/client data in a single SQLite database,
-`gravity.db` - included in a Pi-hole "Teleporter" backup, or copyable
-directly off the Pi-hole host (`/etc/pihole/gravity.db`). Upload that file
-in the dashboard's Settings -> Import tab, or run this the same way as
-import_adguard.py:
-
-    python -m app.import_pihole /path/to/gravity.db
-
-Imported: `adlist` (blocklist subscription URLs - and allow-list URLs too,
-on a gravity.db version new enough to have `adlist.type`), enabled
-`domainlist` exact-match entries (type 0 allow / type 1 deny), enabled
-`domainlist` regex-deny entries (type 3 - mapped to DNS-shield's
-experimental `denylist_regex`, which also gets turned on for you, since an
-imported pattern nothing ever checks isn't useful), and `client` IPs (as
-client_groups with no group-specific list - see below).
-
-Deliberately NOT imported - not present in gravity.db, or nothing safe to
-carry over automatically:
-  - Upstream DNS servers, listen address/port, blocking mode: these live
-    in Pi-hole's setupVars.conf / pihole.toml / dnsmasq config, not
-    gravity.db, and this importer only ever reads the one file you give it.
-  - `domainlist` regex ALLOW entries (type 2): DNS-shield has no regex
-    allowlist mechanism, only a regex denylist.
-  - Per-client/per-group list assignments: gravity.db's group-membership
-    tables vary across Pi-hole versions, so imported clients get
-    DNS-shield's default (global) policy - not whichever specific groups
-    they belonged to in Pi-hole. Recreate anything client-specific by hand
-    in client_groups afterwards.
-  - Web UI username/password: same reasoning as the AdGuard Home importer -
-    Pi-hole doesn't store a reversible plaintext password either. Set
-    web.username/web.password yourself from the dashboard.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -69,7 +33,7 @@ def convert_adlists(conn: sqlite3.Connection) -> tuple[list[dict], list[dict], l
         return [], [], ["gravity.db has no 'adlist' table - no blocklist sources to import"]
 
     columns = _table_columns(conn, "adlist")
-    has_type = "type" in columns  # newer gravity.db: 0 = block, 1 = allow
+    has_type = "type" in columns
     select = "address, enabled" + (", type" if has_type else "")
     rows = conn.execute(f"SELECT {select} FROM adlist").fetchall()
 
@@ -87,7 +51,6 @@ def convert_adlists(conn: sqlite3.Connection) -> tuple[list[dict], list[dict], l
 
 
 def convert_domainlist(conn: sqlite3.Connection) -> tuple[list[str], list[str], list[str], list[str]]:
-    """Returns (allowlist, denylist, denylist_regex, warnings)."""
     warnings: list[str] = []
     if not _table_exists(conn, "domainlist"):
         return [], [], [], ["gravity.db has no 'domainlist' table - no allow/deny domains to import"]

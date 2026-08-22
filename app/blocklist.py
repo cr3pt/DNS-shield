@@ -1,22 +1,3 @@
-"""Blocklist fetching, parsing and matching.
-
-Supported input formats (auto-detected per line, so a single source can
-even mix formats without breaking - see parse_list/describe_format):
-  - hosts file syntax:      0.0.0.0 ads.example.com
-  - AdBlock/uBlock syntax:  ||ads.example.com^
-  - plain domain list:      ads.example.com
-
-Every list source is a URL *you* configure (dashboard or config.db) -
-DNS-shield never talks to any address that isn't either an upstream
-resolver or a blocklist URL from your own config.
-
-Everything this module matches queries against - the merged blocked/
-allowed domain sets and the compiled regex-denylist cache - lives purely
-in process memory (frozensets + a dict), never touched per query. Disk is
-only ever touched by refresh(): once to fetch/cache each source's raw
-text, never to answer a query.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -40,11 +21,6 @@ _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-
 
 
 def is_non_latin_domain(domain: str) -> bool:
-    """True if the domain (once IDNA/punycode labels are decoded back to
-    Unicode) contains any letter outside the Latin script - i.e. Cyrillic,
-    Arabic, CJK, Hangul, Greek, Hebrew, Thai, Devanagari, and so on. Plain
-    ASCII and accented Latin (café.fr, münchen.de) are not flagged.
-    """
     if "xn--" in domain:
         decoded_labels = []
         for label in domain.split("."):
@@ -73,9 +49,6 @@ _FORMAT_LABELS = {
 
 
 def _parse_line(line: str) -> tuple[str, str] | None:
-    """Returns (domain, format_tag) for a recognized line, or None. The
-    format_tag is one of "hosts", "adblock", "plain" - see _FORMAT_LABELS.
-    """
     line = line.strip()
     if not line or line.startswith(("#", "!", ";")):
         return None
@@ -94,7 +67,6 @@ def _parse_line(line: str) -> tuple[str, str] | None:
         domain = parts[1]
         fmt = "hosts"
     else:
-        # Plain domain list - but skip lines that are clearly something else.
         domain = line.split()[0] if line.split() else ""
         fmt = "plain"
 
@@ -107,13 +79,6 @@ def _parse_line(line: str) -> tuple[str, str] | None:
 
 
 def parse_list(text: str) -> tuple[set[str], dict[str, int]]:
-    """Parses a fetched list, auto-detecting each line's format (hosts file,
-    AdBlock/uBlock syntax, or a plain domain list - lists in the wild mix
-    these, so detection is per-line, not per-source). Returns the merged
-    domain set plus a count of lines seen per format, so a source made of a
-    single consistent format is reported as such, and a mixed one honestly
-    as "mixed".
-    """
     domains: set[str] = set()
     format_counts: dict[str, int] = {}
     for raw_line in text.splitlines():
@@ -125,19 +90,10 @@ def parse_list(text: str) -> tuple[set[str], dict[str, int]]:
     return domains, format_counts
 
 
-_MIXED_FORMAT_THRESHOLD = 0.02  # a format under 2% of lines is noise (a stray line or two), not a real mix
+_MIXED_FORMAT_THRESHOLD = 0.02
 
 
 def describe_format(format_counts: dict[str, int]) -> str:
-    """A short, human-readable label for a source's dominant format, for
-    display next to its domain count - e.g. "hosts file (0.0.0.0 domain)"
-    or "mixed formats (hosts file + plain domain list)" when a source
-    genuinely combines more than one syntax. A format making up under
-    _MIXED_FORMAT_THRESHOLD of parsed lines is treated as noise (e.g. the
-    odd stray bare-domain line in an otherwise consistent hosts file)
-    rather than a real second format, so one-off outliers don't make a
-    99.9%-consistent list get reported as "mixed".
-    """
     if not format_counts:
         return "unknown"
     total = sum(format_counts.values())
@@ -149,7 +105,6 @@ def describe_format(format_counts: dict[str, int]) -> str:
 
 
 class BlocklistManager:
-    """Owns the merged set of blocked domains and keeps it up to date."""
 
     def __init__(self, config_store, cache_dir: Path):
         self._config = config_store
@@ -163,22 +118,10 @@ class BlocklistManager:
         self._source_formats: dict[str, str] = {}
         self._allow_source_counts: dict[str, int] = {}
         self._allow_source_formats: dict[str, str] = {}
-        # Per-group extra blocklists (client_groups[].blocklist_sources), keyed
-        # by group name. Extend-only: a group's effective blocklist is the
-        # global one above *plus* these, never a replacement - see
-        # block_reason() and refresh(). Rebuilt whole on every refresh(), so a
-        # renamed/removed group's stale entry just disappears next cycle.
         self._group_blocked: dict[str, frozenset[str]] = {}
         self._group_domain_source: dict[str, dict[str, str]] = {}
         self._group_source_counts: dict[str, dict[str, int]] = {}
         self._group_source_formats: dict[str, dict[str, str]] = {}
-        # Alert rules: domains that should raise an anomaly-log alert when
-        # queried, whether or not they're actually blocked - a manual list
-        # (alert_rules.domains) plus subscribed lists (alert_rules.sources,
-        # fetched/parsed the same way as blocklists). Purely observational:
-        # never affects blocking/resolution, only what alert_match() reports
-        # for the DNS resolver to log alongside the query - see dns_server.py
-        # and AnomalyDetector's watched-domain loop (app/anomaly.py).
         self._alert_matched: frozenset[str] = frozenset()
         self._alert_domain_source: dict[str, str] = {}
         self._alert_source_counts: dict[str, int] = {}
@@ -188,69 +131,20 @@ class BlocklistManager:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-        # Compiled regex-denylist cache: patterns are only recompiled when
-        # the configured pattern list itself changes (cheap tuple equality
-        # check against _regex_cache_key), never per query - regex matching
-        # is opt-in and CPU-heavier than the set lookups above, so the one
-        # thing we control for is never doing that compilation on the hot
-        # path. Off by default (dns.regex_denylist_enabled).
         self._regex_lock = threading.Lock()
         self._regex_cache_key: tuple[str, ...] | None = None
         self._regex_cache_compiled: list[tuple[str, re.Pattern]] = []
 
-    # -- matching -----------------------------------------------------
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
         return self.block_reason(qname, client_ip) is not None
 
     def is_paused(self) -> bool:
-        """True while a temporary global bypass (Settings -> Pause
-        blocking) is in effect. A timed pause self-expires just by time
-        passing - there's no background job clearing the stored flag,
-        callers just stop seeing it as active once `until` is past.
-        """
         if not self._config.get("pause", "active", default=False):
             return False
         until = self._config.get("pause", "until", default=None)
         return until is None or time.time() < until
 
     def block_reason(self, qname: str, client_ip: str | None = None) -> str | None:
-        """Returns why a query would be blocked (for the query-log's info
-        tooltip), or None if it isn't blocked.
-
-        Precedence: pause-blocking bypass > upstream/blocklist-source
-        hostnames > blocked client > group deny > global deny > group allow
-        > global allow > allow-list sources > group disabled (pass-through)
-        > non-Latin script filter > global blocklists > group's own extra
-        blocklist sources. A client not matching any configured group
-        behaves exactly as if client_groups were empty.
-
-        A group's own blocklist_sources (Clients tab) are additive, never a
-        replacement for the global blocklist - a group only ever ends up
-        with a *stricter* effective list than the default, e.g. an extra
-        adult-content list for a kids' devices group. Wanting a *lighter*
-        list for a group is already covered by the existing per-group
-        allowlist and the group enabled/disabled toggle.
-
-        The hostname of a configured upstream (e.g. "dns.nextdns.io" for a
-        doh:// upstream) or blocklist subscription URL is checked next and
-        unconditionally allowed - a coincidental blocklist/denylist match
-        on it would otherwise cut DNS-shield off from that upstream or
-        blocklist entirely, since it needs plain DNS to resolve that
-        hostname before it can even reach it.
-
-        A client on `blocked_clients` (dashboard: a dedicated "Block host"
-        button next to any client IP, in the query log, Stats, and the
-        Enrich popup - or added by hand in Settings) has every query
-        blocked outright, for every domain, ahead of any per-domain or
-        per-group rule - this is "no communication at all", not a
-        domain-scoped denylist entry.
-
-        Deny (group or global) is checked before allow (group or global) so
-        an explicit denylist entry is truly "always blocked", as the UI
-        labels it, even for a domain that's also on the allowlist - e.g.
-        after a query-log Unblock, which adds to the allowlist, manually
-        denylisting that same domain again must still work.
-        """
         qname = qname.rstrip(".").lower()
 
         if self.is_paused():
@@ -307,14 +201,6 @@ class BlocklistManager:
         return None
 
     def alert_match(self, qname: str) -> tuple[str, str | None] | None:
-        """Returns (matched_domain, source_name) if `qname` hits an alert
-        rule (alert_rules.domains or alert_rules.sources), else None.
-        Purely observational - independent of blocking, pause-blocking, and
-        client groups, since alerting "you visited this" is a different
-        concern from "should this resolve". Cheap in-memory frozenset
-        lookup, safe to call synchronously from the DNS resolver per query
-        (dns_server.py) same as block_reason() already is.
-        """
         qname = qname.rstrip(".").lower()
         with self._lock:
             alert_matched, alert_domain_source = self._alert_matched, self._alert_domain_source
@@ -341,7 +227,6 @@ class BlocklistManager:
     def _find_match(qname: str, domain_set: frozenset[str]) -> str | None:
         if qname in domain_set:
             return qname
-        # Subdomain match: block sub.ads.example.com if ads.example.com listed.
         labels = qname.split(".")
         for i in range(1, len(labels)):
             candidate = ".".join(labels[i:])
@@ -367,7 +252,14 @@ class BlocklistManager:
                 return True
         return False
 
-    # -- stats ----------------------------------------------------------
+    def answer_ip_blocked(self, ip: str | None) -> str | None:
+        if not ip:
+            return None
+        for pattern in self._config.get("blocked_answer_ips", default=[]) or []:
+            if ip_matches(ip, pattern):
+                return pattern
+        return None
+
     def source_counts(self) -> dict[str, int]:
         with self._lock:
             return dict(self._source_counts)
@@ -419,7 +311,6 @@ class BlocklistManager:
     def last_refresh(self) -> float | None:
         return self._last_refresh
 
-    # -- fetching ---------------------------------------------------------
     def _cache_path(self, name: str) -> Path:
         safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
         return self._cache_dir / f"{safe}.cache"
@@ -431,7 +322,7 @@ class BlocklistManager:
             resp.raise_for_status()
             text = resp.text
             cache_path.write_text(text, encoding="utf-8")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("failed to fetch blocklist %r (%s): %s", name, url, exc)
             if cache_path.exists():
                 text = cache_path.read_text(encoding="utf-8")
@@ -519,7 +410,6 @@ class BlocklistManager:
                 len(alert_merged),
             )
 
-    # -- background thread ------------------------------------------------
     def start(self) -> None:
         self.refresh()
         self._thread = threading.Thread(target=self._loop, name="blocklist-refresh", daemon=True)

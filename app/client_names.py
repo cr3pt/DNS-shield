@@ -1,20 +1,3 @@
-"""Best-effort client hostname display via reverse DNS (PTR lookups).
-
-Point dns.client_name_resolver at your router (not the ad-filtering
-upstream) - most home routers answer PTR queries for their DHCP clients
-with the name the device advertised, e.g. "laptop-jan.lan". This is
-purely a display aid for the dashboard: `touch()` is called on every DNS
-query but only ever does a cheap dict lookup on the hot path - if a
-client IP is new or its cached name has expired, the actual PTR lookup is
-handed off to a background worker thread so it never delays answering
-the client's real query. Nothing here is written to disk; the name cache
-is in memory only.
-
-Whether this is active, and which resolver/TTL to use, is read from the
-config store on every use, so toggling it from the web UI takes effect
-immediately without a restart.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -46,7 +29,6 @@ class ClientNameResolver:
         )
 
     def touch(self, client_ip: str) -> None:
-        """Non-blocking: refreshes the background resolution if needed."""
         if not self._enabled():
             return
         with self._lock:
@@ -83,14 +65,14 @@ class ClientNameResolver:
 
         octets = client_ip.split(".")
         if len(octets) != 4 or not all(o.isdigit() for o in octets):
-            return None  # only IPv4 in-addr.arpa lookups are supported
+            return None
 
         ptr_name = ".".join(reversed(octets)) + ".in-addr.arpa"
         try:
             request = DNSRecord.question(ptr_name, qtype="PTR")
             data = request.send(host, port, timeout=self._timeout)
             response = DNSRecord.parse(data)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("PTR lookup for %s via %s failed: %s", client_ip, host, exc)
             return None
 

@@ -1,18 +1,3 @@
-"""Query log storage, backed by a local SQLite database.
-
-Every resolved query is written to a `queries` table in an SQLite file on
-the local /data volume. Nothing here ever leaves the host: there is no
-upstream analytics or telemetry endpoint, this is purely local storage so
-the web UI can show stats/history that survive a container restart.
-
-Writes come from many DNS-handler threads at once (dnslib's server runs
-each request in its own thread), so record() only ever pushes onto a
-thread-safe queue.Queue - the actual INSERTs happen serially on a single
-background writer thread, batched for throughput. Reads (snapshot) use
-their own short-lived connection, which SQLite's WAL mode allows to run
-concurrently with the writer without blocking either side.
-"""
-
 from __future__ import annotations
 
 import queue
@@ -25,9 +10,6 @@ from typing import Any
 from app.netmatch import ip_matches
 from app.upstream import protected_hostnames
 
-# range key -> (how far back to look, bucket width) in seconds. Bucket sizes
-# are picked to keep the point count reasonable to plot (24-30 points) while
-# still showing real granularity at each range.
 _TIMESERIES_RANGES: dict[str, tuple[int, int]] = {
     "24h": (86400, 3600),
     "7d": (7 * 86400, 6 * 3600),
@@ -77,9 +59,6 @@ class Stats:
         conn = self._connect()
         try:
             conn.executescript(SCHEMA)
-            # "reason" was added after this table already existed in some
-            # deployments - CREATE TABLE IF NOT EXISTS above is a no-op for
-            # those, so add the column by hand if it's still missing.
             columns = {row[1] for row in conn.execute("PRAGMA table_info(queries)")}
             if "reason" not in columns:
                 conn.execute("ALTER TABLE queries ADD COLUMN reason TEXT")
@@ -91,7 +70,6 @@ class Stats:
         finally:
             conn.close()
 
-    # -- writing ------------------------------------------------------
     def record(
         self,
         qname: str,
@@ -102,30 +80,6 @@ class Stats:
         answer_ip: str | None = None,
         alert_rule: str | None = None,
     ) -> None:
-        """Non-blocking: just hands the row to the writer thread.
-
-        A domain/client on logging.ignored_domains/ignored_clients is
-        simply never written here - resolution and blocking already
-        happened before this is called, so this only affects what shows
-        up in the query log, not how the query itself was answered. An
-        alert-rule match on an ignored domain/client is likewise never
-        recorded - alert_hits_since() below is purely a view over this
-        same table, so nothing to alert on means nothing gets logged.
-
-        answer_ip is whatever A/AAAA address was actually handed back to
-        the client - the null IP for a null_ip-blocked query, a rewrite's
-        IP, a cache hit's IP, or the first A/AAAA record in a real
-        upstream reply (skipping any CNAME hops). None for NXDOMAIN
-        blocks, non-A/AAAA query types, and anything else with no address
-        in the answer.
-
-        alert_rule is the matched domain from BlocklistManager.alert_match()
-        (app/blocklist.py) - independent of blocked/reason, since an alert
-        rule can match a query that resolves completely normally. None
-        when the query didn't match any configured alert_rules.domains/
-        sources. AnomalyDetector's watched-domain loop (app/anomaly.py)
-        polls alert_hits_since() for newly-written non-null values.
-        """
         if self._is_ignored(qname, client_ip):
             return
         self._queue.put((time.time(), qname, qtype, client_ip, int(blocked), reason, answer_ip, alert_rule))
@@ -137,10 +91,6 @@ class Stats:
         ignored_clients = self._config.get("logging", "ignored_clients", default=[]) or []
         if any(ip_matches(client_ip, pattern) for pattern in ignored_clients):
             return True
-        # Hidden from the log by default, with no config needed: a query for
-        # an upstream resolver's own hostname (e.g. resolving "dns.nextdns.io"
-        # to reach a doh:// upstream) is DNS-shield's own traffic, not
-        # something a user browsed to.
         protected = protected_hostnames(self._config)
         return any(qname == h or qname.endswith("." + h) for h in protected)
 
@@ -169,11 +119,7 @@ class Stats:
     def stop(self) -> None:
         self._stop_event.set()
 
-    # -- clearing -----------------------------------------------------------
     def clear(self) -> None:
-        """Wipes every stored query log entry. Irreversible - the caller
-        (the web UI) is expected to confirm with the user first.
-        """
         conn = self._connect()
         try:
             conn.execute("DELETE FROM queries")
@@ -182,7 +128,6 @@ class Stats:
         finally:
             conn.close()
 
-    # -- retention ------------------------------------------------------
     def _cleanup_loop(self) -> None:
         while not self._stop_event.wait(3600):
             self._prune()
@@ -198,7 +143,6 @@ class Stats:
         finally:
             conn.close()
 
-    # -- reading ----------------------------------------------------------
     def distinct_clients(self) -> list[str]:
         conn = self._connect()
         try:
@@ -296,13 +240,6 @@ class Stats:
         offset: int = 0,
         restrict_client_ips: list[str] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """Search the full retained history (not just the in-memory tail).
-
-        client_ips (exact IPs, e.g. resolved from a hostname search) and
-        client_like (a substring against the stored IP) are OR'd together
-        when both are given, so a client filter can match either an IP
-        fragment or a resolved display name.
-        """
         where: list[str] = []
         params: list[Any] = []
 
@@ -372,17 +309,7 @@ class Stats:
             total,
         )
 
-    # -- per-client window activity (anomaly detector) ---------------------
     def client_activity(self, window_seconds: float, until_ts: float | None = None) -> list[dict[str, Any]]:
-        """Per-client aggregate counts over the `window_seconds` ending at
-        `until_ts` (default: now) - total/blocked query counts plus
-        distinct (and distinct-blocked) domain counts. Used by
-        app/anomaly.py to spot a client suddenly hammering many blocked
-        domains, or cycling through an unusual number of distinct domains
-        (DGA-malware-like behavior). `until_ts` lets AnomalyDetector.reanalyze()
-        run this same aggregate against a historical slice instead of the
-        live "now" window.
-        """
         until_ts = time.time() if until_ts is None else until_ts
         since = until_ts - window_seconds
         conn = self._connect()
@@ -409,13 +336,6 @@ class Stats:
         ]
 
     def client_domains(self, window_seconds: float, until_ts: float | None = None) -> dict[str, list[str]]:
-        """Distinct domains queried by each client over the `window_seconds`
-        ending at `until_ts` (default: now), grouped by client. Used by
-        app/anomaly.py to score a domain_burst candidate's *domain names
-        themselves* (e.g. Shannon entropy - do they look randomly
-        generated?), not just how many there were - see
-        AnomalyDetector._looks_like_dga.
-        """
         until_ts = time.time() if until_ts is None else until_ts
         since = until_ts - window_seconds
         conn = self._connect()
@@ -431,13 +351,7 @@ class Stats:
             by_client.setdefault(row["client"], []).append(row["domain"])
         return by_client
 
-    # -- alert-rule hits (watched domain/list matches) ----------------------
     def max_query_id(self) -> int:
-        """The current highest row id in `queries`, or 0 if empty. Used by
-        AnomalyDetector's watched-domain loop (app/anomaly.py) to establish
-        a starting cursor on first run, so a fresh/restarted watcher only
-        ever alerts on *new* hits going forward, never replays history.
-        """
         conn = self._connect()
         try:
             row = conn.execute("SELECT MAX(id) FROM queries").fetchone()
@@ -446,11 +360,6 @@ class Stats:
             conn.close()
 
     def alert_hits_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
-        """Rows with id > last_id that matched an alert rule (alert_rule IS
-        NOT NULL), oldest first. The watcher advances its cursor to the
-        highest id seen here after processing, so nothing gets replayed on
-        the next poll.
-        """
         conn = self._connect()
         try:
             conn.row_factory = sqlite3.Row
@@ -469,15 +378,6 @@ class Stats:
     def domains_for_client_window(
         self, client: str, since_ts: float, until_ts: float, blocked_only: bool = False
     ) -> list[str]:
-        """Distinct domains `client` queried in [since_ts, until_ts) -
-        the actual domain names behind one of app/anomaly.py's aggregate
-        counts (e.g. "12 distinct blocked domains"), for the dashboard's
-        "Show domains" button on a detected anomaly. `blocked_only`
-        restricts to domains that were blocked at least once in that
-        window. A domain/client on logging.ignored_domains/ignored_clients
-        never appears here since it was never written to this table in
-        the first place - see record().
-        """
         where_blocked = "AND blocked = 1" if blocked_only else ""
         conn = self._connect()
         try:
@@ -491,13 +391,7 @@ class Stats:
             conn.close()
         return [row["domain"] for row in rows]
 
-    # -- time-series trend (Stats tab chart) -------------------------------
     def timeseries(self, range_key: str = "24h", client_ips: list[str] | None = None) -> list[dict[str, Any]]:
-        """Total/blocked query counts bucketed over the given range, for the
-        Stats tab's trend chart. Always returns one entry per bucket over
-        the full range, zero-filled where there's no data, so the chart has
-        a continuous, evenly-spaced x-axis regardless of gaps in traffic.
-        """
         window_seconds, bucket_seconds = _TIMESERIES_RANGES.get(range_key, _TIMESERIES_RANGES["24h"])
         since = time.time() - window_seconds
 

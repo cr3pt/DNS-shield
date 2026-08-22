@@ -483,6 +483,31 @@ blocked_clients:
   - "192.168.1.0/28"
 ```
 
+### Blocking a destination IP, even for an allowlisted domain
+
+`blocked_answer_ips` (Settings -> Own lists -> "Blocked destination IPs")
+is checked after a query actually resolves, against every A/AAAA address
+in the answer - regardless of whether the domain itself is on the
+allowlist. A domain allowlist entry only ever protects against
+*domain-name* matching (the blocklists, `denylist`, the regex denylist);
+it was never meant to guarantee that whatever IP that domain happens to
+resolve to right now is safe, and a compromised or rebound domain can
+resolve to a different, malicious IP at any time without its name ever
+changing. This list catches that case: add a known-bad IP/CIDR here and
+any query resolving to it gets blocked (NXDOMAIN/null_ip, same as any
+other block), even for a domain you've explicitly allowlisted. Checked on
+every serve, including cached answers, so adding an entry here takes
+effect immediately without waiting for a TTL to expire. Doesn't apply to
+[custom DNS records ("rewrites")](#custom-dns-records-rewrites) - those
+are IPs you configured yourself, not something DNS-shield resolved from
+the internet.
+
+```yaml
+blocked_answer_ips:
+  - "203.0.113.5"
+  - "203.0.113.0/24"
+```
+
 ### Disabling IPv6
 
 If your network doesn't use IPv6, turn on `dns.block_ipv6` (dashboard:
@@ -883,6 +908,14 @@ up. This is a per-browser/per-device choice stored in that browser's own
 `localStorage`, not a server-side setting - enabling it on your laptop
 doesn't enable it on your phone, and DNS-shield never learns whether
 you've turned it on.
+
+The browser's Notification API only works in a "secure context" - HTTPS,
+or the dashboard opened via `localhost`/`127.0.0.1`. Opened over plain
+HTTP at a LAN address (the default way most people reach DNS-shield),
+the browser silently refuses to even show the permission prompt; the
+checkbox explains this and disables itself rather than doing nothing
+with no explanation. Put a reverse proxy with TLS in front if you want
+browser popups from a LAN address.
 
 Both channels only ever fire from the *same* event: a new row landing in
 `anomalies.db` from the anomaly detector above. Neither one is itself a

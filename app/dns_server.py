@@ -1,14 +1,3 @@
-"""The actual DNS filtering proxy.
-
-FilteringResolver decides, for every incoming query, whether the queried
-name is blocked. If it is, we answer locally (NXDOMAIN or a null IP) -
-no network traffic leaves the box for a blocked query. Otherwise, a
-configured custom DNS record ("rewrite") answers locally too, if one
-matches. Anything left is forwarded verbatim to one of the configured
-upstream resolvers and the raw reply relayed back, so we stay correct for
-all record types without having to reimplement DNS semantics.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -45,22 +34,11 @@ class FilteringResolver:
             self._client_names.touch(client_ip)
 
         if qtype == QTYPE.AAAA and self._config.get("dns", "block_ipv6", default=False):
-            # Answer NOERROR with no records, rather than NXDOMAIN: this
-            # tells the client "this name has no IPv6 address", which makes
-            # a dual-stack client fall straight back to A/IPv4 instead of
-            # waiting out a timeout or treating the whole name as missing.
-            # Not logged at all - with IPv6 disabled, every single query
-            # would otherwise get a noise entry here, which isn't useful.
             return request.reply()
 
         reason = self._blocklist.block_reason(qname, client_ip) if qname else None
         blocked = reason is not None
 
-        # Alert rules: purely observational, independent of blocked/reason
-        # above - a watched domain still resolves completely normally, this
-        # only tags the query-log row so AnomalyDetector's watched-domain
-        # loop (app/anomaly.py) can pick it up and notify. Cheap in-memory
-        # lookup, safe on this hot path same as block_reason() above.
         alert_match = self._blocklist.alert_match(qname) if qname else None
         alert_rule = alert_match[0] if alert_match else None
 
@@ -77,20 +55,27 @@ class FilteringResolver:
                     if self._cache is not None:
                         self._cache.put(request, response)
 
+                for candidate_ip in self._answer_ips(response):
+                    matched_pattern = self._blocklist.answer_ip_blocked(candidate_ip)
+                    if matched_pattern is not None:
+                        response = self._blocked_reply(request)
+                        blocked = True
+                        reason = f"Blocked destination IP ({matched_pattern})"
+                        break
+
         self._stats.record(qname, blocked, client_ip, qtype_name, reason, self._answer_ip(response), alert_rule)
         return response
 
     @staticmethod
     def _answer_ip(response: DNSRecord) -> str | None:
-        """The first A/AAAA address actually handed back to the client -
-        skipping any CNAME hops - for the query log's "resolved to" display.
-        None for NXDOMAIN blocks, non-address query types, and anything
-        else with no address record in the answer.
-        """
         for rr in response.rr:
             if rr.rtype in (QTYPE.A, QTYPE.AAAA):
                 return str(rr.rdata)
         return None
+
+    @staticmethod
+    def _answer_ips(response: DNSRecord) -> list[str]:
+        return [str(rr.rdata) for rr in response.rr if rr.rtype in (QTYPE.A, QTYPE.AAAA)]
 
     def _blocked_reply(self, request: DNSRecord) -> DNSRecord:
         reply = request.reply()
@@ -117,18 +102,6 @@ class FilteringResolver:
         return reply
 
     def _select_upstreams(self, qname: str, client_ip: str) -> list[str]:
-        """Precedence: per-domain routing rule > matched client group's own
-        upstreams > the global list. A domain rule wins even for a client
-        whose group has its own upstreams, since domain routing is usually
-        a hard technical requirement (e.g. "*.corp.local must go to the
-        internal resolver") rather than a per-client preference.
-
-        Any entry disabled from the dashboard (a leading "#", see
-        app.upstream.is_disabled) is filtered out here, never handed to
-        the actual forwarding code below - so a fully-disabled list
-        resolves to empty and every query against it SERVFAILs loudly,
-        rather than silently falling back to some other default.
-        """
         for rule in self._config.get("domain_upstreams", default=[]) or []:
             domains = rule.get("domains") or []
             if any(qname == d or qname.endswith("." + d) for d in domains):
@@ -166,7 +139,7 @@ class FilteringResolver:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
                 return DNSRecord.parse(resp)
-            except Exception as exc:  # noqa: BLE001 - socket/ssl/requests errors, any upstream can fail
+            except Exception as exc:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, False)
                 logger.warning("upstream %s failed: %s", upstream, exc)
@@ -177,15 +150,6 @@ class FilteringResolver:
         return reply
 
     def _forward_race(self, request: DNSRecord, data: bytes, upstreams: list[str], timeout: float) -> DNSRecord:
-        """"All at once" strategy: fire the query at every upstream at the
-        same time and go with whichever answers first. The rest keep
-        running in their own (daemon) threads in the background purely so
-        their latency/success still gets recorded - nothing waits on them
-        and nothing is done to cancel them, there's no cheap way to abort
-        an in-flight socket/HTTPS call from another thread, and letting
-        them finish naturally is harmless (their result is simply never
-        used once a winner has already answered the client).
-        """
         results: queue.Queue[tuple[str, bytes | None, Exception | None]] = queue.Queue()
 
         def worker(upstream: str) -> None:
@@ -195,7 +159,7 @@ class FilteringResolver:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
                 results.put((upstream, resp, None))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, False)
                 results.put((upstream, None, exc))
@@ -215,7 +179,6 @@ class FilteringResolver:
 
 
 class QuietLogger:
-    """dnslib logs every request/reply to stdout by default - keep it quiet."""
 
     def log_pass(self, *args, **kwargs):
         pass

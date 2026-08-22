@@ -8,15 +8,5 @@ services:
       - "53:53/udp"
       - "53:53/tcp"
       - "3000:3000/tcp"
-      # Only needed if you turn on dns.block_page_enabled (off by default) -
-      # publishes the local "blocked" page on port 80. Uncomment and match
-      # dns.block_page_port if you enable it.
-      # - "80:80/tcp"
     volumes:
       - ./data:/data
-    # DNS-shield only ever talks to the upstream resolvers and blocklist
-    # URLs configured in ./data/config.db, plus (when you click "Enrich")
-    # a self-hosted reputation service you point it at, and/or VirusTotal/
-    # AbuseIPDB/OTX - but only once you've both saved a key for one AND
-    # turned on "Enable public lookups" in Settings, off by default.
-    # Nothing else, ever.

@@ -1,18 +1,3 @@
-"""In-memory, TTL-respecting cache for upstream DNS answers.
-
-Without this, every allowed query is forwarded to the upstream resolver
-every single time, even for a domain that was just looked up a second
-ago - and repeat lookups (CDN/ad/tracker hostnames requested by many
-devices) are most of a home network's DNS traffic. Caching cuts both
-latency and the number of queries that leave the network at all.
-
-Purely local: an OrderedDict in process memory, bounded by
-dns.cache_max_entries with LRU eviction. Nothing is written to disk and
-nothing is sent anywhere else. Sizing/TTL bounds and the on/off switch are
-read from the config store on every use, so changes made from the web UI
-take effect immediately without restarting.
-"""
-
 from __future__ import annotations
 
 import threading

@@ -1,12 +1,3 @@
-"""Web UI + REST API.
-
-Everything here only ever reads/writes the local config store and the
-local stats snapshot - the one exception is POST /api/enrich, which
-looks up a domain/IP's reputation via VirusTotal/AbuseIPDB/AlienVault OTX
-(app/enrichment.py) - and that only ever runs when a user clicks
-"Enrich" in the dashboard, never automatically.
-"""
-
 from __future__ import annotations
 
 import io
@@ -38,12 +29,6 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def _masked_key_preview(key: str | None) -> str:
-    """First and last character of a saved API key, e.g. "a***********f" -
-    enough for a user to recognize *which* key is saved (in case they keep
-    more than one VirusTotal/AbuseIPDB/OTX account, say) without the full
-    value ever being sent back to the browser. Empty string if no key is
-    saved, or the key itself if it's a single character (nothing to mask).
-    """
     if not key:
         return ""
     if len(key) == 1:
@@ -160,7 +145,7 @@ class DomainUpstreamIn(BaseModel):
 
 class RewriteIn(BaseModel):
     name: str
-    type: str  # "A" or "AAAA"
+    type: str
     value: str
 
 
@@ -211,22 +196,22 @@ class BlocklistSettingsIn(BaseModel):
 
 
 class PauseIn(BaseModel):
-    seconds: float | None = None  # None/omitted = pause until manually resumed
+    seconds: float | None = None
 
 
 class EnrichmentSettingsIn(BaseModel):
-    virustotal_api_key: str | None = None  # blank/omitted = keep current key
+    virustotal_api_key: str | None = None
     abuseipdb_api_key: str | None = None
     otx_api_key: str | None = None
-    public_enabled: bool | None = None  # master on/off for the three cloud services above
+    public_enabled: bool | None = None
     local_enabled: bool | None = None
-    local_url: str | None = None  # not a secret - blank clears it, unlike the API key fields
-    local_api_key: str | None = None  # blank/omitted = keep current key
+    local_url: str | None = None
+    local_api_key: str | None = None
 
 
 class EnrichIn(BaseModel):
     target: str
-    type: str  # "domain" or "ip"
+    type: str
 
 
 class AnomalySettingsIn(BaseModel):
@@ -256,12 +241,12 @@ class NotificationEmailSettingsIn(BaseModel):
     enabled: bool | None = None
     smtp_host: str | None = None
     smtp_port: int | None = None
-    smtp_security: str | None = None  # "none" | "starttls" | "ssl"
+    smtp_security: str | None = None
     smtp_username: str | None = None
-    smtp_password: str | None = None  # blank/omitted = keep current password
+    smtp_password: str | None = None
     from_address: str | None = None
     to_addresses: list[str] | None = None
-    min_severity: str | None = None  # "low" | "medium" | "high"
+    min_severity: str | None = None
 
 
 def create_app(
@@ -374,13 +359,6 @@ def create_app(
 
     @app.get("/")
     def index() -> FileResponse:
-        # index.html is the entire dashboard (HTML+CSS+JS in one file) and
-        # changes across restarts/updates - without an explicit Cache-Control,
-        # a browser can heuristically cache it and keep serving a stale copy
-        # for a while even across a normal reload, silently mismatched with
-        # the backend's actual API shape. no-cache forces revalidation on
-        # every load (a fast 304 via the ETag/Last-Modified FileResponse
-        # already sets when nothing changed, a fresh 200 when it has).
         return FileResponse(STATIC_DIR / "index.html", headers=NO_CACHE)
 
     @app.get("/api/status")
@@ -572,9 +550,6 @@ def create_app(
 
     @app.get("/api/blocklists/catalog")
     def get_blocklist_catalog(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
-        # An entry already present as a configured source has nothing left
-        # to suggest, so it's dropped from the list entirely rather than
-        # shown disabled - "added" is a one-way trip out of Suggested lists.
         existing_urls = {s.get("url") for s in _list_sources("sources")}
         return [entry for entry in BLOCKLIST_CATALOG if entry["url"] not in existing_urls]
 
@@ -590,6 +565,7 @@ def create_app(
             "denylist": config_store.get("denylist", default=[]) or [],
             "denylist_regex": config_store.get("denylist_regex", default=[]) or [],
             "blocked_clients": config_store.get("blocked_clients", default=[]) or [],
+            "blocked_answer_ips": config_store.get("blocked_answer_ips", default=[]) or [],
         }
 
     def _add_rule(list_name: str, value: str, label: str = "domain") -> list[str]:
@@ -632,11 +608,6 @@ def create_app(
     def remove_deny(domain: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _remove_rule("denylist", domain)
 
-    # -- denylist_regex: experimental, off by default (dns.regex_denylist_enabled) -
-    # matched against the full query name with re.Pattern.search(), so an
-    # unanchored pattern like "tracker" matches anywhere in the name, same
-    # as a typical AdBlock-style regex rule. Compiled once and cached in
-    # BlocklistManager, not per query - see blocklist.py.
     @app.post("/api/rules/deny-regex")
     def add_deny_regex(body: RegexPatternIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         pattern = body.pattern.strip()
@@ -665,9 +636,6 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
-    # -- blocked_clients: EVERY query from this IP/CIDR is blocked, for every
-    # domain - not a domain-scoped rule. Dashboard: "Block host" button next
-    # to a client IP (query log, Stats, Enrich popup), or added by hand here.
     @app.post("/api/rules/deny-client")
     def add_deny_client(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _add_rule("blocked_clients", body.value, label="client")
@@ -676,7 +644,14 @@ def create_app(
     def remove_deny_client(client: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _remove_rule("blocked_clients", client)
 
-    # -- log-ignore: excluded from the query log only, resolution/blocking is unaffected --
+    @app.post("/api/rules/deny-answer-ip")
+    def add_deny_answer_ip(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
+        return _add_rule("blocked_answer_ips", body.value, label="IP")
+
+    @app.delete("/api/rules/deny-answer-ip/{value}")
+    def remove_deny_answer_ip(value: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
+        return _remove_rule("blocked_answer_ips", value)
+
     def _add_nested_rule(section: str, list_name: str, value: str) -> list[str]:
         if not value.strip():
             raise HTTPException(status_code=400, detail="Empty value")
@@ -813,9 +788,6 @@ def create_app(
 
         return _group_mutate(index, _fn)
 
-    # -- per-group extra blocklist sources: additive to the global blocklist,
-    # e.g. a stricter extra list for a kids' devices group. Mirrors the
-    # global /api/blocklists CRUD above, scoped to one group's own list. --
     def _group_source_mutate(index: int, fn) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
@@ -869,7 +841,6 @@ def create_app(
 
         return _group_source_mutate(index, _fn)
 
-    # -- per-domain upstream routing: [/domain/] -> specific resolvers, AdGuard-style --
     @app.get("/api/domain-upstreams")
     def list_domain_upstreams(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("domain_upstreams", default=[]) or []
@@ -894,9 +865,6 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
-    # -- custom DNS records ("rewrites"): answer a hostname with an IP you --
-    # choose, entirely locally - see app/dns_rewrites.py for the matching
-    # rule and where this sits in the resolution order.
     @app.get("/api/rewrites")
     def list_rewrites(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("dns_rewrites", default=[]) or []
@@ -929,14 +897,6 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
-    # -- import an existing AdGuard Home config, from the browser -------
-    # Deliberately a plain (non-async) def: blocklist.refresh() below makes
-    # blocking HTTP calls for every configured source, and a real AdGuard
-    # config can list several. FastAPI runs sync routes in a worker thread,
-    # same as every other endpoint here that calls refresh() - an async def
-    # would instead run that blocking work directly on the event loop and
-    # freeze the entire web UI for every user until every source timed out
-    # or responded.
     @app.post("/api/import/adguard")
     def import_adguard(file: UploadFile = File(...), _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         raw = file.file.read()
@@ -958,9 +918,6 @@ def create_app(
 
         return {"ok": True, "warnings": warnings}
 
-    # -- import an existing Pi-hole gravity.db, from the browser --------
-    # Same sync-def reasoning as import_adguard above: blocklist.refresh()
-    # makes blocking HTTP calls for every configured source.
     @app.post("/api/import/pihole")
     def import_pihole(file: UploadFile = File(...), _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         raw = file.file.read()
@@ -981,16 +938,6 @@ def create_app(
 
         return {"ok": True, "warnings": warnings}
 
-    # -- config backup: a full snapshot the browser downloads as a .zip ----
-    # This is your own config leaving the container for your own local
-    # machine, at your own request (a button click) - nothing is sent
-    # anywhere else. It's a full, unmasked snapshot (same as
-    # config.backup.yaml already on disk), including any threat-intel API
-    # keys in plain text and every user's bcrypt password hash, so the
-    # README.txt bundled alongside it says the same: treat the download
-    # like you would a password (a bcrypt hash can't be reversed to the
-    # original password, but it's still worth guessing offline, so don't
-    # publish it either).
     _EXPORT_README = """DNS-shield configuration backup
 ================================
 
@@ -1030,12 +977,6 @@ To restore into an EXISTING instance (data/config.db already exists):
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    # -- config restore: the other end of /api/export above. Unlike the
-    # AdGuard/Pi-hole importers, this is DNS-shield's own native format, so
-    # there's no lossy conversion and nothing to merge onto the current
-    # config - a restore replaces it outright, exactly reproducing whatever
-    # was true at export time. blocklist.refresh() below makes blocking
-    # HTTP calls, same sync-def reasoning as the other importers above.
     @app.post("/api/import/backup")
     def import_backup(file: UploadFile = File(...), _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         raw = file.file.read()
@@ -1066,7 +1007,6 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         return {"ok": True}
 
-    # -- full settings: everything not covered by the CRUD endpoints above -
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
 
     @app.get("/api/settings")
@@ -1118,10 +1058,6 @@ To restore into an EXISTING instance (data/config.db already exists):
     def update_dns_settings(body: DnsSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             dns_cfg = data.setdefault("dns", {})
-            # None means "the client left this field blank" (e.g. a numeric
-            # input with no value serializes to null), never "clear this
-            # setting" - every field here has a real default, so a blank
-            # submission should leave the existing value alone.
             dns_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
             return {k: v for k, v in dns_cfg.items() if k != "upstreams"}
 
@@ -1129,11 +1065,6 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.put("/api/settings/upstreams")
     def update_upstreams(body: UpstreamsIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
-        # A leading "#" marks an upstream as disabled - kept in the list
-        # (so re-enabling doesn't mean re-typing it) but skipped by
-        # FilteringResolver - see app.upstream.is_disabled. Only truly
-        # blank lines are dropped; a "# ..." line is a real disabled entry
-        # now, not a comment to discard.
         upstreams = [u.strip() for u in body.upstreams if u.strip()]
 
         def _mutate(data: dict[str, Any]) -> list[str]:
@@ -1195,13 +1126,6 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.patch("/api/settings/enrichment")
     def update_enrichment_settings(body: EnrichmentSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
-        # API-key-shaped fields: blank/omitted means "keep the current
-        # value" (these are masked password inputs - the form never shows
-        # the real key back, so an empty field must not overwrite it).
-        # Everything else (the two on/off switches, and local_url which is
-        # a plain, unmasked field) is applied exactly as sent, including
-        # false/blank, so a switch can actually be turned off and a saved
-        # local_url can actually be cleared.
         keep_if_blank = {"virustotal_api_key", "abuseipdb_api_key", "otx_api_key", "local_api_key"}
         data_in = body.model_dump(exclude_unset=True)
         payload = {k: v for k, v in data_in.items() if (v if k in keep_if_blank else v is not None)}
@@ -1243,10 +1167,6 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         return config_store.mutate(_mutate)
 
-    # -- alert rules: watched domains/lists - purely observational, never --
-    # affects blocking/resolution, only whether a query gets logged as an
-    # alert for AnomalyDetector's watched-domain loop to pick up. Mirrors
-    # the global blocklist-source CRUD pattern above.
     def _add_alert_domain(domain: str) -> list[str]:
         domain = domain.strip().lower().rstrip(".")
         if not domain:
@@ -1332,8 +1252,6 @@ To restore into an EXISTING instance (data/config.db already exists):
     def update_notification_email_settings(
         body: NotificationEmailSettingsIn, _: dict[str, Any] = Depends(require_admin)
     ) -> dict[str, Any]:
-        # smtp_password is masked like the threat-intel API keys - blank/
-        # omitted means "keep the current value", never "clear it".
         data_in = body.model_dump(exclude_unset=True)
         payload = {k: v for k, v in data_in.items() if (v if k == "smtp_password" else v is not None)}
 
@@ -1350,14 +1268,10 @@ To restore into an EXISTING instance (data/config.db already exists):
             raise HTTPException(status_code=503, detail="Notifications are not available")
         try:
             notifications.send_test_email()
-        except Exception as exc:  # noqa: BLE001 - surface the SMTP/config error to the dashboard
+        except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True}
 
-    # -- local anomaly detection: a background thread that periodically ---
-    # scans the query log for per-client statistical red flags (a spike in
-    # blocked queries, an unusual number of distinct domains). Entirely
-    # local - see app/anomaly.py.
     @app.get("/api/anomalies")
     def list_anomalies(
         include_acknowledged: bool = True,
@@ -1386,19 +1300,13 @@ To restore into an EXISTING instance (data/config.db already exists):
     def anomalies_reanalyze(body: ReanalyzeIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         if anomaly is None:
             return []
-        hours = max(1.0, min(body.hours, 24 * 30))  # cap at 30 days, matching the dashboard's longest option
+        hours = max(1.0, min(body.hours, 24 * 30))
         return anomaly.reanalyze(hours)
 
     @app.get("/api/anomalies/{anomaly_id}/domains")
     def anomaly_domains(
         anomaly_id: int, user: dict[str, Any] = Depends(require_permission("view_anomalies"))
     ) -> dict[str, Any]:
-        # The actual domain names behind an anomaly's aggregate count (e.g.
-        # "12 distinct blocked domains") - not stored on the anomaly row
-        # itself, reconstructed on demand from the query log using the same
-        # client/window the heuristic evaluated. Domains on
-        # logging.ignored_domains/ignored_clients never appear here, since
-        # they're never written to the query log in the first place.
         if anomaly is None:
             raise HTTPException(status_code=404, detail="No such anomaly")
         row = anomaly.get(anomaly_id)
@@ -1461,9 +1369,6 @@ To restore into an EXISTING instance (data/config.db already exists):
             anomaly.clear()
         return {"ok": True}
 
-    # -- threat-intel enrichment: manual only, triggered by the "Enrich" ---
-    # button in the dashboard. Never called automatically, never on a
-    # schedule, never as a side effect of a DNS query.
     @app.post("/api/enrich")
     def enrich_target(body: EnrichIn, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> dict[str, Any]:
         target = body.target.strip()
@@ -1477,9 +1382,6 @@ To restore into an EXISTING instance (data/config.db already exists):
             enrichment_store.record(
                 result["target"], result["type"], result["overall_verdict"], result["overall_score"], result["sources"]
             )
-            # Past lookups for this exact target (this one included, as the
-            # newest row) - lets the popup show how its verdict/score have
-            # moved over time, not just the result of this one click.
             history = enrichment_store.history_for(result["target"], limit=20)
         result["history"] = history
         if target_type == "ip":

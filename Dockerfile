@@ -11,23 +11,12 @@ COPY config ./config
 RUN mkdir -p /data
 VOLUME ["/data"]
 
-# DNSSHIELD_CONFIG_DB/DNSSHIELD_CONFIG_BACKUP are the live config (SQLite)
-# and its periodic human-readable YAML export - the ones that matter.
-# DNSSHIELD_CONFIG only names a legacy config.yaml path, read as a one-time
-# fallback if the database doesn't exist yet and neither does the backup
-# (migrating a very old, file-only install of this project).
 ENV DNSSHIELD_CONFIG_DB=/data/config.db \
     DNSSHIELD_CONFIG_BACKUP=/data/config.backup.yaml \
     DNSSHIELD_CONFIG=/data/config.yaml \
     DNSSHIELD_DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 
-# 53/udp+tcp: DNS. 3000/tcp: web UI.
-# Binding port 53 requires the CAP_NET_BIND_SERVICE capability (or root,
-# which is what this image runs as by default - the same approach used by
-# the official AdGuard Home and Pi-hole images). If you prefer a rootless
-# container, add `cap_add: [NET_BIND_SERVICE]` and a non-root `user:` in
-# your compose override instead.
 EXPOSE 53/udp 53/tcp 3000/tcp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

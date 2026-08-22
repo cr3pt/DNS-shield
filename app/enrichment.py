@@ -1,29 +1,3 @@
-"""Manual, opt-in threat-intelligence enrichment: VirusTotal, AbuseIPDB,
-AlienVault OTX, and an optional self-hosted/local reputation service.
-
-Every call here happens *only* because a user clicked "Enrich" in the
-dashboard - nothing in this module is ever invoked automatically, on a
-timer, or as a side effect of resolving a DNS query.
-
-The three public cloud services are gated by a second, explicit switch on
-top of having an API key configured: `enrichment.public_enabled` in
-Settings -> Threat intelligence, off by default. Saving an API key alone
-does not start sending anything anywhere - a user has to deliberately
-flip that switch too, since these are the one category of outbound call
-in this project that leaves the local network, and this project exists
-specifically because another DNS blocker made exactly that kind of call
-without asking (see the README). While the switch is off, a configured
-key still shows in Settings, but enrich() reports each public source as
-"disabled" rather than calling it.
-
-AbuseIPDB has no domain-lookup endpoint - it's only ever queried for an
-IP target, per its own API (see enrich()).
-
-The local option (`enrichment.local_enabled` + `enrichment.local_url`) has
-no such switch, since it's a service *you* run and pointed this at
-yourself - see query_local() for the request/response contract.
-"""
-
 from __future__ import annotations
 
 import concurrent.futures
@@ -36,24 +10,10 @@ import requests
 logger = logging.getLogger("dnsshield.enrichment")
 
 _SEVERITY_ORDER = ["safe", "low", "medium", "high", "critical"]
-# AlienVault OTX's API is noticeably slower than VirusTotal/AbuseIPDB and
-# occasionally takes several seconds even when it's working correctly - 10s
-# was tight enough to time out real (if slow) OTX responses, reported as a
-# generic "timed out" every single time. 20s gives it enough room without
-# leaving a genuinely unreachable service hanging too long, given this is
-# a manual, one-off click, not something on a request's critical path.
 _TIMEOUT = 20.0
 
-# One shared, connection-pooling session (same reasoning as app/upstream.py's
-# DoH session) - enrichment is low-frequency (manual clicks only) but there's
-# no reason to open a fresh connection every time either.
 _session = requests.Session()
 
-# The fixed hostnames the three public services live at - imported into
-# app.upstream.protected_hostnames(), which only actually exempts them from
-# blocking once enrichment.public_enabled is turned on (see that function):
-# no standing blocklist hole for hosts DNS-shield has no reason to talk to
-# while the switch is off.
 THREAT_INTEL_HOSTNAMES = frozenset({"www.virustotal.com", "api.abuseipdb.com", "otx.alienvault.com"})
 
 
@@ -75,11 +35,6 @@ def _http_error_message(exc: requests.HTTPError) -> str:
 
 
 def _network_error_message(exc: Exception) -> str:
-    # Deliberately not str(exc) - a requests.ConnectionError's message is
-    # the raw connection-pool/urllib3 repr (nested exception classes,
-    # socket errors, retry counts), not something worth putting in front of
-    # a user; the full detail still reaches the log via logger.warning at
-    # each call site.
     if isinstance(exc, requests.Timeout):
         return "timed out - the service didn't respond in time"
     if isinstance(exc, requests.ConnectionError):
@@ -99,10 +54,6 @@ def query_virustotal(target: str, target_type: str, api_key: str) -> dict[str, A
         suspicious = stats.get("suspicious", 0)
         total = sum(stats.values()) or 1
 
-        # VirusTotal engines number in the dozens (usually 70-90) - a single
-        # "malicious" hit out of that many is a weak, often false-positive
-        # signal, not "high" severity on its own. These thresholds are
-        # counts of engines flagging it, not percentages.
         if malicious >= 10:
             verdict = "critical"
         elif malicious >= 5:
@@ -126,7 +77,7 @@ def query_virustotal(target: str, target_type: str, api_key: str) -> dict[str, A
         }
     except requests.HTTPError as exc:
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("VirusTotal lookup failed for %s: %s", target, exc)
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
@@ -167,7 +118,7 @@ def query_abuseipdb(ip: str, api_key: str) -> dict[str, Any]:
         }
     except requests.HTTPError as exc:
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("AbuseIPDB lookup failed for %s: %s", ip, exc)
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
@@ -181,9 +132,6 @@ def query_otx(target: str, target_type: str, api_key: str) -> dict[str, Any]:
         data = resp.json()
         pulse_count = data.get("pulse_info", {}).get("count", 0)
 
-        # A single pulse can be a broad/low-confidence community report, not
-        # confirmation of anything - give it its own "low" tier instead of
-        # jumping straight to "medium" the moment any pulse exists at all.
         if pulse_count >= 20:
             verdict = "critical"
         elif pulse_count >= 10:
@@ -206,21 +154,12 @@ def query_otx(target: str, target_type: str, api_key: str) -> dict[str, Any]:
         }
     except requests.HTTPError as exc:
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("OTX lookup failed for %s: %s", target, exc)
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
 def query_local(target: str, target_type: str, url: str, api_key: str) -> dict[str, Any]:
-    """Query a self-hosted reputation service at a user-supplied URL.
-
-    Contract: DNS-shield POSTs {"target": <domain-or-ip>, "type": "domain"|"ip"}
-    as JSON (plus "Authorization: Bearer <api_key>" if a key is set), and
-    expects a JSON response {"verdict": "safe"|"low"|"medium"|"high"|"critical",
-    "score": <0-100, optional>, "summary": "<string, optional>"}. Anything
-    else (unreachable, non-2xx, missing/unrecognized verdict) is reported as
-    a failed lookup rather than guessed at.
-    """
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -241,26 +180,16 @@ def query_local(target: str, target_type: str, url: str, api_key: str) -> dict[s
         }
     except requests.HTTPError as exc:
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Local enrichment lookup failed for %s: %s", target, exc)
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
 def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
-    """target_type is "domain" or "ip". AbuseIPDB is only ever queried for
-    an IP target - it has no domain-lookup endpoint, so it's reported as
-    inapplicable (None) rather than "not configured" for a domain target.
-
-    The three public sources are additionally gated by
-    enrichment.public_enabled (default off) - see the module docstring.
-    """
     target = target.strip()
     sources: dict[str, Any] = {}
     public_enabled = bool(config_store.get("enrichment", "public_enabled", default=False))
 
-    # Only the sources that are actually going to make a network call go in
-    # here - "not enabled"/"not configured" is decided up front (no network
-    # involved) and written straight into `sources`.
     jobs: dict[str, Any] = {}
 
     def _register(name: str, key: str, run) -> None:
@@ -291,12 +220,6 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
     else:
         sources["local"] = {"configured": False}
 
-    # Run every actual lookup at once rather than one after another - each
-    # source has its own _TIMEOUT, so calling them sequentially means one
-    # slow/unreachable source (OTX in practice, which is noticeably slower
-    # than VirusTotal/AbuseIPDB) adds its full timeout on top of every other
-    # source's instead of just being the slowest of several calls made
-    # together, which is what a "check reputation" click should feel like.
     if jobs:
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as pool:
             futures = {name: pool.submit(run) for name, run in jobs.items()}

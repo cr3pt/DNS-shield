@@ -1,18 +1,3 @@
-"""Per-upstream latency/success tracking, for picking a "best" upstream.
-
-Every real query already records how long its upstream took to answer
-(or whether it failed) via record(). On top of that, a background thread
-periodically probes *every* configured upstream directly (not just the
-ones real traffic happens to use) so stats stay fresh even for a server
-that a "fastest"/"most_stable" strategy has stopped picking - otherwise
-a losing server's numbers would go stale and it could never be picked
-again even if it improved. Probes only ever go to upstream hosts you
-configured yourself, at a low, capped rate.
-
-Everything here is in-process memory only - nothing persisted to disk,
-nothing sent anywhere beyond the upstreams already in your config.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -26,7 +11,7 @@ from app import upstream as upstream_transport
 
 logger = logging.getLogger("dnsshield.upstream_stats")
 
-Sample = tuple[float, float, bool]  # (timestamp, latency_seconds, success)
+Sample = tuple[float, float, bool]
 
 
 class UpstreamStats:
@@ -44,7 +29,6 @@ class UpstreamStats:
         minutes = float(self._config.get("dns", "upstream_stats_window_minutes", default=15))
         return max(1.0, minutes) * 60
 
-    # -- recording ------------------------------------------------------
     def record(self, upstream: str, latency: float, success: bool) -> None:
         now = time.time()
         cutoff = now - self._window_seconds()
@@ -64,13 +48,11 @@ class UpstreamStats:
                 dq.popleft()
             return list(dq)
 
-    # -- ranking ----------------------------------------------------------
     def average_latency(self, upstream: str) -> float | None:
         oks = [lat for _, lat, ok in self._entries(upstream) if ok]
         return sum(oks) / len(oks) if oks else None
 
     def stability_penalty(self, upstream: str) -> float | None:
-        """Lower is better: failures dominate, then latency variability."""
         entries = self._entries(upstream)
         if not entries:
             return None
@@ -84,12 +66,6 @@ class UpstreamStats:
         return failure_rate * 10 + coeff_of_variation
 
     def rank(self, upstreams: list[str], strategy: str) -> list[str]:
-        """Best-first ordering of upstreams under the given strategy.
-
-        Upstreams with no data yet are tried last-but-still-tried, in
-        their original relative order, so they get a chance to build up
-        stats (and so a brand new upstream isn't ignored forever).
-        """
         if strategy not in ("fastest", "most_stable"):
             return list(upstreams)
 
@@ -118,7 +94,6 @@ class UpstreamStats:
             }
         return result
 
-    # -- background health probing -----------------------------------------
     def _probe_loop(self) -> None:
         while not self._stop_event.wait(120):
             upstreams = self._config.get("dns", "upstreams", default=[]) or []
@@ -131,7 +106,7 @@ class UpstreamStats:
         try:
             upstream_transport.forward(request, upstream, self._probe_timeout)
             self.record(upstream, time.monotonic() - start, True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.record(upstream, time.monotonic() - start, False)
             logger.debug("health probe for upstream %s failed: %s", upstream, exc)
 

@@ -1,26 +1,3 @@
-"""A short, static list of well-known public blocklists you can add with
-one click from the dashboard's Blocklists section, instead of having to
-go find and paste a URL yourself.
-
-This is a fixed list baked into DNS-shield itself - fetched from nowhere,
-checked against nothing at runtime. Picking "Add" on an entry just POSTs
-its name/url to the normal /api/blocklists endpoint, the exact same as
-typing them in by hand; DNS-shield then fetches that URL on the next
-refresh like any other configured source, complete with the same format
-auto-detection, fetch-failure handling, and disable/remove controls.
-
-Every Firebog entry here is one of that site's (https://firebog.net)
-"ticked" lists - the subset their own picker marks safe for a default
-setup, as opposed to the site's more aggressive or narrowly-scoped
-options - plus StevenBlack's Unified Hosts (this project's own example
-config has shipped with it since day one) and AdGuard's own DNS filter
-straight from AdGuard's registry. Tick/cross status and exact URLs can
-change over time on any of these upstream projects; if a list here stops
-looking right for you, Disable or Remove it from the Blocklists table
-like any other source - nothing about picking it from this catalog is
-special or hard to undo.
-"""
-
 from __future__ import annotations
 
 BLOCKLIST_CATALOG: list[dict[str, str]] = [

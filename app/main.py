@@ -1,19 +1,3 @@
-"""DNS-shield entrypoint.
-
-Wires together: config store -> blocklist manager -> DNS resolver/server
--> stats -> anomaly detector -> web UI, then blocks running the web
-server in the foreground.
-
-By design DNS-shield never makes any network call other than:
-  1. fetching the blocklist URLs listed in your config,
-  2. forwarding non-blocked queries to the upstream resolvers you configured, and
-  3. a threat-intel lookup (VirusTotal/AbuseIPDB/AlienVault OTX) - but only
-     for a service you've configured an API key for, and only when you
-     click "Enrich" on a specific domain/IP in the dashboard. Never
-     automatic, never on a schedule, never as a side effect of a query.
-There is no telemetry, update-check, or "safe browsing" cloud service.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -58,25 +42,13 @@ def main() -> None:
 
     stats = Stats(DATA_DIR / "stats.db", config_store)
 
-    # Settings for these (enabled/thresholds/resolver address) are all read
-    # live from config_store on every use, so changes from the web UI take
-    # effect immediately - these objects always exist, they just no-op
-    # internally when their feature is turned off.
     cache = DNSCache(config_store)
     client_names = ClientNameResolver(config_store)
     upstream_stats = UpstreamStats(config_store)
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")
 
-    # Optional outbound email for anomaly alerts, via an SMTP server *you*
-    # configure - off by default, and never anything but that one SMTP
-    # call (see app/notifications.py). Browser-popup notifications need no
-    # backend component at all; that half lives entirely in the dashboard.
     notifications = NotificationSender(config_store)
 
-    # Local, heuristic anomaly detection over the query log - its own
-    # background thread, reading from stats.db on a timer and writing to
-    # its own anomalies.db. Off by default (anomaly.enabled); wrapped in
-    # try/except internally so a bug here can never affect DNS resolution.
     anomaly = AnomalyDetector(
         config_store, stats, DATA_DIR / "anomalies.db", on_new_anomalies=notifications.notify_anomalies
     )

@@ -1,308 +1,101 @@
-# DNS-shield configuration
-#
-# This file only seeds the *first* boot: DNS-shield's live config lives in
-# a database (data/config.db), and from then on is edited via the web UI
-# or the REST API. A full copy is exported to data/config.backup.yaml every
-# 12h (and once at every startup) as a human-readable backup/reference -
-# edit that or this file only to change what a *fresh* data volume starts
-# with, never a config that's already running.
-
 dns:
   listen_address: "0.0.0.0"
   listen_port: 53
-  # Upstream resolvers queried for anything that is not blocked.
-  # Only these hosts (and the blocklist URLs below) are ever contacted
-  # by DNS-shield - nothing is sent anywhere else.
-  #
-  # Plain "host:port" is DNS over UDP/TCP (default). Prefix an entry with
-  # "dot://" for DNS-over-TLS or "doh://"/"https://" for DNS-over-HTTPS to
-  # encrypt queries between DNS-shield and that resolver - e.g.:
-  #   - "dot://1.1.1.1"
-  #   - "doh://cloudflare-dns.com/dns-query"
-  #   - "dot://9.9.9.9"
-  #   - "https://dns.quad9.net/dns-query"
-  # A leading "#" disables an entry - kept in the list (so re-enabling
-  # doesn't mean re-typing it) but never actually queried. The dashboard's
-  # per-entry Disable button in Settings -> Upstream DNS servers writes
-  # this same marker.
   upstreams:
     - "1.1.1.1:53"
     - "9.9.9.9:53"
   upstream_timeout_seconds: 3.0
-  # How to choose among multiple upstreams above, based on a rolling
-  # average over the last upstream_stats_window_minutes (a background
-  # thread also health-checks every upstream every 2 minutes, so stats
-  # stay current even for servers that aren't currently being picked):
-  #   "in_order"     try them in the order listed, first to last (default)
-  #   "fastest"      try whichever has the lowest average response time
-  #   "most_stable"  try whichever has the fewest failures / most consistent
-  #                  response time (favors reliability over raw speed)
-  #   "race"         query every upstream at once, answer with whichever
-  #                  replies first ("All at once - FIFO" in the dashboard)
-  # For in_order/fastest/most_stable, the others are still used as fallback
-  # if the first choice fails.
   upstream_strategy: "in_order"
   upstream_stats_window_minutes: 15
-  # "nxdomain" replies with NXDOMAIN, "null_ip" replies with blocked_ipv4/::
   block_mode: "nxdomain"
   blocked_ipv4: "0.0.0.0"
   blocked_ipv6: "::"
-  # Optional: with block_mode "null_ip", a plain-HTTP request to a blocked
-  # domain normally just times out/refuses at blocked_ipv4. Turn this on and
-  # DNS-shield itself serves a small "this domain is blocked" page instead -
-  # point blocked_ipv4 at this host's own reachable LAN IP for it to work.
-  # HTTPS can't be shown a page this way (the browser fails the certificate
-  # check first) - see README. Off by default; changing either field here
-  # requires a container restart.
   block_page_enabled: false
   block_page_port: 80
-  # If you don't use IPv6 on your network, turn this on: AAAA queries get
-  # an empty NOERROR reply straight away (skipping the blocklist and the
-  # upstream entirely) instead of a real IPv6 address, so dual-stack
-  # clients fall back to IPv4 immediately instead of trying IPv6 first.
   block_ipv6: false
-  # Block domains that use non-Latin scripts (Cyrillic, Arabic, CJK, Hangul,
-  # Greek, Hebrew, Thai, Devanagari, etc.) once their punycode/IDNA labels
-  # are decoded back to Unicode. Plain ASCII and accented Latin domains
-  # (e.g. café.fr) are never affected. Off by default; the global/group
-  # allowlist always overrides this if you need a specific exception.
   block_non_latin: false
-  # EXPERIMENTAL, off by default: when on, every query name is also
-  # checked against every pattern in denylist_regex below (re.search, so
-  # an unanchored pattern matches anywhere in the name). Real per-query
-  # CPU cost that grows with the pattern list - patterns are compiled once
-  # and cached, never per query, but the matching itself isn't free, so
-  # this is meant for a handful of hand-picked rules, not a full list.
   regex_denylist_enabled: false
-  # In-memory cache of upstream answers, keyed by (domain, qtype) and
-  # respecting each answer's own TTL. Cuts repeat-lookup latency and
-  # upstream traffic; purely local, nothing persisted to disk.
   cache_enabled: true
   cache_max_entries: 10000
-  cache_min_ttl_seconds: 0     # floor applied to cached TTLs
-  cache_max_ttl_seconds: 3600  # cap applied to cached TTLs
-  # Best-effort client hostnames on the dashboard, via reverse DNS (PTR).
-  # Point client_name_resolver at your router, NOT at the upstreams above -
-  # your router is what usually knows DHCP client names; public resolvers
-  # don't. Purely local and non-blocking: never delays answering a query.
+  cache_min_ttl_seconds: 0
+  cache_max_ttl_seconds: 3600
   resolve_client_names: false
-  client_name_resolver: ""     # e.g. "192.168.1.1:53"
+  client_name_resolver: ""
   client_name_cache_seconds: 3600
 
 blocklists:
   refresh_interval_hours: 24
-  # Each source's format (hosts file, AdBlock/uBlock syntax, or a plain
-  # domain list) is auto-detected per line when fetched - lists in the
-  # wild aren't all the same format, and some even mix them - so you can
-  # point this at any of the three without picking one yourself. The
-  # dashboard shows the detected format under each source's domain count.
   sources:
     - name: "StevenBlack Unified Hosts"
       url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
       enabled: true
-  # Same format as sources above, but these override the blocklists: any
-  # domain fetched here is never blocked, even if it's also on a source
-  # list. Handy for a maintained allowlist subscription rather than
-  # adding every exception by hand to the global `allowlist` below.
   allow_sources: []
 
-# Domains that are always allowed, even if present on a blocklist.
 allowlist: []
 
-# Domains that are always blocked, in addition to the blocklists.
 denylist: []
 
-# EXPERIMENTAL regex denylist: Python regular expressions checked against
-# every query name (only when dns.regex_denylist_enabled above is true).
-# e.g. "^ads?[0-9]*\\." blocks ad/ad1/ads2-style subdomains across every
-# domain at once. Keep this short - see the note on regex_denylist_enabled.
-#
-# denylist_regex:
-#   - "^ads?[0-9]*\\."
 denylist_regex: []
 
-# Client IPs/CIDRs with EVERY query blocked, for every domain - not a
-# domain-scoped rule like denylist above, this is "no communication with
-# this host at all". Takes priority over client_groups and every
-# domain-level rule. Populated via the dashboard's "Block host" button
-# (query log, Stats, and the Enrich popup) or added here by hand.
 blocked_clients: []
 
-# Custom local DNS records ("rewrites"): answer a hostname with an IP you
-# choose, entirely locally - no upstream query, no blocklist involvement.
-# A/AAAA only, matched exactly or as a subdomain (e.g. "nas.home" also
-# covers "printer.nas.home"). Checked after blocking, so a blocked client
-# or an already-blocked domain still behaves as blocked regardless.
-#
-# dns_rewrites:
-#   - name: "nas.home"
-#     type: "A"
-#     value: "192.168.1.10"
+blocked_answer_ips: []
+
 dns_rewrites: []
 
-# Route specific domains to specific upstream resolvers, regardless of
-# which client asked (e.g. internal/corporate domains that only your own
-# DNS server knows about) - takes priority over everything below.
-#
-# domain_upstreams:
-#   - name: "Internal network"
-#     domains: ["corp.local", "internal.example"]
-#     upstreams: ["192.168.1.1:53"]
 domain_upstreams: []
 
-# Per-client/group overrides, matched by source IP or CIDR. The first
-# matching group wins; a client matching no group just gets the global
-# policy above. Precedence for a matched client: group denylist > global
-# denylist > group allowlist > global allowlist > group "enabled: false"
-# (no filtering at all for that client) > the blocklists. Denylist beats
-# allowlist at both levels, so an explicit deny is truly "always blocked"
-# even for a domain that's also allowlisted; allowlist only overrides the
-# *blocklists* (subscribed lists). A group's own `upstreams` (if set) is
-# used for that client's queries instead of the global dns.upstreams list,
-# unless a domain_upstreams rule above matches first.
-#
-# client_groups:
-#   - name: "Kids"
-#     match: ["192.168.1.50", "192.168.1.0/28"]
-#     enabled: true
-#     allowlist: []
-#     denylist: ["some-adult-site.example"]
-#     upstreams: []
-#     # Extra subscribed lists just for this group, on top of the global
-#     # blocklists above - additive only, never a replacement (want a
-#     # *lighter* list for a group instead? use allowlist/enabled above).
-#     blocklist_sources:
-#       - name: "Extra kids-safe list"
-#         url: "https://example.org/extra-blocklist.txt"
-#         enabled: true
-#   - name: "Guests"
-#     match: ["192.168.1.200/29"]
-#     enabled: false   # pass-through, no ad/tracker blocking for guests
-#     upstreams: ["9.9.9.9:53"]   # e.g. route guests through a different resolver
 client_groups: []
 
 web:
   listen_address: "0.0.0.0"
   listen_port: 3000
-  # Dashboard color theme, paired dark/light by hue: "navy"/"daylight",
-  # "slate"/"mist", "forest"/"meadow", or "plum"/"lilac".
   theme: "navy"
 
 users: []
 
 logging:
   level: "INFO"
-  # Query log is stored in a local SQLite database (/data/stats.db).
-  # Entries older than this are pruned automatically, hourly.
   retention_days: 30
-  # Domains/clients that are never written to the query log, even though
-  # they're resolved/blocked completely normally - only what shows up in
-  # the log and stats is affected. Domains also cover their subdomains.
   ignored_domains: []
-  ignored_clients: []   # exact IPs or CIDR ranges, e.g. "192.168.1.50" or "192.168.1.0/24"
+  ignored_clients: []
 
-# Threat-intel reputation lookups, used only when you click "Enrich" on a
-# domain/client in the dashboard - never automatic, never on a schedule.
 enrichment:
-  # public_enabled is the master switch for the three cloud services below
-  # (VirusTotal / AbuseIPDB / AlienVault OTX) - off by default. Saving an
-  # API key alone does NOT start sending anything anywhere; this has to be
-  # turned on too before Enrich will ever call out to any of them. This is
-  # the one category of outbound call in this project that leaves your
-  # network, so it stays a deliberate, separate opt-in.
   public_enabled: false
-  # Leave a key blank to skip that service once public_enabled is on (its
-  # result just shows as "not configured"). AbuseIPDB has no domain-lookup
-  # API, so it's only ever queried for an IP target. Get keys from
-  # virustotal.com, abuseipdb.com, and otx.alienvault.com - all free tiers
-  # work, DNS-shield only ever calls the one lookup endpoint per service.
   virustotal_api_key: ""
   abuseipdb_api_key: ""
   otx_api_key: ""
-  # Optional: point Enrich at your own reputation service instead of (or
-  # alongside) the public ones - not gated by public_enabled, since it's
-  # infrastructure you run and pointed this at yourself. DNS-shield POSTs
-  # {"target": "<domain-or-ip>", "type": "domain"|"ip"} as JSON to local_url
-  # (plus "Authorization: Bearer <local_api_key>" if set) and expects back
-  # {"verdict": "safe"|"low"|"medium"|"high"|"critical", "score": 0-100,
-  # "summary": "..."} - score and summary are optional.
   local_enabled: false
   local_url: ""
   local_api_key: ""
 
-# Local, heuristic anomaly detection over the query log - a background
-# thread that re-checks recent per-client activity on a timer and flags a
-# handful of simple statistical red flags (a spike in blocked queries, an
-# unusually large number of distinct domains). No ML, no cloud call -
-# purely arithmetic over data already in stats.db, and detected anomalies
-# are stored locally in anomalies.db. Off by default; see the "Anomalies"
-# settings tab or the README's "Local anomaly detection" section.
 anomaly:
   enabled: false
   check_interval_minutes: 5
   window_minutes: 15
-  # Minimum queries in the window before the blocked-ratio check applies -
-  # avoids flagging a client on a tiny sample (e.g. 2 blocked out of 2).
   min_queries: 20
   blocked_ratio_threshold: 0.5
-  # A distinct-domain burst (below) only actually fires once a good share
-  # of those domains also look randomly generated rather than real words -
-  # Shannon entropy of each domain's own label, scored only on labels at
-  # least domain_burst_min_label_length long (short labels are too noisy
-  # to score). This is what keeps an ordinary high-cardinality burst (many
-  # *real* ad/tracker vendor domains on one page) from being flagged.
   domain_burst_threshold: 50
   domain_burst_min_label_length: 10
   domain_burst_min_entropy: 3.3
   domain_burst_entropy_fraction: 0.5
   blocked_domain_burst_threshold: 15
-  # Once a given client/anomaly-type combination fires, it's suppressed for
-  # this long before it can fire again, so a persistent condition doesn't
-  # spam a fresh row every check cycle.
   cooldown_minutes: 60
 
-# Alert rules: raise an alert the instant a watched domain is queried,
-# rather than waiting for a statistical pattern like the heuristics above -
-# whether or not the query is actually blocked. Domains here are checked
-# roughly every check_interval_seconds; a hit is stored as an anomaly
-# (kind "watched_domain:<domain>", severity "high") and goes through the
-# same cooldown/notification pipeline as everything else in this file.
-# Purely observational - never changes how a query resolves. No separate
-# on/off switch: an empty domains/sources list simply never matches
-# anything, same as the blocklist/allowlist sources above.
 alert_rules:
   check_interval_seconds: 15
-  # Once a given client/domain combination fires, it's suppressed for this
-  # long before it can fire again.
   cooldown_minutes: 15
-  # Exact domains (and their subdomains) to always alert on.
   domains: []
-  # Subscribed lists of domains to watch - same hosts/AdBlock/plain
-  # formats, fetch/parse/cache behavior as the global Blocklists section.
-  # sources:
-  #   - name: "Known-bad C2 domains"
-  #     url: "https://example.org/watch-list.txt"
-  #     enabled: true
   sources: []
 
-# Optional email notification when a new anomaly is detected - sent
-# straight to the SMTP server *you* configure below (your own mail server,
-# or your own account at any provider), using nothing but Python's stdlib
-# smtplib. Not a third-party cloud service. Off by default; nothing is
-# ever sent unless enabled and at least one recipient is set. The other
-# half of "notifications" - a browser popup - needs no config at all; see
-# the dashboard's Settings -> Notifications tab.
 notifications:
   email:
     enabled: false
     smtp_host: ""
     smtp_port: 587
-    # "none", "starttls", or "ssl"
     smtp_security: "starttls"
     smtp_username: ""
     smtp_password: ""
     from_address: ""
     to_addresses: []
-    # Only anomalies at or above this severity trigger an email -
-    # "low", "medium", or "high".
     min_severity: "medium"

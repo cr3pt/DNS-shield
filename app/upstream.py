@@ -1,17 +1,3 @@
-"""Upstream DNS transports: plain UDP/TCP, DNS-over-TLS, DNS-over-HTTPS.
-
-A `dns.upstreams` entry is plain "host:port" (UDP, with an automatic TCP
-retry if the reply is truncated) unless prefixed:
-
-  - "dot://host"            or "dot://host:853"   -> DNS-over-TLS (RFC 7858)
-  - "doh://host/path"       or a full "https://…"  -> DNS-over-HTTPS (RFC 8484)
-
-DoT/DoH hide the *content* of queries from anything on the path between
-this box and the upstream resolver (e.g. your ISP) - the upstream
-operator itself can of course still see what you ask it, same as with
-plain DNS. Both verify the upstream's TLS certificate by default.
-"""
-
 from __future__ import annotations
 
 import ipaddress
@@ -27,16 +13,6 @@ from app.enrichment import THREAT_INTEL_HOSTNAMES
 
 DOH_CONTENT_TYPE = "application/dns-message"
 
-# One shared, connection-pooling Session for all DoH upstreams, reused
-# across every DNS query. requests.post() at module level (the original
-# implementation here) opens a brand-new connection every single call and
-# relies on the OS to eventually reclaim it (TCP TIME_WAIT can hold a
-# closed socket's file descriptor for a minute or more) - under real,
-# sustained query volume that exhausts the process's file descriptor
-# limit ("Too many open files") long before the OS catches up. A shared
-# Session's connection pool actually reuses the same open sockets instead.
-# pool_maxsize is generous because dnslib handles each query in its own
-# thread, so many DoH requests can be in flight at once.
 _doh_session = requests.Session()
 _doh_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100)
 _doh_session.mount("https://", _doh_adapter)
@@ -62,7 +38,7 @@ def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
         sock.sendto(data, (host, port))
         resp, _ = sock.recvfrom(65535)
 
-    if len(resp) >= 3 and resp[2] & 0x02:  # TC (truncated) bit set - retry over TCP
+    if len(resp) >= 3 and resp[2] & 0x02:
         return _forward_tcp(data, host, port, timeout)
     return resp
 
@@ -108,35 +84,23 @@ def _recv_exact(sock, n: int) -> bytes:
 
 
 def is_disabled(entry: str) -> bool:
-    """True if this dns.upstreams-style entry is disabled: kept in the
-    list (so re-enabling it doesn't mean re-typing it) but never actually
-    used to resolve queries. Marked by a leading "#" - the dashboard's
-    per-entry Disable button writes this, and it doubles as the same
-    "commented out" convention a hand-edited config file would use.
-    """
     return entry.strip().startswith("#")
 
 
 def address(entry: str) -> str:
-    """The usable address/URL for a dns.upstreams-style entry, with a
-    leading disabled marker (if any) stripped.
-    """
     return entry.strip().lstrip("#").strip()
 
 
 def hostname_of(upstream: str) -> str | None:
-    """The bare hostname an upstream spec needs DNS to resolve, or None
-    if it's a literal IP (nothing to protect for those).
-    """
     entry = address(upstream)
     for prefix in ("dot://", "doh://", "https://"):
         if entry.startswith(prefix):
             entry = entry[len(prefix) :]
             break
-    entry = entry.split("/", 1)[0]  # drop a DoH path, if any
+    entry = entry.split("/", 1)[0]
 
     host = entry
-    if entry.count(":") == 1:  # "host:port" - but not an IPv6 literal
+    if entry.count(":") == 1:
         host, _, _port = entry.partition(":")
     host = host.lower()
     if not host:
@@ -150,31 +114,6 @@ def hostname_of(upstream: str) -> str | None:
 
 
 def protected_hostnames(config_store) -> set[str]:
-    """Hostnames DNS-shield must always be able to resolve to keep working
-    at all: every configured upstream resolver (global, per-domain routing,
-    per-client-group), every blocklist/allow-list subscription URL, and -
-    only once you've turned on `enrichment.public_enabled` in Settings ->
-    Threat intelligence - the three fixed public threat-intel API hosts
-    (VirusTotal/AbuseIPDB/OTX), plus your own local enrichment endpoint's
-    host if you've enabled and set one. Blocking or hiding any of these
-    would be self-defeating - a coincidental blocklist match on an
-    upstream's hostname would cut DNS-shield off from that resolver, one
-    on a blocklist source's hostname would stop blocklists from ever
-    refreshing, and one on an enrichment host would make the "Enrich"
-    button silently fail.
-
-    The public threat-intel hosts are deliberately *not* exempted while
-    that switch is off: there is no reason for DNS-shield to reach them
-    yet, so there is no standing blocklist hole for them either - the
-    same "nothing calls out unless you asked it to" reasoning as the
-    switch itself (see app/enrichment.py).
-
-    These are always excluded from the query log by default when
-    protected (it's DNS-shield's own background traffic, not something a
-    user browsed to). Recomputed from the live config on every call, so
-    it stays correct the moment settings change - there is nothing to
-    configure separately.
-    """
     hostnames: set[str] = set()
 
     if config_store.get("enrichment", "public_enabled", default=False):

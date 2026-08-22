@@ -1,30 +1,3 @@
-"""One-off importer: bring settings over from an existing AdGuard Home
-`AdGuardHome.yaml` into a DNS-shield config (written out as YAML here;
-DNS-shield's live config actually lives in a database - see the printed
-instructions at the end for how to apply the result).
-
-    python -m app.import_adguard /path/to/AdGuardHome.yaml
-
-Imported: filter (blocklist) subscriptions, whitelist filter subscriptions,
-user_rules (both "||domain^" block rules and "@@||domain^" exceptions),
-upstream resolvers (including tls:// and https:// upstreams - converted to
-DNS-shield's dot:///doh:// syntax), listen address/port, blocking mode, and
-per-client "ids" (IPs/CIDRs) from clients.persistent -> DNS-shield's
-client_groups (matching AdGuard's own field name for that: `ids`).
-
-Deliberately NOT imported - there is no DNS-shield equivalent, or nothing
-safe to carry over automatically (see the printed summary for specifics
-on your file):
-  - Web UI username/password: AdGuard stores a bcrypt hash, which cannot
-    be turned back into the plaintext DNS-shield's basic-auth needs.
-  - Parental control / Safe Browsing / Safe Search: these are exactly the
-    AdGuard-cloud-calling features DNS-shield exists to avoid.
-  - DHCP server, TLS/HTTPS termination, per-client "blocked_services".
-
-This only ever reads the two local YAML files you point it at and writes
-one output file - no network access, nothing sent anywhere.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -43,7 +16,6 @@ _DURATION_UNITS = {"ns": 1e-9, "us": 1e-6, "µs": 1e-6, "ms": 1e-3, "s": 1.0, "m
 
 
 def parse_go_duration(value: Any) -> float | None:
-    """Parse a Go-style duration string ("10s", "1m30s") into seconds."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     if not isinstance(value, str) or not value:
@@ -57,14 +29,11 @@ def parse_go_duration(value: Any) -> float | None:
 
 
 def convert_upstream(entry: str) -> tuple[str | None, str | None]:
-    """Returns (converted_entry_or_None, warning_or_None)."""
     entry = entry.strip()
     if not entry or entry.startswith("#"):
         return None, None
 
     if entry.startswith("[/"):
-        # Per-domain upstream routing ("[/example.com/]1.2.3.4") - not
-        # supported, fall back to just the upstream part.
         _, _, rest = entry.partition("]")
         entry = rest.strip()
         if not entry:
@@ -80,7 +49,7 @@ def convert_upstream(entry: str) -> tuple[str | None, str | None]:
         return entry[len("udp://") :], None
     if entry.startswith("tcp://"):
         return entry[len("tcp://") :], None
-    return entry, None  # plain "ip" or "ip:port"
+    return entry, None
 
 
 def convert_blocking_mode(dns_cfg: dict) -> tuple[str, str, str, list[str]]:
@@ -122,7 +91,7 @@ def convert_user_rules(rules: list[str] | None) -> tuple[list[str], list[str], l
         if not line or line.startswith("!"):
             continue
         if line.startswith("#") and not line.startswith("##"):
-            continue  # "#" alone is a comment; "##" is an (unsupported) cosmetic rule
+            continue
         if line.startswith("@@"):
             domain = _parse_line(line[2:])
             (allow if domain else skipped).append(domain or raw)

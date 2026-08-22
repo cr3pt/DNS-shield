@@ -1,23 +1,3 @@
-"""Configuration storage.
-
-The live source of truth is a single-row SQLite database (config.db) -
-every setting change (from the web UI or the REST API) is written there
-immediately. A full copy is also exported to a plain YAML file
-(config.backup.yaml) on a timer (12h by default) purely as a
-human-readable, portable backup - it is never read while the database
-exists, only used to *seed* a fresh database if one doesn't exist yet.
-
-Boot order, first time a database file is opened:
-  1. an existing config.db row (the normal case after first run)
-  2. an existing YAML backup file (recovering a wiped database, or
-     upgrading from a DNS-shield version that only had YAML storage)
-  3. an old-style config.yaml, if one is sitting in the data directory
-     from an even older version of this project
-  4. otherwise, the bundled config/config.example.yaml defaults
-
-Everything here only ever touches your local /data volume.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -57,7 +37,6 @@ def _default_legacy_yaml_path() -> Path:
 
 
 class ConfigStore:
-    """Thread-safe in-process view of the config, backed by SQLite."""
 
     def __init__(self, db_path: Path | None = None, backup_path: Path | None = None):
         self.db_path = db_path or _default_db_path()
@@ -120,19 +99,11 @@ class ConfigStore:
             finally:
                 conn.close()
 
-    # -- public API ---------------------------------------------------
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return copy.deepcopy(self._data)
 
     def get(self, *keys: str, default: Any = None) -> Any:
-        """A stored `None` is treated the same as a missing key: nothing in
-        this app's config ever means "explicitly nothing" - it's always
-        "use the default". This also self-heals a value that got nulled
-        out by a past bug (e.g. a form submitting an empty numeric field)
-        without needing a manual database fix - the next read just falls
-        back to the caller's default again.
-        """
         with self._lock:
             node: Any = self._data
             for key in keys:
@@ -142,7 +113,6 @@ class ConfigStore:
             return default if node is None else node
 
     def mutate(self, fn) -> Any:
-        """Apply fn(data) under the lock, persist to the DB, and return fn's result."""
         with self._lock:
             result = fn(self._data)
             self._save_to_db(self._data)
@@ -152,7 +122,6 @@ class ConfigStore:
         with self._lock:
             self._data = self._load_initial()
 
-    # -- periodic YAML backup ---------------------------------------------
     def write_backup(self) -> None:
         with self._lock:
             data = copy.deepcopy(self._data)
@@ -163,7 +132,7 @@ class ConfigStore:
         tmp_path.replace(self.backup_path)
 
     def start_backup_thread(self, interval_hours: float = 12.0) -> None:
-        self.write_backup()  # have a fresh backup on disk immediately, don't wait a full interval
+        self.write_backup()
 
         def _loop() -> None:
             while not self._stop_event.wait(interval_hours * 3600):

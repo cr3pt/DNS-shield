@@ -1,5 +1,3 @@
-"""Shared IP/CIDR pattern matching for client-group and log-ignore rules."""
-
 from __future__ import annotations
 
 import ipaddress
