@@ -726,8 +726,23 @@ client that's queried it in that window:
   window, so a handful of queries can't trip it on a tiny sample.
 - **Distinct-domain burst** - a client resolved an unusually large
   number of *distinct* domains in the window (`anomaly.domain_burst_threshold`,
-  default 50). Typical of DGA (domain generation algorithm) malware
-  cycling through candidate command-and-control domains.
+  default 50), **and** a meaningful share of those domains look randomly
+  generated rather than real words. Typical of DGA (domain generation
+  algorithm) malware cycling through candidate command-and-control
+  domains. "Looks randomly generated" is Shannon entropy of each
+  domain's own label (e.g. `kq7xzpqm3f` out of `kq7xzpqm3f.info`) -
+  scored only on labels at least `anomaly.domain_burst_min_label_length`
+  characters long (default 10; shorter labels are too noisy to score
+  reliably) against a randomness threshold
+  (`anomaly.domain_burst_min_entropy`, default 3.3 bits/character); the
+  burst only fires once at least `anomaly.domain_burst_entropy_fraction`
+  (default 50%) of the distinct domains clear that bar. This second gate
+  is what keeps an ordinary high-cardinality burst - a page pulling in
+  thirty different *real* ad/tracker vendor domains, which is a
+  distinct-domain burst too - from being flagged: real words consistently
+  score lower than genuinely random strings of similar length, even
+  though character-level entropy alone is an approximation, not a
+  certainty, for any single domain.
 - **Distinct-blocked-domain burst** - a client hit an unusually large
   number of distinct *blocked* domains in the window
   (`anomaly.blocked_domain_burst_threshold`, default 15) - a stronger

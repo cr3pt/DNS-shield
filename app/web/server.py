@@ -61,6 +61,9 @@ _ANOMALY_DEFAULTS: dict[str, Any] = {
     "min_queries": 20,
     "blocked_ratio_threshold": 0.5,
     "domain_burst_threshold": 50,
+    "domain_burst_min_entropy": 3.3,
+    "domain_burst_min_label_length": 10,
+    "domain_burst_entropy_fraction": 0.5,
     "blocked_domain_burst_threshold": 15,
     "cooldown_minutes": 60,
 }
@@ -179,6 +182,9 @@ class AnomalySettingsIn(BaseModel):
     min_queries: int | None = None
     blocked_ratio_threshold: float | None = None
     domain_burst_threshold: int | None = None
+    domain_burst_min_entropy: float | None = None
+    domain_burst_min_label_length: int | None = None
+    domain_burst_entropy_fraction: float | None = None
     blocked_domain_burst_threshold: int | None = None
     cooldown_minutes: float | None = None
 

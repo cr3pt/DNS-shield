@@ -815,6 +815,18 @@
           <div class="field"><label>Distinct-blocked-domain burst threshold</label><input type="number" id="s-anomaly-blocked-domain-burst" min="1" step="1"></div>
           <div class="field"><label>Re-alert cooldown (minutes)</label><input type="number" id="s-anomaly-cooldown" min="1" step="1"></div>
         </div>
+        <p class="hint" style="color:var(--muted);">
+          A distinct-domain burst only fires if a good share of those domains also look
+          <em>randomly generated</em> (Shannon entropy of the domain's own label, e.g.
+          "kq7xzpqm3f.info") rather than real words - this is what keeps it from firing on
+          ordinary high-cardinality traffic like a page pulling in thirty different real
+          ad/tracker vendor domains, which isn't actually suspicious.
+        </p>
+        <div class="field-grid">
+          <div class="field"><label>Minimum label length to score</label><input type="number" id="s-anomaly-entropy-min-length" min="1" step="1"></div>
+          <div class="field"><label>Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-entropy-min-bits" min="0" max="5" step="0.1"></div>
+          <div class="field"><label>Share of domains that must look random (0-1)</label><input type="number" id="s-anomaly-entropy-fraction" min="0" max="1" step="0.05"></div>
+        </div>
         <button type="submit">Save anomaly detection settings</button>
       </form>
     </section>
@@ -2120,6 +2132,9 @@ async function loadSettings() {
   document.getElementById("s-anomaly-domain-burst").value = an.domain_burst_threshold ?? "";
   document.getElementById("s-anomaly-blocked-domain-burst").value = an.blocked_domain_burst_threshold ?? "";
   document.getElementById("s-anomaly-cooldown").value = an.cooldown_minutes ?? "";
+  document.getElementById("s-anomaly-entropy-min-length").value = an.domain_burst_min_label_length ?? "";
+  document.getElementById("s-anomaly-entropy-min-bits").value = an.domain_burst_min_entropy ?? "";
+  document.getElementById("s-anomaly-entropy-fraction").value = an.domain_burst_entropy_fraction ?? "";
 }
 
 async function loadLogIgnore() {
@@ -2375,6 +2390,9 @@ document.getElementById("anomaly-settings-form").addEventListener("submit", asyn
       min_queries: intField("s-anomaly-min-queries"),
       blocked_ratio_threshold: floatField("s-anomaly-blocked-ratio"),
       domain_burst_threshold: intField("s-anomaly-domain-burst"),
+      domain_burst_min_label_length: intField("s-anomaly-entropy-min-length"),
+      domain_burst_min_entropy: floatField("s-anomaly-entropy-min-bits"),
+      domain_burst_entropy_fraction: floatField("s-anomaly-entropy-fraction"),
       blocked_domain_burst_threshold: intField("s-anomaly-blocked-domain-burst"),
       cooldown_minutes: floatField("s-anomaly-cooldown"),
     }),

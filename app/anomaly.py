@@ -12,12 +12,19 @@ Three heuristics, evaluated independently per client on every check:
     window are blocked - a compromised app/device hammering ad/tracker/
     malware domains typically looks like this.
   - domain_burst: a client resolves an unusually large number of
-    *distinct* domains in the window - typical of DGA (domain generation
-    algorithm) malware cycling through candidate C2 domains.
+    *distinct* domains in the window, and a meaningful fraction of them
+    look randomly generated (see _looks_like_dga below) rather than real
+    words - typical of DGA (domain generation algorithm) malware cycling
+    through candidate C2 domains. The entropy check is what keeps this
+    from firing on ordinary high-cardinality traffic that isn't actually
+    suspicious - a news page pulling in thirty different real ad/tracker
+    vendor domains is a distinct-domain burst too, but none of those
+    domains look like "kq7xzpqm3f.info".
   - blocked_domain_burst: a client hits an unusually large number of
     distinct *blocked* domains in the window - a stronger signal than the
     ratio check alone, since it can't be explained by one noisy ad-heavy
-    page reloading the same handful of ad domains.
+    page reloading the same handful of ad domains. Already blocklist-
+    confirmed, so no entropy check is applied here.
 
 A bug in this module can, at worst, stop producing new anomaly alerts -
 it never touches DNS resolution. check_once() only reads from stats.db on
@@ -29,13 +36,53 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("dnsshield.anomaly")
+
+
+def _registrable_label(domain: str) -> str:
+    """Best-effort "interesting" label to score for randomness: the label
+    right before the last one (e.g. "kq7xzpqm3f" out of
+    "kq7xzpqm3f.info", or out of "www.kq7xzpqm3f.info"). This is a plain
+    split on ".", not a public-suffix-list lookup, so a domain under a
+    multi-part TLD (e.g. "example.co.uk") scores its "example" label
+    instead of the true registrable name - an acceptable approximation
+    for a local heuristic, not a certainty.
+    """
+    labels = domain.rstrip(".").split(".")
+    return labels[-2] if len(labels) >= 2 else labels[0]
+
+
+def _shannon_entropy(s: str) -> float:
+    """Bits of entropy per character. A real word ("shopping") sits
+    noticeably lower than a randomly generated string of the same length
+    ("xk4qzpwm") - not a certainty for any single domain, but a useful
+    signal in aggregate across a burst of them.
+    """
+    if not s:
+        return 0.0
+    length = len(s)
+    counts = Counter(s)
+    return -sum((n / length) * math.log2(n / length) for n in counts.values())
+
+
+def _looks_like_dga(domain: str, min_label_length: int, min_entropy: float) -> bool:
+    """True if `domain`'s registrable label is long enough and random-
+    looking enough to plausibly be machine-generated rather than a real
+    word. Short labels are skipped entirely (min_label_length) - entropy
+    on a handful of characters is too noisy to mean anything.
+    """
+    label = _registrable_label(domain)
+    if len(label) < min_label_length:
+        return False
+    return _shannon_entropy(label) >= min_entropy
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS anomalies (
@@ -55,7 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_anomalies_ack ON anomalies(acknowledged);
 
 KIND_LABELS = {
     "high_blocked_ratio": "High blocked-query ratio",
-    "domain_burst": "Unusually many distinct domains",
+    "domain_burst": "Burst of random-looking domains (possible DGA)",
     "blocked_domain_burst": "Unusually many distinct blocked domains",
 }
 
@@ -118,6 +165,13 @@ class AnomalyDetector:
         min_queries = int(self._config.get("anomaly", "min_queries", default=20) or 20)
         blocked_ratio_threshold = float(self._config.get("anomaly", "blocked_ratio_threshold", default=0.5) or 0.5)
         domain_burst_threshold = int(self._config.get("anomaly", "domain_burst_threshold", default=50) or 50)
+        domain_burst_min_entropy = float(self._config.get("anomaly", "domain_burst_min_entropy", default=3.3) or 3.3)
+        domain_burst_min_label_length = int(
+            self._config.get("anomaly", "domain_burst_min_label_length", default=10) or 10
+        )
+        domain_burst_entropy_fraction = float(
+            self._config.get("anomaly", "domain_burst_entropy_fraction", default=0.5) or 0.5
+        )
         blocked_domain_burst_threshold = int(
             self._config.get("anomaly", "blocked_domain_burst_threshold", default=15) or 15
         )
@@ -127,6 +181,13 @@ class AnomalyDetector:
         activity = self._stats.client_activity(window_minutes * 60)
         now = time.time()
         found: list[dict[str, Any]] = []
+
+        # Only fetch actual domain names (for entropy scoring) for clients
+        # that already cross the raw distinct-domain threshold - the far
+        # common case is nobody does, so this stays a no-op query most of
+        # the time instead of pulling every domain on every check.
+        needs_domains = any(row["distinct_domains"] >= domain_burst_threshold for row in activity)
+        domains_by_client = self._stats.client_domains(window_minutes * 60) if needs_domains else {}
 
         with self._lock:
             conn = self._connect()
@@ -150,6 +211,8 @@ class AnomalyDetector:
                     distinct_blocked_domains = row["distinct_blocked_domains"]
 
                     candidates: list[tuple[str, str, str]] = []  # (kind, severity, summary)
+                    domain_burst_entropy_pct: int | None = None
+                    domain_burst_random_count: int | None = None
 
                     if total >= min_queries and blocked / total >= blocked_ratio_threshold:
                         pct = round(100 * blocked / total)
@@ -160,11 +223,21 @@ class AnomalyDetector:
                         ))
 
                     if distinct_domains >= domain_burst_threshold:
-                        severity = "high" if distinct_domains >= domain_burst_threshold * 2 else "medium"
-                        candidates.append((
-                            "domain_burst", severity,
-                            f"{distinct_domains} distinct domains queried in the last {window_minutes:g} min",
-                        ))
+                        client_domains = domains_by_client.get(client, [])
+                        random_looking = [
+                            d for d in client_domains
+                            if _looks_like_dga(d, domain_burst_min_label_length, domain_burst_min_entropy)
+                        ]
+                        entropy_fraction = len(random_looking) / len(client_domains) if client_domains else 0.0
+                        if entropy_fraction >= domain_burst_entropy_fraction:
+                            domain_burst_entropy_pct = round(100 * entropy_fraction)
+                            domain_burst_random_count = len(random_looking)
+                            severity = "high" if distinct_domains >= domain_burst_threshold * 2 else "medium"
+                            candidates.append((
+                                "domain_burst", severity,
+                                f"{distinct_domains} distinct domains queried in the last {window_minutes:g} min, "
+                                f"{domain_burst_random_count} ({domain_burst_entropy_pct}%) look randomly generated",
+                            ))
 
                     if distinct_blocked_domains >= blocked_domain_burst_threshold:
                         severity = "high" if distinct_blocked_domains >= blocked_domain_burst_threshold * 2 else "medium"
@@ -184,6 +257,9 @@ class AnomalyDetector:
                             "distinct_blocked_domains": distinct_blocked_domains,
                             "window_minutes": window_minutes,
                         }
+                        if kind == "domain_burst":
+                            details["random_looking_domains"] = domain_burst_random_count
+                            details["random_looking_percent"] = domain_burst_entropy_pct
                         conn.execute(
                             "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
                             "VALUES (?, ?, ?, ?, ?, ?, 0)",

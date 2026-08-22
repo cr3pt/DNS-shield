@@ -357,6 +357,27 @@ class Stats:
             for row in rows
         ]
 
+    def client_domains(self, window_seconds: float) -> dict[str, list[str]]:
+        """Distinct domains queried by each client over the last
+        `window_seconds`, grouped by client. Used by app/anomaly.py to
+        score a domain_burst candidate's *domain names themselves* (e.g.
+        Shannon entropy - do they look randomly generated?), not just how
+        many there were - see AnomalyDetector._looks_like_dga.
+        """
+        since = time.time() - window_seconds
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT DISTINCT client, domain FROM queries WHERE ts >= ?", (since,)
+            ).fetchall()
+        finally:
+            conn.close()
+        by_client: dict[str, list[str]] = {}
+        for row in rows:
+            by_client.setdefault(row["client"], []).append(row["domain"])
+        return by_client
+
     # -- time-series trend (Stats tab chart) -------------------------------
     def timeseries(self, range_key: str = "24h") -> list[dict[str, Any]]:
         """Total/blocked query counts bucketed over the given range, for the
