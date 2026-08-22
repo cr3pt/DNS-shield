@@ -90,11 +90,13 @@ web UI) but keeps it **local-only by construction**:
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
 - All state - config, cached blocklists, query stats/log, enrichment
-  results - lives on your bind-mounted `./data` volume: a local SQLite
-  database for config (`config.db`), one for the query log (`stats.db`),
-  one for enrichment results (`enrichment.db`), plus cached list files.
-  Nothing is sent anywhere else, and you can open any of these databases
-  yourself with any SQLite client to verify exactly what's stored.
+  results, detected anomalies - lives on your bind-mounted `./data`
+  volume: a local SQLite database for config (`config.db`), one for the
+  query log (`stats.db`), one for enrichment results (`enrichment.db`),
+  one for [anomaly detection](#local-anomaly-detection) alerts
+  (`anomalies.db`), plus cached list files. Nothing is sent anywhere
+  else, and you can open any of these databases yourself with any
+  SQLite client to verify exactly what's stored.
 - Every setting is configurable from the dashboard - no editing a YAML
   file and restarting to change an upstream resolver or a blocklist.
 - Small enough to actually read end to end; see [Architecture](#architecture)
@@ -706,6 +708,50 @@ otherwise silently keep it blocked. Not offered for IP targets - DNS-
 shield's allow/denylist match query *names*, not IP literals, so there's
 no equivalent "allowlist this IP" action to offer.
 
+### Local anomaly detection
+
+Settings -> Anomalies has an optional background check over your own
+query log for a handful of simple, per-client statistical red flags -
+no ML, no cloud call, nothing beyond arithmetic over data already
+sitting in `stats.db`. **Off by default.** Turn it on and DNS-shield
+re-checks recent activity on a timer (`anomaly.check_interval_minutes`,
+default every 5 minutes) over a rolling look-back window
+(`anomaly.window_minutes`, default 15 minutes), independently for every
+client that's queried it in that window:
+
+- **High blocked-query ratio** - a large share of a client's queries in
+  the window were blocked. Classic sign of a compromised app/device
+  hammering ad/tracker/malware domains. Only evaluated once a client has
+  made at least `anomaly.min_queries` (default 20) queries in the
+  window, so a handful of queries can't trip it on a tiny sample.
+- **Distinct-domain burst** - a client resolved an unusually large
+  number of *distinct* domains in the window (`anomaly.domain_burst_threshold`,
+  default 50). Typical of DGA (domain generation algorithm) malware
+  cycling through candidate command-and-control domains.
+- **Distinct-blocked-domain burst** - a client hit an unusually large
+  number of distinct *blocked* domains in the window
+  (`anomaly.blocked_domain_burst_threshold`, default 15) - a stronger
+  signal than the ratio check alone, since it can't be explained by one
+  ad-heavy page reloading the same handful of ad domains.
+
+Every flagged anomaly is stored locally in `data/anomalies.db` and shown
+in a table right below the settings form, with the client, what tripped,
+a human-readable summary, and (reusing the same buttons as the query
+log/Stats/Enrich popup) quick **Enrich**/**Block host** actions on the
+client IP - **Acknowledge** to dismiss it from the default view without
+deleting it, or **Remove** to delete it outright; **Clear all** wipes
+the table. A **Check now** button runs a check immediately instead of
+waiting for the timer, handy right after changing thresholds. A
+persistent condition doesn't spam a fresh row every cycle: once a given
+client/anomaly-type combination fires, it's suppressed for
+`anomaly.cooldown_minutes` (default 60) before it can fire again.
+
+This runs entirely on its own background thread, decoupled from DNS
+resolution - it only ever reads `stats.db` on a timer and writes to its
+own `anomalies.db`, never touching the query-answering path at all. A
+bug here can, at worst, stop producing new alerts; it cannot break or
+slow down DNS resolution.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide
@@ -869,6 +915,8 @@ app/
   enrichment.py         VirusTotal/AbuseIPDB/OTX reputation lookups - only ever called from
                         the "Enrich" button's endpoint, never on its own (see above)
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
+  anomaly.py             local, heuristic anomaly detection over the query log - its own
+                        background thread, SQLite storage (data/anomalies.db) (see above)
   web/server.py        FastAPI REST API + basic-auth, backing the dashboard
   web/static/          single self-contained dashboard page (no external assets/CDN -
                        even its favicon/header logo is an inlined SVG, not a fetched file)

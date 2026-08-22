@@ -230,3 +230,25 @@ enrichment:
   local_enabled: false
   local_url: ""
   local_api_key: ""
+
+# Local, heuristic anomaly detection over the query log - a background
+# thread that re-checks recent per-client activity on a timer and flags a
+# handful of simple statistical red flags (a spike in blocked queries, an
+# unusually large number of distinct domains). No ML, no cloud call -
+# purely arithmetic over data already in stats.db, and detected anomalies
+# are stored locally in anomalies.db. Off by default; see the "Anomalies"
+# settings tab or the README's "Local anomaly detection" section.
+anomaly:
+  enabled: false
+  check_interval_minutes: 5
+  window_minutes: 15
+  # Minimum queries in the window before the blocked-ratio check applies -
+  # avoids flagging a client on a tiny sample (e.g. 2 blocked out of 2).
+  min_queries: 20
+  blocked_ratio_threshold: 0.5
+  domain_burst_threshold: 50
+  blocked_domain_burst_threshold: 15
+  # Once a given client/anomaly-type combination fires, it's suppressed for
+  # this long before it can fire again, so a persistent condition doesn't
+  # spam a fresh row every check cycle.
+  cooldown_minutes: 60

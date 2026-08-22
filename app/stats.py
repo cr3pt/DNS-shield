@@ -325,6 +325,38 @@ class Stats:
             total,
         )
 
+    # -- per-client window activity (anomaly detector) ---------------------
+    def client_activity(self, window_seconds: float) -> list[dict[str, Any]]:
+        """Per-client aggregate counts over the last `window_seconds` -
+        total/blocked query counts plus distinct (and distinct-blocked)
+        domain counts. Used by app/anomaly.py to spot a client suddenly
+        hammering many blocked domains, or cycling through an unusual
+        number of distinct domains (DGA-malware-like behavior).
+        """
+        since = time.time() - window_seconds
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT client, COUNT(*) AS total, SUM(blocked) AS blocked, "
+                "COUNT(DISTINCT domain) AS distinct_domains, "
+                "COUNT(DISTINCT CASE WHEN blocked = 1 THEN domain END) AS distinct_blocked_domains "
+                "FROM queries WHERE ts >= ? GROUP BY client",
+                (since,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {
+                "client": row["client"],
+                "total": row["total"],
+                "blocked": row["blocked"] or 0,
+                "distinct_domains": row["distinct_domains"],
+                "distinct_blocked_domains": row["distinct_blocked_domains"],
+            }
+            for row in rows
+        ]
+
     # -- time-series trend (Stats tab chart) -------------------------------
     def timeseries(self, range_key: str = "24h") -> list[dict[str, Any]]:
         """Total/blocked query counts bucketed over the given range, for the

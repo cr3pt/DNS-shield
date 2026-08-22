@@ -54,6 +54,22 @@ def _masked_key_preview(key: str | None) -> str:
     return f"{key[0]}{'*' * min(len(key) - 2, 12)}{key[-1]}"
 
 
+_ANOMALY_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "check_interval_minutes": 5,
+    "window_minutes": 15,
+    "min_queries": 20,
+    "blocked_ratio_threshold": 0.5,
+    "domain_burst_threshold": 50,
+    "blocked_domain_burst_threshold": 15,
+    "cooldown_minutes": 60,
+}
+
+
+def _anomaly_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {key: cfg.get(key, default) for key, default in _ANOMALY_DEFAULTS.items()}
+
+
 class BlocklistSourceIn(BaseModel):
     name: str
     url: str
@@ -156,6 +172,17 @@ class EnrichIn(BaseModel):
     type: str  # "domain" or "ip"
 
 
+class AnomalySettingsIn(BaseModel):
+    enabled: bool | None = None
+    check_interval_minutes: float | None = None
+    window_minutes: float | None = None
+    min_queries: int | None = None
+    blocked_ratio_threshold: float | None = None
+    domain_burst_threshold: int | None = None
+    blocked_domain_burst_threshold: int | None = None
+    cooldown_minutes: float | None = None
+
+
 def create_app(
     config_store,
     blocklist,
@@ -165,6 +192,7 @@ def create_app(
     client_names=None,
     upstream_stats=None,
     enrichment_store=None,
+    anomaly=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -884,6 +912,7 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "local_api_key_set": bool(snap.get("enrichment", {}).get("local_api_key")),
                 "local_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("local_api_key")),
             },
+            "anomaly": _anomaly_settings(snap.get("anomaly", {})),
             "restart_required": [
                 "dns.listen_address",
                 "dns.listen_port",
@@ -1008,6 +1037,55 @@ To restore into an EXISTING instance (data/config.db already exists):
             }
 
         return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/anomaly")
+    def update_anomaly_settings(body: AnomalySettingsIn, _: None = Depends(require_auth)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            anomaly_cfg = data.setdefault("anomaly", {})
+            anomaly_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            return _anomaly_settings(anomaly_cfg)
+
+        return config_store.mutate(_mutate)
+
+    # -- local anomaly detection: a background thread that periodically ---
+    # scans the query log for per-client statistical red flags (a spike in
+    # blocked queries, an unusual number of distinct domains). Entirely
+    # local - see app/anomaly.py.
+    @app.get("/api/anomalies")
+    def list_anomalies(
+        include_acknowledged: bool = True, limit: int = 200, _: None = Depends(require_auth)
+    ) -> list[dict[str, Any]]:
+        if anomaly is None:
+            return []
+        return anomaly.list(include_acknowledged=include_acknowledged, limit=max(1, min(limit, 1000)))
+
+    @app.get("/api/anomalies/count")
+    def anomalies_count(_: None = Depends(require_auth)) -> dict[str, int]:
+        return {"unacknowledged": anomaly.unacknowledged_count() if anomaly is not None else 0}
+
+    @app.post("/api/anomalies/check-now")
+    def anomalies_check_now(_: None = Depends(require_auth)) -> list[dict[str, Any]]:
+        if anomaly is None:
+            return []
+        return anomaly.check_once()
+
+    @app.post("/api/anomalies/{anomaly_id}/acknowledge")
+    def acknowledge_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+        if anomaly is None or not anomaly.acknowledge(anomaly_id):
+            raise HTTPException(status_code=404, detail="No such anomaly")
+        return {"ok": True}
+
+    @app.delete("/api/anomalies/{anomaly_id}")
+    def delete_anomaly(anomaly_id: int, _: None = Depends(require_auth)) -> dict[str, Any]:
+        if anomaly is None or not anomaly.delete(anomaly_id):
+            raise HTTPException(status_code=404, detail="No such anomaly")
+        return {"ok": True}
+
+    @app.delete("/api/anomalies")
+    def clear_anomalies(_: None = Depends(require_auth)) -> dict[str, Any]:
+        if anomaly is not None:
+            anomaly.clear()
+        return {"ok": True}
 
     # -- threat-intel enrichment: manual only, triggered by the "Enrich" ---
     # button in the dashboard. Never called automatically, never on a

@@ -1,7 +1,8 @@
 """DNS-shield entrypoint.
 
 Wires together: config store -> blocklist manager -> DNS resolver/server
--> stats -> web UI, then blocks running the web server in the foreground.
+-> stats -> anomaly detector -> web UI, then blocks running the web
+server in the foreground.
 
 By design DNS-shield never makes any network call other than:
   1. fetching the blocklist URLs listed in your config,
@@ -22,6 +23,7 @@ from pathlib import Path
 
 import uvicorn
 
+from app.anomaly import AnomalyDetector
 from app.block_page import start_block_page_server
 from app.blocklist import BlocklistManager
 from app.client_names import ClientNameResolver
@@ -62,6 +64,13 @@ def main() -> None:
     upstream_stats = UpstreamStats(config_store)
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")
 
+    # Local, heuristic anomaly detection over the query log - its own
+    # background thread, reading from stats.db on a timer and writing to
+    # its own anomalies.db. Off by default (anomaly.enabled); wrapped in
+    # try/except internally so a bug here can never affect DNS resolution.
+    anomaly = AnomalyDetector(config_store, stats, DATA_DIR / "anomalies.db")
+    anomaly.start()
+
     start_dns_servers(
         config_store, blocklist, stats, cache=cache, client_names=client_names, upstream_stats=upstream_stats
     )
@@ -83,6 +92,7 @@ def main() -> None:
         client_names=client_names,
         upstream_stats=upstream_stats,
         enrichment_store=enrichment_store,
+        anomaly=anomaly,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))

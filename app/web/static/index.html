@@ -283,6 +283,19 @@
     letter-spacing: 0.02em;
   }
   .subtab-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .count-badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    min-width: 1.1rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: #ff5c5c;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.3rem;
+    text-align: center;
+  }
   .subtab-panel { display: none; flex-direction: column; gap: 1.5rem; }
   .subtab-panel.active { display: flex; }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
@@ -531,6 +544,7 @@
     <button type="button" class="subtab-btn" data-subtab="dns">DNS</button>
     <button type="button" class="subtab-btn" data-subtab="logging">Logging</button>
     <button type="button" class="subtab-btn" data-subtab="threat-intel">Threat intelligence</button>
+    <button type="button" class="subtab-btn" data-subtab="anomalies">Anomalies<span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
     <button type="button" class="subtab-btn" data-subtab="import">Import</button>
     <button type="button" class="subtab-btn" data-subtab="blocklists">Blocklists</button>
     <button type="button" class="subtab-btn" data-subtab="ownlists">Own lists</button>
@@ -772,6 +786,56 @@
 
         <button type="submit">Save threat-intel settings</button>
       </form>
+    </section>
+  </div>
+
+  <div id="subtab-anomalies" class="subtab-panel">
+    <section>
+      <h2>Local anomaly detection</h2>
+      <p class="hint" style="color:var(--muted);">
+        A background check over your own query log, entirely local - no cloud service, no ML,
+        just simple per-client thresholds re-checked on a timer. Flags things like a client
+        suddenly hammering many blocked domains (compromised app/device), a burst of unusually
+        many distinct domains in a short window (typical of DGA malware cycling through
+        candidate C2 domains), or an unusually high share of a client's queries being blocked.
+        Off by default; enabling it costs nothing beyond the periodic query, and never changes
+        how any query is answered - it only ever reads the log and writes an alert here.
+      </p>
+      <form id="anomaly-settings-form">
+        <div class="field checkbox">
+          <input type="checkbox" id="s-anomaly-enabled">
+          <label for="s-anomaly-enabled">Enable local anomaly detection</label>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label>Check every (minutes)</label><input type="number" id="s-anomaly-check-interval" min="1" step="1"></div>
+          <div class="field"><label>Look-back window (minutes)</label><input type="number" id="s-anomaly-window" min="1" step="1"></div>
+          <div class="field"><label>Minimum queries before checking blocked-ratio</label><input type="number" id="s-anomaly-min-queries" min="1" step="1"></div>
+          <div class="field"><label>Blocked-ratio threshold (0-1)</label><input type="number" id="s-anomaly-blocked-ratio" min="0" max="1" step="0.05"></div>
+          <div class="field"><label>Distinct-domain burst threshold</label><input type="number" id="s-anomaly-domain-burst" min="1" step="1"></div>
+          <div class="field"><label>Distinct-blocked-domain burst threshold</label><input type="number" id="s-anomaly-blocked-domain-burst" min="1" step="1"></div>
+          <div class="field"><label>Re-alert cooldown (minutes)</label><input type="number" id="s-anomaly-cooldown" min="1" step="1"></div>
+        </div>
+        <button type="submit">Save anomaly detection settings</button>
+      </form>
+    </section>
+
+    <section>
+      <div class="row">
+        <h2>Detected anomalies</h2>
+        <div class="inline" style="align-items:center;">
+          <div class="field checkbox" style="margin:0;">
+            <input type="checkbox" id="anomaly-show-acknowledged">
+            <label for="anomaly-show-acknowledged">Show acknowledged</label>
+          </div>
+          <button type="button" class="secondary" id="anomaly-check-now">Check now</button>
+          <button type="button" class="danger" id="anomaly-clear-all">Clear all</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Severity</th><th>Details</th><th></th></tr></thead>
+        <tbody id="anomaly-rows"></tbody>
+      </table>
+      <p class="muted" id="anomaly-empty" style="display:none;">No anomalies detected.</p>
     </section>
   </div>
 
@@ -2046,6 +2110,16 @@ async function loadSettings() {
   const localReady = !!enr.local_enabled && !!enr.local_url;
   enrichmentAvailable = publicReady || localReady;
   updateEnrichButtons();
+
+  const an = s.anomaly || {};
+  document.getElementById("s-anomaly-enabled").checked = !!an.enabled;
+  document.getElementById("s-anomaly-check-interval").value = an.check_interval_minutes ?? "";
+  document.getElementById("s-anomaly-window").value = an.window_minutes ?? "";
+  document.getElementById("s-anomaly-min-queries").value = an.min_queries ?? "";
+  document.getElementById("s-anomaly-blocked-ratio").value = an.blocked_ratio_threshold ?? "";
+  document.getElementById("s-anomaly-domain-burst").value = an.domain_burst_threshold ?? "";
+  document.getElementById("s-anomaly-blocked-domain-burst").value = an.blocked_domain_burst_threshold ?? "";
+  document.getElementById("s-anomaly-cooldown").value = an.cooldown_minutes ?? "";
 }
 
 async function loadLogIgnore() {
@@ -2225,6 +2299,89 @@ async function loadQueryLog(reset) {
   document.getElementById("query-log-load-more").style.display = shown < result.total ? "" : "none";
 }
 
+function severityTag(severity) {
+  if (severity === "high") {
+    return el("span", { class: "tag blocked", text: "high" });
+  }
+  return el("span", {
+    class: "tag", text: severity,
+    style: "background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)",
+  });
+}
+
+function renderAnomalyRow(a) {
+  const delBtn = el("button", { class: "danger", text: "Remove" });
+  delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
+
+  const actions = [delBtn];
+  if (!a.acknowledged) {
+    const ackBtn = el("button", { class: "secondary", text: "Acknowledge" });
+    ackBtn.onclick = async () => { await api(`/api/anomalies/${a.id}/acknowledge`, { method: "POST" }); loadAnomalies(); };
+    actions.unshift(ackBtn);
+  }
+
+  return el("tr", {}, [
+    el("td", { text: fmtTime(a.ts) }),
+    addressCell(clientLabel(a.client), isIpAddress(a.client) ? [enrichButton(a.client, "ip"), clientBlockButton(a.client)] : [], a.client, "Client"),
+    el("td", { text: a.kind_label }),
+    el("td", {}, [severityTag(a.severity)]),
+    el("td", { text: a.summary }),
+    el("td", {}, [el("div", { class: "row-actions" }, actions)]),
+  ]);
+}
+
+async function loadAnomalies() {
+  const showAcknowledged = document.getElementById("anomaly-show-acknowledged").checked;
+  const anomalies = await api(`/api/anomalies?include_acknowledged=${showAcknowledged}`);
+  const rows = document.getElementById("anomaly-rows");
+  rows.innerHTML = "";
+  for (const a of anomalies) {
+    rows.appendChild(renderAnomalyRow(a));
+  }
+  document.getElementById("anomaly-empty").style.display = anomalies.length ? "none" : "block";
+
+  const countInfo = await api("/api/anomalies/count");
+  const badge = document.getElementById("anomaly-count-badge");
+  if (countInfo.unacknowledged > 0) {
+    badge.textContent = countInfo.unacknowledged > 99 ? "99+" : String(countInfo.unacknowledged);
+    badge.style.display = "inline-block";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+document.getElementById("anomaly-show-acknowledged").addEventListener("change", loadAnomalies);
+
+document.getElementById("anomaly-check-now").addEventListener("click", async () => {
+  await api("/api/anomalies/check-now", { method: "POST" });
+  loadAnomalies();
+});
+
+document.getElementById("anomaly-clear-all").addEventListener("click", async () => {
+  if (!confirm("Remove all detected anomalies? This can't be undone.")) return;
+  await api("/api/anomalies", { method: "DELETE" });
+  loadAnomalies();
+});
+
+document.getElementById("anomaly-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await api("/api/settings/anomaly", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      enabled: document.getElementById("s-anomaly-enabled").checked,
+      check_interval_minutes: floatField("s-anomaly-check-interval"),
+      window_minutes: floatField("s-anomaly-window"),
+      min_queries: intField("s-anomaly-min-queries"),
+      blocked_ratio_threshold: floatField("s-anomaly-blocked-ratio"),
+      domain_burst_threshold: intField("s-anomaly-domain-burst"),
+      blocked_domain_burst_threshold: intField("s-anomaly-blocked-domain-burst"),
+      cooldown_minutes: floatField("s-anomaly-cooldown"),
+    }),
+  });
+  refreshAll();
+});
+
 async function refreshAll() {
   await loadStatusAndStats();
   await loadTrend();
@@ -2239,6 +2396,7 @@ async function refreshAll() {
   await loadDomainUpstreams();
   await loadRewrites();
   await loadQueryLog(true);
+  await loadAnomalies();
 }
 
 document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
@@ -2692,7 +2850,7 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
 }
 setActiveTab(localStorage.getItem("dnsshield-tab"));
 
-const SUBTAB_NAMES = ["general", "dns", "logging", "threat-intel", "import", "blocklists", "ownlists", "clients", "cleans"];
+const SUBTAB_NAMES = ["general", "dns", "logging", "threat-intel", "anomalies", "import", "blocklists", "ownlists", "clients", "cleans"];
 
 function setActiveSubtab(subtab) {
   if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";
