@@ -13,12 +13,16 @@ Every Firebog entry here is one of that site's (https://firebog.net)
 "ticked" lists - the subset their own picker marks safe for a default
 setup, as opposed to the site's more aggressive or narrowly-scoped
 options - plus StevenBlack's Unified Hosts (this project's own example
-config has shipped with it since day one) and AdGuard's own DNS filter
-straight from AdGuard's registry. Tick/cross status and exact URLs can
-change over time on any of these upstream projects; if a list here stops
-looking right for you, Disable or Remove it from the Blocklists table
-like any other source - nothing about picking it from this catalog is
-special or hard to undo.
+config has shipped with it since day one), AdGuard's own DNS filter
+straight from AdGuard's registry, HaGeZi's actively maintained DNS
+blocklists (https://github.com/hagezi/dns-blocklists), 1Hosts
+(https://github.com/badmojr/1Hosts), and DurableNapkin's scam-focused
+list. Tick/cross status and exact URLs can change over time on any of
+these upstream projects; if a list here stops looking right for you,
+Disable or Remove it from the Blocklists table like any other source -
+nothing about picking it from this catalog is special or hard to undo.
+Every URL below was checked live (HTTP 200, current content) while
+writing this catalog.
 """
 
 from __future__ import annotations
@@ -77,5 +81,29 @@ BLOCKLIST_CATALOG: list[dict[str, str]] = [
         "url": "https://v.firebog.net/hosts/static/w3kbl.txt",
         "category": "Ads & tracking",
         "description": "A smaller, conservative general-purpose ad/tracking list.",
+    },
+    {
+        "name": "HaGeZi Multi PRO",
+        "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro-onlydomains.txt",
+        "category": "Ads, tracking & malware",
+        "description": "HaGeZi's actively maintained, extended general-purpose list - ads, affiliate links, trackers, telemetry, fake sites, phishing, malware and scams. Recommended tier of a very popular, frequently updated project.",
+    },
+    {
+        "name": "HaGeZi Threat Intelligence Feeds",
+        "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt",
+        "category": "Malicious",
+        "description": "HaGeZi's aggregation of live threat-intel feeds - malware, cryptojacking, spam, scam and phishing domains. Very large and refreshed frequently; heavier than the other lists here.",
+    },
+    {
+        "name": "1Hosts (Lite)",
+        "url": "https://raw.githubusercontent.com/badmojr/1Hosts/master/Lite/hosts.txt",
+        "category": "Ads, tracking & malware",
+        "description": "Actively maintained, curated general-purpose blocklist (badmojr/1Hosts) aimed at low false positives.",
+    },
+    {
+        "name": "DurableNapkin Scam Blocklist",
+        "url": "https://raw.githubusercontent.com/durablenapkin/scamblocklist/master/hosts.txt",
+        "category": "Malicious",
+        "description": "Focused list of scam/fraud domains, updated regularly.",
     },
 ]

@@ -376,13 +376,16 @@ count - only a real mix is reported that way).
 
 The Blocklists section also has a **Suggested lists** table: a short,
 fixed list baked into DNS-shield itself (nothing fetched to build it) -
-StevenBlack's Unified Hosts, AdGuard's own DNS filter, and a handful of
-[Firebog](https://firebog.net)'s recommended ("ticked") lists. Clicking Add
-just fills in the normal add-a-source form for you; the list is then
-fetched, and from there can be disabled or removed exactly like any source
-you'd typed in by hand. An entry drops off Suggested lists once you've
-added it - there's nothing left to suggest - so the list only ever shows
-what you haven't already picked up.
+StevenBlack's Unified Hosts, AdGuard's own DNS filter, a handful of
+[Firebog](https://firebog.net)'s recommended ("ticked") lists,
+[HaGeZi's](https://github.com/hagezi/dns-blocklists) actively maintained
+Multi PRO and Threat Intelligence Feeds lists, badmojr's
+[1Hosts (Lite)](https://github.com/badmojr/1Hosts), and DurableNapkin's
+scam-focused list. Clicking Add just fills in the normal add-a-source form
+for you; the list is then fetched, and from there can be disabled or
+removed exactly like any source you'd typed in by hand. An entry drops
+off Suggested lists once you've added it - there's nothing left to
+suggest - so the list only ever shows what you haven't already picked up.
 
 ### Regex denylist (experimental)
 
