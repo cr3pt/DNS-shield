@@ -5,8 +5,12 @@ import queue
 import threading
 import time
 
+import socket
+
 from dnslib import AAAA, QTYPE, RCODE, RR, A, DNSRecord
 from dnslib.server import DNSServer
+from dnslib.server import TCPServer as _DNSLibTCPServer
+from dnslib.server import UDPServer as _DNSLibUDPServer
 
 from app import upstream as upstream_transport
 from app.dns_rewrites import find_rewrite
@@ -208,7 +212,25 @@ class QuietLogger:
         pass
 
 
-def start_dns_servers(config_store, blocklist, stats, cache=None, client_names=None, upstream_stats=None) -> list[DNSServer]:
+class _ReusePortUDPServer(_DNSLibUDPServer):
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        super().server_bind()
+
+
+class _ReusePortTCPServer(_DNSLibTCPServer):
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        super().server_bind()
+
+
+def reuse_port_supported() -> bool:
+    return hasattr(socket, "SO_REUSEPORT")
+
+
+def start_dns_servers(
+    config_store, blocklist, stats, cache=None, client_names=None, upstream_stats=None, reuse_port=False
+) -> list[DNSServer]:
     resolver = FilteringResolver(
         blocklist, stats, config_store, cache=cache, client_names=client_names, upstream_stats=upstream_stats
     )
@@ -216,11 +238,13 @@ def start_dns_servers(config_store, blocklist, stats, cache=None, client_names=N
     address = config_store.get("dns", "listen_address", default="0.0.0.0")
     port = int(config_store.get("dns", "listen_port", default=53))
 
+    udp_server = _ReusePortUDPServer if reuse_port else None
+    tcp_server = _ReusePortTCPServer if reuse_port else None
     servers = [
-        DNSServer(resolver, address=address, port=port, tcp=False, logger=logger_),
-        DNSServer(resolver, address=address, port=port, tcp=True, logger=logger_),
+        DNSServer(resolver, address=address, port=port, tcp=False, logger=logger_, server=udp_server),
+        DNSServer(resolver, address=address, port=port, tcp=True, logger=logger_, server=tcp_server),
     ]
     for server in servers:
         server.start_thread()
-    logger.info("DNS server listening on %s:%d (udp+tcp)", address, port)
+    logger.info("DNS server listening on %s:%d (udp+tcp)%s", address, port, " [SO_REUSEPORT]" if reuse_port else "")
     return servers

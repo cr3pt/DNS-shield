@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import atexit
 import logging
+import multiprocessing
 import os
+import signal
+import threading
 import time
 from pathlib import Path
 
@@ -13,7 +17,7 @@ from app.blocklist import BlocklistManager
 from app.client_names import ClientNameResolver
 from app.config import ConfigStore
 from app.dns_cache import DNSCache
-from app.dns_server import start_dns_servers
+from app.dns_server import reuse_port_supported, start_dns_servers
 from app.enrichment_store import EnrichmentStore
 from app.notifications import NotificationSender
 from app.sessions import SessionStore
@@ -25,6 +29,35 @@ from app.web.server import create_app
 DATA_DIR = Path(os.environ.get("DNSSHIELD_DATA_DIR", "/data"))
 
 
+def _run_dns_worker(worker_id: int, num_workers: int, data_dir: Path, log_level: str) -> None:
+    logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger().setLevel(log_level)
+    logger = logging.getLogger("dnsshield.main")
+
+    config_store = ConfigStore(db_path=data_dir / "config.db", backup_path=data_dir / "config.backup.yaml")
+    config_store.start_reload_thread(interval_seconds=5)
+
+    blocklist = BlocklistManager(config_store, cache_dir=data_dir / f"blocklist_cache_worker_{worker_id}")
+    blocklist.start()
+
+    stats = Stats(data_dir / "stats.db", config_store)
+    cache = DNSCache(config_store)
+    client_names = ClientNameResolver(config_store)
+    upstream_stats = UpstreamStats(config_store)
+
+    start_dns_servers(
+        config_store,
+        blocklist,
+        stats,
+        cache=cache,
+        client_names=client_names,
+        upstream_stats=upstream_stats,
+        reuse_port=True,
+    )
+    logger.info("DNS worker %d/%d ready", worker_id + 1, num_workers)
+    threading.Event().wait()
+
+
 def main() -> None:
     started_at = time.time()
 
@@ -32,15 +65,52 @@ def main() -> None:
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logger = logging.getLogger("dnsshield.main")
 
+    num_workers = max(1, int(os.environ.get("DNSSHIELD_DNS_WORKERS", "1") or "1"))
+    if num_workers > 1 and not reuse_port_supported():
+        logger.warning(
+            "DNSSHIELD_DNS_WORKERS=%d requested but SO_REUSEPORT isn't available on this platform - "
+            "running with 1 DNS worker instead",
+            num_workers,
+        )
+        num_workers = 1
+
     config_store = ConfigStore(db_path=DATA_DIR / "config.db", backup_path=DATA_DIR / "config.backup.yaml")
     config_store.start_backup_thread(interval_hours=12)
     log_level = config_store.get("logging", "level", default=level)
     logging.getLogger().setLevel(log_level)
 
+    stats = Stats(DATA_DIR / "stats.db", config_store)
+
+    workers: list[multiprocessing.Process] = []
+    if num_workers > 1:
+        for worker_id in range(1, num_workers):
+            p = multiprocessing.Process(
+                target=_run_dns_worker,
+                args=(worker_id, num_workers, DATA_DIR, level),
+                name=f"dnsshield-dns-worker-{worker_id}",
+                daemon=True,
+            )
+            p.start()
+            workers.append(p)
+        logger.info("started %d additional DNS worker process(es) with SO_REUSEPORT", num_workers - 1)
+
+    def _stop_workers() -> None:
+        for p in workers:
+            if p.is_alive():
+                p.terminate()
+        for p in workers:
+            p.join(timeout=5)
+
+    def _handle_term(signum, frame) -> None:
+        _stop_workers()
+        raise SystemExit(0)
+
+    atexit.register(_stop_workers)
+    signal.signal(signal.SIGTERM, _handle_term)
+    signal.signal(signal.SIGINT, _handle_term)
+
     blocklist = BlocklistManager(config_store, cache_dir=DATA_DIR / "blocklist_cache")
     blocklist.start()
-
-    stats = Stats(DATA_DIR / "stats.db", config_store)
 
     cache = DNSCache(config_store)
     client_names = ClientNameResolver(config_store)
@@ -58,7 +128,13 @@ def main() -> None:
     sessions = SessionStore()
 
     start_dns_servers(
-        config_store, blocklist, stats, cache=cache, client_names=client_names, upstream_stats=upstream_stats
+        config_store,
+        blocklist,
+        stats,
+        cache=cache,
+        client_names=client_names,
+        upstream_stats=upstream_stats,
+        reuse_port=num_workers > 1,
     )
 
     if config_store.get("dns", "block_page_enabled", default=False):
@@ -88,6 +164,7 @@ def main() -> None:
     logger.info("web UI listening on %s:%d", web_host, web_port)
 
     uvicorn.run(app, host=web_host, port=web_port, log_level="warning")
+    _stop_workers()
 
 
 if __name__ == "__main__":

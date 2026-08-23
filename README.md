@@ -1200,15 +1200,40 @@ stats log regardless of how it was answered.
 
 ### Concurrency
 
-The DNS server handles each incoming query on its own thread (dnslib's
+By default DNS-shield runs as a single process. Within that process, the
+DNS server handles each incoming query on its own thread (dnslib's
 `ThreadingMixIn` UDP/TCP servers) - there's no fixed connection limit, and
 since resolving is I/O-bound (waiting on the upstream socket, or on the
 in-memory cache/blocklist lookup) this comfortably handles the query bursts
-of a home or small-office network. It is not tuned for high sustained
-throughput: each forwarded query opens a fresh UDP socket to the upstream
-(no connection reuse/pooling), and thread-per-request has real overhead at
-very high query rates. The cache above absorbs most of the repeat traffic
-that would otherwise hit the upstream resolver.
+of a home or small-office network. Threads don't give real parallelism
+across CPU cores for the Python code itself (the GIL), but since the work
+here is I/O-bound rather than CPU-bound, that rarely matters in practice.
+The web UI runs the same way - FastAPI/Starlette dispatches each request
+to a thread pool, all within that one process.
+
+For higher query throughput than one process comfortably handles, set
+`DNSSHIELD_DNS_WORKERS` (an environment variable, like `DNSSHIELD_DATA_DIR`
+- not a dashboard setting) to a number greater than 1. DNS-shield forks
+that many additional, fully independent DNS-serving processes - each with
+its own blocklist/cache/upstream-health state - and binds all of them to
+the same DNS port with `SO_REUSEPORT`, so the kernel load-balances incoming
+queries across every process/core. Only the original process runs the web
+UI, anomaly detection, and notifications - those stay single-process
+regardless of this setting, so login sessions and anomaly alerts are never
+duplicated. The extra DNS-only processes reload their config from
+`config.db` every few seconds (so a change from the dashboard reaches them
+quickly without a restart) and independently fetch their own copy of every
+configured blocklist/watch-list/malicious-IP list on the normal refresh
+schedule - correct and simple, at the cost of each worker doing that fetch
+work separately rather than sharing one result. The query log
+(`stats.db`) is safe to write from multiple processes at once (SQLite's
+WAL mode, already the default here). `SO_REUSEPORT` is Linux/BSD-only; on
+a platform without it, DNS-shield logs a warning and falls back to a
+single worker. This is all still not tuned for very high sustained
+throughput regardless of worker count: each forwarded query opens a fresh
+UDP socket to the upstream (no connection reuse/pooling). The cache above
+absorbs most of the repeat traffic that would otherwise hit the upstream
+resolver.
 
 ## Security notes
 

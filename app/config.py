@@ -122,6 +122,13 @@ class ConfigStore:
         with self._lock:
             self._data = self._load_initial()
 
+    def start_reload_thread(self, interval_seconds: float = 5.0) -> None:
+        def _loop() -> None:
+            while not self._stop_event.wait(interval_seconds):
+                self.reload()
+
+        threading.Thread(target=_loop, name="config-reload", daemon=True).start()
+
     def write_backup(self) -> None:
         with self._lock:
             data = copy.deepcopy(self._data)
