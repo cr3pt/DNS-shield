@@ -93,10 +93,12 @@ def convert_user_rules(rules: list[str] | None) -> tuple[list[str], list[str], l
         if line.startswith("#") and not line.startswith("##"):
             continue
         if line.startswith("@@"):
-            domain = _parse_line(line[2:])
+            parsed = _parse_line(line[2:])
+            domain = parsed[0] if parsed else None
             (allow if domain else skipped).append(domain or raw)
             continue
-        domain = _parse_line(line)
+        parsed = _parse_line(line)
+        domain = parsed[0] if parsed else None
         (deny if domain else skipped).append(domain or raw)
     return allow, deny, skipped
 

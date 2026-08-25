@@ -18,6 +18,7 @@ logger = logging.getLogger("dnsshield.blocklist")
 
 _HOSTS_PREFIXES = ("0.0.0.0 ", "127.0.0.1 ", "::1 ", "0.0.0.0\t", "127.0.0.1\t")
 _ADBLOCK_RE = re.compile(r"^\|\|([a-z0-9.\-_]+)\^")
+_ADBLOCK_EXCEPTION_RE = re.compile(r"^@@\|\|([a-z0-9.\-_]+)\^")
 _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$")
 
 
@@ -45,6 +46,7 @@ def is_non_latin_domain(domain: str) -> bool:
 _FORMAT_LABELS = {
     "hosts": "hosts file (0.0.0.0/127.0.0.1 domain)",
     "adblock": "AdBlock/uBlock syntax (||domain^)",
+    "adblock_exception": "AdBlock exception (@@||domain^)",
     "plain": "plain domain list",
 }
 
@@ -54,7 +56,14 @@ def _parse_line(line: str) -> tuple[str, str] | None:
     if not line or line.startswith(("#", "!", ";")):
         return None
 
-    if line.startswith("||"):
+    if line.startswith("@@||"):
+        m = _ADBLOCK_EXCEPTION_RE.match(line)
+        if m:
+            domain = m.group(1)
+            fmt = "adblock_exception"
+        else:
+            return None
+    elif line.startswith("||"):
         m = _ADBLOCK_RE.match(line)
         if m:
             domain = m.group(1)
@@ -67,6 +76,8 @@ def _parse_line(line: str) -> tuple[str, str] | None:
             return None
         domain = parts[1]
         fmt = "hosts"
+    elif line.startswith("@@"):
+        return None
     else:
         domain = line.split()[0] if line.split() else ""
         fmt = "plain"
@@ -79,16 +90,20 @@ def _parse_line(line: str) -> tuple[str, str] | None:
     return domain, fmt
 
 
-def parse_list(text: str) -> tuple[set[str], dict[str, int]]:
+def parse_list(text: str) -> tuple[set[str], dict[str, int], set[str]]:
     domains: set[str] = set()
+    exceptions: set[str] = set()
     format_counts: dict[str, int] = {}
     for raw_line in text.splitlines():
         parsed = _parse_line(raw_line)
         if parsed:
             domain, fmt = parsed
-            domains.add(domain)
             format_counts[fmt] = format_counts.get(fmt, 0) + 1
-    return domains, format_counts
+            if fmt == "adblock_exception":
+                exceptions.add(domain)
+            else:
+                domains.add(domain)
+    return domains, format_counts, exceptions
 
 
 _MIXED_FORMAT_THRESHOLD = 0.02
@@ -108,7 +123,7 @@ def describe_format(format_counts: dict[str, int]) -> str:
 _IP_FORMAT_LABELS = {"ip": "IP list", "cidr": "CIDR list"}
 
 
-def parse_ip_list(text: str) -> tuple[set[str], dict[str, int]]:
+def parse_ip_list(text: str) -> tuple[set[str], dict[str, int], set[str]]:
     entries: set[str] = set()
     format_counts: dict[str, int] = {}
     for raw_line in text.splitlines():
@@ -133,7 +148,7 @@ def parse_ip_list(text: str) -> tuple[set[str], dict[str, int]]:
             fmt = "ip"
         entries.add(candidate)
         format_counts[fmt] = format_counts.get(fmt, 0) + 1
-    return entries, format_counts
+    return entries, format_counts, set()
 
 
 def describe_ip_format(format_counts: dict[str, int]) -> str:
@@ -395,7 +410,7 @@ class BlocklistManager:
         safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
         return self._cache_dir / f"{safe}.cache"
 
-    def _fetch_one(self, name: str, url: str, parser=parse_list) -> tuple[set[str], dict[str, int]]:
+    def _fetch_one(self, name: str, url: str, parser=parse_list) -> tuple[set[str], dict[str, int], set[str]]:
         cache_path = self._cache_path(name)
         try:
             resp = requests.get(url, timeout=15)
@@ -407,16 +422,17 @@ class BlocklistManager:
             if cache_path.exists():
                 text = cache_path.read_text(encoding="utf-8")
             else:
-                return set(), {}
+                return set(), {}, set()
         return parser(text)
 
     def _fetch_sources(
         self, sources: Iterable[dict], parser=parse_list, describer=describe_format
-    ) -> tuple[set[str], dict[str, int], dict[str, str], dict[str, str]]:
+    ) -> tuple[set[str], dict[str, int], dict[str, str], dict[str, str], set[str]]:
         merged: set[str] = set()
         counts: dict[str, int] = {}
         formats: dict[str, str] = {}
         domain_source: dict[str, str] = {}
+        exceptions: set[str] = set()
         for source in sources:
             if not source.get("enabled", True):
                 continue
@@ -424,24 +440,26 @@ class BlocklistManager:
             url = source.get("url")
             if not url:
                 continue
-            domains, format_counts = self._fetch_one(name, url, parser)
+            domains, format_counts, source_exceptions = self._fetch_one(name, url, parser)
             counts[name] = len(domains)
             formats[name] = describer(format_counts)
             merged |= domains
+            exceptions |= source_exceptions
             for domain in domains:
                 domain_source.setdefault(domain, name)
-        return merged, counts, formats, domain_source
+        return merged, counts, formats, domain_source, exceptions
 
     def refresh(self) -> None:
         with self._refresh_lock:
             sources = self._config.get("blocklists", "sources", default=[]) or []
-            merged, counts, formats, domain_source = self._fetch_sources(sources)
+            merged, counts, formats, domain_source, block_exceptions = self._fetch_sources(sources)
 
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
-            allow_merged, allow_counts, allow_formats, _ = self._fetch_sources(allow_sources)
+            allow_merged, allow_counts, allow_formats, _, allow_exceptions = self._fetch_sources(allow_sources)
+            allow_merged |= block_exceptions | allow_exceptions
 
             alert_sources = self._config.get("alert_rules", "sources", default=[]) or []
-            alert_merged, alert_counts, alert_formats, alert_domain_source = self._fetch_sources(alert_sources)
+            alert_merged, alert_counts, alert_formats, alert_domain_source, _ = self._fetch_sources(alert_sources)
             manual_alert_domains = {
                 d.strip().rstrip(".").lower() for d in (self._config.get("alert_rules", "domains", default=[]) or [])
                 if d.strip()
@@ -459,14 +477,14 @@ class BlocklistManager:
                 if not group_sources:
                     continue
                 name = group.get("name", "")
-                g_merged, g_counts, g_formats, g_domain_source = self._fetch_sources(group_sources)
-                group_blocked[name] = frozenset(g_merged)
+                g_merged, g_counts, g_formats, g_domain_source, g_exceptions = self._fetch_sources(group_sources)
+                group_blocked[name] = frozenset(g_merged - g_exceptions)
                 group_domain_source[name] = g_domain_source
                 group_source_counts[name] = g_counts
                 group_source_formats[name] = g_formats
 
             answer_ip_sources = self._config.get("blocked_answer_ip_sources", default=[]) or []
-            answer_ip_merged, answer_ip_counts, answer_ip_formats, answer_ip_source = self._fetch_sources(
+            answer_ip_merged, answer_ip_counts, answer_ip_formats, answer_ip_source, _ = self._fetch_sources(
                 answer_ip_sources, parser=parse_ip_list, describer=describe_ip_format
             )
             manual_answer_ips = {

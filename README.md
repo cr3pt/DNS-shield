@@ -374,6 +374,16 @@ detected format under each source's domain count - e.g. "hosts file
 genuinely combines more than one syntax (a stray line or two doesn't
 count - only a real mix is reported that way).
 
+AdBlock/uBlock sources can also carry `@@||domain^` exception lines - many
+popular lists use them to carve out a subdomain from a broader rule
+earlier in the same file. DNS-shield honors those: a domain matched by a
+source's own exception rule is treated the same as if you'd allowlisted
+it yourself, so it's never blocked by that source. For a client group's
+own extra `blocklist_sources`, an exception only exempts that group, the
+same way the group's blocking is additive-only (see below). See
+[Limitations](#limitations--roadmap) for what's deliberately *not*
+interpreted from the AdBlock grammar, and why.
+
 The Blocklists section also has a **Suggested lists** table: a short,
 fixed list baked into DNS-shield itself (nothing fetched to build it) -
 StevenBlack's Unified Hosts, AdGuard's own DNS filter, a handful of
@@ -1299,8 +1309,18 @@ resolver.
   `docker-compose.yml`.
 - No built-in HTTPS for the web UI - put a reverse proxy in front of it if
   you need TLS.
-- Blocklist matching is domain/subdomain based; it doesn't parse the full
-  AdBlock rule grammar (element hiding, exceptions, cosmetic filters, the
-  `$` modifier syntax). A separate, experimental regex denylist exists for
-  pattern-based blocking (see above), but it's a flat list of your own
-  patterns, not an AdBlock-rule interpreter.
+- Blocklist matching is domain/subdomain based. `||domain^` block rules and
+  `@@||domain^` exception rules (both from subscribed lists and a group's
+  own extra sources) are understood; a domain covered by an exception is
+  never blocked by that same source, even if a broader rule in it would
+  otherwise match. Everything else in the AdBlock/uBlock grammar is
+  architecturally out of reach for a DNS-level blocker and is silently
+  skipped rather than misinterpreted: element hiding (`##`/`#@#`) needs a
+  browser to inject CSS into a page DNS-shield never sees, and per-request
+  modifiers like `$third-party`, `$domain=`, or `$script` need the
+  referring page and resource type, neither of which a DNS query carries -
+  a domain rule with one of those modifiers is still enforced as an
+  unconditional block, the same tradeoff Pi-hole and AdGuard Home make. A
+  separate, experimental regex denylist exists for pattern-based blocking
+  (see above), but it's a flat list of your own patterns, not an
+  AdBlock-rule interpreter.
