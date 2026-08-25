@@ -15,6 +15,7 @@ from dnslib.server import UDPServer as _DNSLibUDPServer
 from app import upstream as upstream_transport
 from app.dns_rewrites import find_rewrite
 from app.netmatch import ip_matches
+from app.safe_search import find_safe_search_target
 
 logger = logging.getLogger("dnsshield.dns")
 
@@ -55,7 +56,13 @@ class FilteringResolver:
             else:
                 response = self._cache.get(request) if self._cache is not None else None
                 if response is None:
-                    response = self._forward(request, qname, client_ip)
+                    safe_search_target = None
+                    if qname and qtype_name in ("A", "AAAA") and self._blocklist.safe_search_enabled_for(client_ip):
+                        safe_search_target = find_safe_search_target(qname)
+                    if safe_search_target is not None:
+                        response = self._safe_search_reply(request, safe_search_target, client_ip)
+                    else:
+                        response = self._forward(request, qname, client_ip)
                     if self._cache is not None:
                         self._cache.put(request, response)
 
@@ -94,6 +101,16 @@ class FilteringResolver:
             reply.add_answer(RR(request.q.qname, QTYPE.AAAA, rdata=AAAA(ip), ttl=60))
         else:
             reply.header.rcode = RCODE.NXDOMAIN
+        return reply
+
+    def _safe_search_reply(self, request: DNSRecord, target_hostname: str, client_ip: str) -> DNSRecord:
+        qtype_name = QTYPE.get(request.q.qtype, "A")
+        sub_request = DNSRecord.question(target_hostname, qtype=qtype_name)
+        resolved = self._forward(sub_request, target_hostname, client_ip)
+        reply = request.reply()
+        for rr in resolved.rr:
+            if rr.rtype in (QTYPE.A, QTYPE.AAAA):
+                reply.add_answer(RR(request.q.qname, rr.rtype, rdata=rr.rdata, ttl=rr.ttl))
         return reply
 
     @staticmethod

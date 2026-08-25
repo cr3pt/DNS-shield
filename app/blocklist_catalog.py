@@ -79,4 +79,22 @@ BLOCKLIST_CATALOG: list[dict[str, str]] = [
         "category": "Malicious",
         "description": "Focused list of scam/fraud domains, updated regularly.",
     },
+    {
+        "name": "Sinfonietta - Pornography hosts",
+        "url": "https://raw.githubusercontent.com/Sinfonietta/hostfiles/master/pornography-hosts",
+        "category": "Parental control",
+        "description": "Adult-content domains. Meant for a client group's own extra blocklist source (e.g. a kids' devices group), not the global list.",
+    },
+    {
+        "name": "Sinfonietta - Gambling hosts",
+        "url": "https://raw.githubusercontent.com/Sinfonietta/hostfiles/master/gambling-hosts",
+        "category": "Parental control",
+        "description": "Online gambling and betting domains. Meant for a client group's own extra blocklist source, not the global list.",
+    },
+    {
+        "name": "Sinfonietta - Social media hosts",
+        "url": "https://raw.githubusercontent.com/Sinfonietta/hostfiles/master/social-hosts",
+        "category": "Parental control",
+        "description": "Major social-media platforms. Meant for a client group's own extra blocklist source, not the global list.",
+    },
 ]

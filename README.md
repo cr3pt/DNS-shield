@@ -106,9 +106,12 @@ web UI) but keeps it **local-only by construction**:
   below for exactly what each file does.
 
 This intentionally does **not** try to be a full AdGuard Home replacement -
-no DHCP server, no DoH/DoT/DoQ termination, no parental control. It's the
-"block ads/trackers network-wide from a Docker container, with nothing
-leaving my network that I didn't ask for" subset.
+no DHCP server, no DoH/DoT/DoQ termination, no time-of-day schedules or
+per-app controls. It's the "block ads/trackers network-wide from a Docker
+container, with nothing leaving my network that I didn't ask for" subset,
+plus the DNS-level pieces of parental control that fit that subset
+cleanly: forced SafeSearch/Restricted Mode and category blocklists scoped
+to a client group (see [Parental control / SafeSearch](#parental-control--safesearch)).
 
 ## Quick start
 
@@ -486,6 +489,44 @@ lists for a kids' devices group). Wanting a *lighter* list for a group is
 already covered by the existing per-group allowlist and the `enabled:
 false` pass-through toggle above. Manage a group's extra sources from its
 card in the dashboard's Clients tab, right below its allow/deny lists.
+
+### Parental control / SafeSearch
+
+Two DNS-level mechanisms cover the parental-control ground a DNS resolver
+can actually reach - both are opt-in, and both build on `client_groups`
+above rather than adding a separate subsystem:
+
+- **Forced SafeSearch / Restricted Mode**: `dns.safe_search_enabled: true`
+  (Settings -> DNS) rewrites the actual A/AAAA answer for Google, Bing,
+  DuckDuckGo, YouTube, and Yandex's own search/video hostnames to each
+  provider's documented safe-mode enforcement hostname (e.g.
+  `forcesafesearch.google.com`, `restrict.youtube.com`), resolved live
+  through your configured upstreams and cached exactly like any other
+  answer. Only the specific search/video hostnames are touched (`google.
+  <tld>`, `www.google.<tld>`, `youtube.com`, `bing.com`, `duckduckgo.com`,
+  `yandex.ru`/`.com`, and a few equivalents) - other subdomains of the
+  same domain (`mail.google.com`, `accounts.google.com`, `drive.google.com`)
+  resolve normally, so this doesn't touch anything but the search/video
+  surface itself. A client group can override the global setting with its
+  own "SafeSearch override" (Clients tab, on each group's card): always
+  on, always off, or inherit the global setting - the usual way to force
+  it on for a kids' devices group regardless of the network-wide default.
+- **Category blocklists via client groups**: the existing per-group
+  `blocklist_sources` mechanism (above) is also how you add adult-content,
+  gambling, or social-media blocking for specific clients only. The
+  dashboard's Suggested lists picker on each group's card includes a
+  "Parental control" category (Sinfonietta's pornography/gambling/social
+  hostfiles) alongside the same picker on the global Blocklists tab if you
+  want one of them applied network-wide instead.
+
+Neither mechanism can see inside HTTPS traffic or inspect page content -
+this is DNS-level control (which hostname resolves to what), not a content
+filter or a supervised-browsing product. A technically capable teenager
+who changes their device's DNS server or uses a VPN bypasses all of it,
+same as with any DNS-based parental control (AdGuard Home and Pi-hole
+included) - pair it with your router blocking outbound DNS-over-HTTPS/TLS
+to third parties and forcing all LAN DNS through DNS-shield if you need
+that to actually hold.
 
 ### Blocking a client entirely
 
@@ -1300,7 +1341,10 @@ resolver.
 ## Limitations / roadmap
 
 - No DHCP server, no DoH/DoT/DoQ *listener* (only as an upstream transport -
-  see above), no parental control / safe browsing.
+  see above). [Parental control](#parental-control--safesearch) is limited
+  to what DNS resolution can actually do - forced SafeSearch and
+  per-group category blocklists - not time-of-day schedules, per-app
+  limits, or content inspection.
 - Client groups and `blocked_clients` also match by MAC address or resolved
   hostname (`mac:`/`host:` patterns, see above), but MAC matching depends
   on the host's ARP table being visible to the container (host networking)

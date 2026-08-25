@@ -317,6 +317,12 @@ class BlocklistManager:
                     return group
         return None
 
+    def safe_search_enabled_for(self, client_ip: str | None) -> bool:
+        group = self._find_group(client_ip)
+        if group is not None and group.get("safe_search") is not None:
+            return bool(group.get("safe_search"))
+        return bool(self._config.get("dns", "safe_search_enabled", default=False))
+
     def _is_client_blocked(self, client_ip: str | None) -> bool:
         if not client_ip:
             return False

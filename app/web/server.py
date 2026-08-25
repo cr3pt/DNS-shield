@@ -108,6 +108,11 @@ class ClientGroupIn(BaseModel):
     denylist: list[str] = []
     upstreams: list[str] = []
     blocklist_sources: list[dict[str, Any]] = []
+    safe_search: bool | None = None
+
+
+class GroupSafeSearchIn(BaseModel):
+    safe_search: bool | None = None
 
 
 class DnsSettingsIn(BaseModel):
@@ -131,6 +136,7 @@ class DnsSettingsIn(BaseModel):
     block_page_enabled: bool | None = None
     block_page_port: int | None = None
     regex_denylist_enabled: bool | None = None
+    safe_search_enabled: bool | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -838,6 +844,16 @@ def create_app(
     def set_group_upstreams(index: int, body: UpstreamsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["upstreams"] = body.upstreams
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.put("/api/client-groups/{index}/safe-search")
+    def set_group_safe_search(
+        index: int, body: GroupSafeSearchIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            group["safe_search"] = body.safe_search
             return group
 
         return _group_mutate(index, _fn)
