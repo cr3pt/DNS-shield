@@ -1122,10 +1122,13 @@
         Every query from these IPs/CIDRs is blocked, for every domain - stronger than a domain
         denylist entry, and takes priority over client groups below. Usually populated via the
         "Block host" button next to a client's address in Logs, Stats, or the Enrich popup;
-        add one by hand here too if you'd rather.
+        add one by hand here too if you'd rather. Also accepts <code>mac:AA:BB:CC:DD:EE:FF</code>
+        (matched against the router's ARP table - only populated with real LAN entries when
+        DNS-shield runs on the host network) and <code>host:name</code> (matched against the
+        resolved client hostname, requires client name resolution enabled in DNS settings).
       </p>
       <form class="inline" id="add-blocked-client-form">
-        <input type="text" id="blocked-client-value" placeholder="192.168.1.50 or 192.168.1.0/24" required>
+        <input type="text" id="blocked-client-value" placeholder="192.168.1.50, mac:AA:BB:CC:DD:EE:FF, or host:kids-tablet" required>
         <button type="submit">Block</button>
       </form>
       <table><tbody id="blocked-client-rows"></tbody></table>
@@ -1133,10 +1136,14 @@
 
     <section>
       <h2>Client groups</h2>
-      <p class="muted">Per-IP/CIDR overrides. First matching group wins; unmatched clients get the global policy above.</p>
+      <p class="muted">
+        Per-client overrides. First matching group wins; unmatched clients get the global policy
+        above. Match patterns accept an IP/CIDR, <code>mac:AA:BB:CC:DD:EE:FF</code>, or
+        <code>host:name</code> (wildcards like <code>host:*.kids</code> match a hostname suffix).
+      </p>
       <form class="inline" id="add-group-form">
         <input type="text" id="group-name" placeholder="Name (e.g. Kids)" required>
-        <input type="text" id="group-match" placeholder="IPs/CIDRs, comma separated" required style="min-width:260px">
+        <input type="text" id="group-match" placeholder="IPs/CIDRs, mac:.., host:.. - comma separated" required style="min-width:260px">
         <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.85rem">
           <input type="checkbox" id="group-enabled" checked> Filter this group
         </label>

@@ -415,11 +415,13 @@ nothing is written to disk (in-memory cache only, `dns.client_name_cache_seconds
 
 ### Per-client/group policies
 
-`client_groups` lets you override the global policy for specific IPs or
-CIDR ranges - e.g. a stricter denylist for kids' devices, or turning
-filtering off entirely for a NAS/server that breaks when domains are
-blocked. First matching group wins; a client that matches no group just
-gets the global policy above:
+`client_groups` lets you override the global policy for specific clients -
+e.g. a stricter denylist for kids' devices, or turning filtering off
+entirely for a NAS/server that breaks when domains are blocked. First
+matching group wins; a client that matches no group just gets the global
+policy above. A `match` entry can be an IP/CIDR (the default), a MAC
+address as `mac:AA:BB:CC:DD:EE:FF`, or a resolved hostname as
+`host:name` (or `host:*.suffix` for a suffix match):
 
 ```yaml
 client_groups:
@@ -435,7 +437,22 @@ client_groups:
   - name: "Guests"
     match: ["192.168.1.200/29"]
     enabled: false   # pass-through: no ad/tracker blocking for this group
+  - name: "Phones"
+    match: ["mac:AA:BB:CC:DD:EE:FF", "host:kids-tablet"]
+    enabled: true
 ```
+
+`mac:` matching reads the kernel's ARP table (`/proc/net/arp`) - it only
+contains entries for devices DNS-shield's host has actually talked to at
+the link layer, and it's only populated with real LAN entries when the
+container shares the host's network (`network_mode: host` in
+`docker-compose.yml`, or a macvlan setup); the default bridge networking
+in the shipped `docker-compose.yml` only sees its own bridge, so `mac:`
+patterns won't match anything there. `host:` matching uses the same
+resolved-hostname cache as `dns.resolve_client_names` above and requires
+that setting to be on - a client's hostname is only known once resolution
+has completed for it at least once, so the very first query from a new
+client can't match a `host:` pattern.
 
 Precedence for a query from a matched client: group denylist > global
 denylist > group allowlist > global allowlist > group `enabled: false`
@@ -463,7 +480,8 @@ card in the dashboard's Clients tab, right below its allow/deny lists.
 ### Blocking a client entirely
 
 `blocked_clients` is a separate, stronger mechanism from everything above:
-an IP/CIDR here has *every* query blocked, for *every* domain - "no
+an IP/CIDR (or `mac:`/`host:` pattern, same syntax as `client_groups.match`
+above) here has *every* query blocked, for *every* domain - "no
 communication with this host at all" rather than a domain-scoped rule. It
 takes priority over `client_groups` and any per-domain allow/deny entry,
 though a paused blocking window (see below) still bypasses it like
@@ -1093,8 +1111,10 @@ and print a summary of exactly what was and wasn't carried over.
 Converts `AdGuardHome.yaml`: filter and whitelist-filter subscriptions,
 `user_rules` (both block rules and `@@` exceptions), upstream resolvers
 (`tls://`/`https://` converted to `dot://`/`doh://`), listen address/port,
-blocking mode, and each `clients.persistent[].ids` entry (IPs/CIDRs only -
-MAC addresses aren't supported) as a `client_groups` entry.
+blocking mode, and each `clients.persistent[].ids` entry (IPs, CIDRs, and
+MAC addresses, converted to a `mac:` pattern - AdGuard's own client-ID
+strings aren't a concept DNS-shield has, those are skipped with a
+warning) as a `client_groups` entry.
 
 **From the dashboard**: upload the file, it's merged directly into the
 running config and takes effect immediately - blocklists refresh right
@@ -1271,7 +1291,12 @@ resolver.
 
 - No DHCP server, no DoH/DoT/DoQ *listener* (only as an upstream transport -
   see above), no parental control / safe browsing.
-- Client groups match by source IP/CIDR only, not MAC address or hostname.
+- Client groups and `blocked_clients` also match by MAC address or resolved
+  hostname (`mac:`/`host:` patterns, see above), but MAC matching depends
+  on the host's ARP table being visible to the container (host networking)
+  and hostname matching depends on client name resolution being enabled -
+  neither is available out of the box with the default bridge-networked
+  `docker-compose.yml`.
 - No built-in HTTPS for the web UI - put a reverse proxy in front of it if
   you need TLS.
 - Blocklist matching is domain/subdomain based; it doesn't parse the full

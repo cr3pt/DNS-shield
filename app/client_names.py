@@ -46,6 +46,13 @@ class ClientNameResolver:
         with self._lock:
             return {ip: name for ip, (name, _) in self._cache.items() if name}
 
+    def get(self, client_ip: str) -> str | None:
+        if not self._enabled():
+            return None
+        with self._lock:
+            entry = self._cache.get(client_ip)
+        return entry[0] if entry else None
+
     def _worker(self) -> None:
         while True:
             client_ip = self._queue.get()

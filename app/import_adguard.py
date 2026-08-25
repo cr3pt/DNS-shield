@@ -101,6 +101,9 @@ def convert_user_rules(rules: list[str] | None) -> tuple[list[str], list[str], l
     return allow, deny, skipped
 
 
+_MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", re.IGNORECASE)
+
+
 def _looks_like_ip_or_cidr(value: str) -> bool:
     try:
         if "/" in value:
@@ -112,6 +115,10 @@ def _looks_like_ip_or_cidr(value: str) -> bool:
         return False
 
 
+def _looks_like_mac(value: str) -> bool:
+    return bool(_MAC_RE.match(value))
+
+
 def convert_clients(clients_cfg: dict | None) -> tuple[list[dict], list[str]]:
     warnings: list[str] = []
     groups: list[dict] = []
@@ -121,14 +128,15 @@ def convert_clients(clients_cfg: dict | None) -> tuple[list[dict], list[str]]:
         name = client.get("name") or "Unnamed client"
         ids = client.get("ids") or []
         match = [cid for cid in ids if _looks_like_ip_or_cidr(cid)]
-        skipped_ids = [cid for cid in ids if cid not in match]
+        match += [f"mac:{cid.upper()}" for cid in ids if _looks_like_mac(cid)]
+        skipped_ids = [cid for cid in ids if not _looks_like_ip_or_cidr(cid) and not _looks_like_mac(cid)]
         for cid in skipped_ids:
             warnings.append(
-                f"client {name!r}: id {cid!r} is not an IP/CIDR (MAC address or client ID?) - "
-                "DNS-shield only matches clients by IP/CIDR, skipped"
+                f"client {name!r}: id {cid!r} is not an IP/CIDR or MAC address (client ID?) - "
+                "DNS-shield doesn't match on that, skipped"
             )
         if not match:
-            warnings.append(f"client {name!r}: no usable IP/CIDR ids found, group not imported")
+            warnings.append(f"client {name!r}: no usable IP/CIDR/MAC ids found, group not imported")
             continue
 
         groups.append(

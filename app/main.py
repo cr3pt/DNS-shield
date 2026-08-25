@@ -19,6 +19,7 @@ from app.config import ConfigStore
 from app.dns_cache import DNSCache
 from app.dns_server import reuse_port_supported, start_dns_servers
 from app.enrichment_store import EnrichmentStore
+from app.mac_resolve import MacResolver
 from app.notifications import NotificationSender
 from app.sessions import SessionStore
 from app.stats import Stats
@@ -37,12 +38,20 @@ def _run_dns_worker(worker_id: int, num_workers: int, data_dir: Path, log_level:
     config_store = ConfigStore(db_path=data_dir / "config.db", backup_path=data_dir / "config.backup.yaml")
     config_store.start_reload_thread(interval_seconds=5)
 
-    blocklist = BlocklistManager(config_store, cache_dir=data_dir / f"blocklist_cache_worker_{worker_id}")
+    client_names = ClientNameResolver(config_store)
+    mac_resolver = MacResolver()
+    mac_resolver.start()
+
+    blocklist = BlocklistManager(
+        config_store,
+        cache_dir=data_dir / f"blocklist_cache_worker_{worker_id}",
+        mac_resolver=mac_resolver,
+        client_names=client_names,
+    )
     blocklist.start()
 
     stats = Stats(data_dir / "stats.db", config_store)
     cache = DNSCache(config_store)
-    client_names = ClientNameResolver(config_store)
     upstream_stats = UpstreamStats(config_store)
 
     start_dns_servers(
@@ -109,11 +118,16 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_term)
     signal.signal(signal.SIGINT, _handle_term)
 
-    blocklist = BlocklistManager(config_store, cache_dir=DATA_DIR / "blocklist_cache")
+    client_names = ClientNameResolver(config_store)
+    mac_resolver = MacResolver()
+    mac_resolver.start()
+
+    blocklist = BlocklistManager(
+        config_store, cache_dir=DATA_DIR / "blocklist_cache", mac_resolver=mac_resolver, client_names=client_names
+    )
     blocklist.start()
 
     cache = DNSCache(config_store)
-    client_names = ClientNameResolver(config_store)
     upstream_stats = UpstreamStats(config_store)
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")
 

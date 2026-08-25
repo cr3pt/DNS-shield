@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 import requests
 
-from app.netmatch import ip_matches
+from app.netmatch import client_matches
 from app.upstream import protected_hostnames
 
 logger = logging.getLogger("dnsshield.blocklist")
@@ -148,9 +148,11 @@ def describe_ip_format(format_counts: dict[str, int]) -> str:
 
 class BlocklistManager:
 
-    def __init__(self, config_store, cache_dir: Path):
+    def __init__(self, config_store, cache_dir: Path, mac_resolver=None, client_names=None):
         self._config = config_store
         self._cache_dir = cache_dir
+        self._mac_resolver = mac_resolver
+        self._client_names = client_names
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._blocked: frozenset[str] = frozenset()
@@ -282,13 +284,21 @@ class BlocklistManager:
                 return candidate
         return None
 
+    def _client_mac(self, client_ip: str) -> str | None:
+        return self._mac_resolver.mac_for(client_ip) if self._mac_resolver is not None else None
+
+    def _client_hostname(self, client_ip: str) -> str | None:
+        return self._client_names.get(client_ip) if self._client_names is not None else None
+
     def _find_group(self, client_ip: str | None) -> dict[str, Any] | None:
         if not client_ip:
             return None
         groups = self._config.get("client_groups", default=[]) or []
         for group in groups:
             for pattern in group.get("match", []) or []:
-                if ip_matches(client_ip, pattern):
+                if client_matches(
+                    client_ip, pattern, mac=self._client_mac(client_ip), hostname=self._client_hostname(client_ip)
+                ):
                     return group
         return None
 
@@ -296,7 +306,9 @@ class BlocklistManager:
         if not client_ip:
             return False
         for pattern in self._config.get("blocked_clients", default=[]) or []:
-            if ip_matches(client_ip, pattern):
+            if client_matches(
+                client_ip, pattern, mac=self._client_mac(client_ip), hostname=self._client_hostname(client_ip)
+            ):
                 return True
         return False
 
