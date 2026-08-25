@@ -515,9 +515,10 @@ above rather than adding a separate subsystem:
   `blocklist_sources` mechanism (above) is also how you add adult-content,
   gambling, or social-media blocking for specific clients only. The
   dashboard's Suggested lists picker on each group's card includes a
-  "Parental control" category (Sinfonietta's pornography/gambling/social
-  hostfiles) alongside the same picker on the global Blocklists tab if you
-  want one of them applied network-wide instead.
+  "Parental control" category - HaGeZi's actively maintained NSFW,
+  Gambling, Social Networks, Anti-Piracy, and Fake/Scam-Sites lists -
+  alongside the same picker on the global Blocklists tab if you want one
+  of them applied network-wide instead.
 
 Neither mechanism can see inside HTTPS traffic or inspect page content -
 this is DNS-level control (which hostname resolves to what), not a content
