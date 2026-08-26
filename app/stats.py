@@ -37,7 +37,9 @@ class Stats:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._config = config_store
         self._flush_interval = flush_interval
-        self._queue: "queue.Queue[tuple[float, str, str, str, int, str | None, str | None, str | None]]" = queue.Queue()
+        self._queue: (
+            "queue.Queue[tuple[float, str, str, str, int, str | None, str | None, str | None, str | None]]"
+        ) = queue.Queue()
         self._started_at = time.time()
         self._stop_event = threading.Event()
 
@@ -66,6 +68,8 @@ class Stats:
                 conn.execute("ALTER TABLE queries ADD COLUMN answer_ip TEXT")
             if "alert_rule" not in columns:
                 conn.execute("ALTER TABLE queries ADD COLUMN alert_rule TEXT")
+            if "typosquat_match" not in columns:
+                conn.execute("ALTER TABLE queries ADD COLUMN typosquat_match TEXT")
             conn.commit()
         finally:
             conn.close()
@@ -79,10 +83,13 @@ class Stats:
         reason: str | None = None,
         answer_ip: str | None = None,
         alert_rule: str | None = None,
+        typosquat_match: str | None = None,
     ) -> None:
         if self._is_ignored(qname, client_ip):
             return
-        self._queue.put((time.time(), qname, qtype, client_ip, int(blocked), reason, answer_ip, alert_rule))
+        self._queue.put(
+            (time.time(), qname, qtype, client_ip, int(blocked), reason, answer_ip, alert_rule, typosquat_match)
+        )
 
     def _is_ignored(self, qname: str, client_ip: str) -> bool:
         ignored_domains = self._config.get("logging", "ignored_domains", default=[]) or []
@@ -108,8 +115,9 @@ class Stats:
                     except queue.Empty:
                         break
                 conn.executemany(
-                    "INSERT INTO queries (ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO queries "
+                    "(ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     batch,
                 )
                 conn.commit()
@@ -196,8 +204,8 @@ class Stats:
                 base_params + [top_n],
             ).fetchall()
             recent = conn.execute(
-                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule FROM queries {where_clients} "
-                "ORDER BY id DESC LIMIT ?",
+                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match "
+                f"FROM queries {where_clients} ORDER BY id DESC LIMIT ?",
                 base_params + [log_n],
             ).fetchall()
         finally:
@@ -222,6 +230,7 @@ class Stats:
                     "reason": row["reason"],
                     "answer_ip": row["answer_ip"],
                     "alert_rule": row["alert_rule"],
+                    "typosquat_match": row["typosquat_match"],
                 }
                 for row in recent
             ],
@@ -285,8 +294,8 @@ class Stats:
             conn.row_factory = sqlite3.Row
             total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_sql}", params).fetchone()["c"]
             rows = conn.execute(
-                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule FROM queries {where_sql} "
-                "ORDER BY id DESC LIMIT ? OFFSET ?",
+                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match "
+                f"FROM queries {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?",
                 params + [limit, offset],
             ).fetchall()
         finally:
@@ -303,6 +312,7 @@ class Stats:
                     "reason": row["reason"],
                     "answer_ip": row["answer_ip"],
                     "alert_rule": row["alert_rule"],
+                    "typosquat_match": row["typosquat_match"],
                 }
                 for row in rows
             ],
@@ -372,6 +382,28 @@ class Stats:
             conn.close()
         return [
             {"id": row["id"], "ts": row["ts"], "domain": row["domain"], "client": row["client"], "alert_rule": row["alert_rule"]}
+            for row in rows
+        ]
+
+    def typosquat_hits_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, ts, domain, client, typosquat_match FROM queries "
+                "WHERE id > ? AND typosquat_match IS NOT NULL ORDER BY id ASC LIMIT ?",
+                (last_id, limit),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {
+                "id": row["id"],
+                "ts": row["ts"],
+                "domain": row["domain"],
+                "client": row["client"],
+                "typosquat_match": row["typosquat_match"],
+            }
             for row in rows
         ]
 

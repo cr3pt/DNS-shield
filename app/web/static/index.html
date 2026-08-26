@@ -643,6 +643,14 @@
             <input type="number" id="s-dns-dnssec-cache-seconds" min="1">
           </div>
           <div class="field checkbox">
+            <input type="checkbox" id="s-dns-typosquat-enabled">
+            <label for="s-dns-typosquat-enabled">Detect typosquatting (raises an alert, doesn't block - close spelling variants or an embedded brand name against the protected-domains list in Own lists -> Typosquat protection)</label>
+          </div>
+          <div class="field-grid" id="s-dns-typosquat-fields">
+            <div class="field"><label>Max edit distance (1-3)</label><input type="number" id="s-dns-typosquat-max-distance" min="1" max="3" step="1"></div>
+            <div class="field"><label>Re-alert cooldown (minutes)</label><input type="number" id="s-dns-typosquat-cooldown" min="1" step="1"></div>
+          </div>
+          <div class="field checkbox">
             <input type="checkbox" id="s-dns-regex-denylist-enabled">
             <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern in Own lists -> Regex denylist; CPU cost grows with the pattern list, keep it short)</label>
           </div>
@@ -844,6 +852,19 @@
           <div class="field"><label>Minimum label length to score</label><input type="number" id="s-anomaly-entropy-min-length" min="1" step="1"></div>
           <div class="field"><label>Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-entropy-min-bits" min="0" max="5" step="0.1"></div>
           <div class="field"><label>Share of domains that must look random (0-1)</label><input type="number" id="s-anomaly-entropy-fraction" min="0" max="1" step="0.05"></div>
+        </div>
+        <p class="hint" style="color:var(--muted);">
+          DNS tunneling abuses DNS as a covert data channel by encoding data into a long
+          stream of distinct, near-random subdomains of one domain (e.g.
+          <code>k3f9a...92mz.tunnel.example.com</code>, one unique subdomain per query). This
+          fires when a client queries many distinct subdomains of the <em>same</em> domain in
+          a window and most of them look like encoded data (long + high entropy) rather than a
+          real site's normal handful of subdomains.
+        </p>
+        <div class="field-grid">
+          <div class="field"><label>Distinct-subdomain threshold</label><input type="number" id="s-anomaly-tunnel-threshold" min="1" step="1"></div>
+          <div class="field"><label>Minimum subdomain length to score</label><input type="number" id="s-anomaly-tunnel-min-length" min="1" step="1"></div>
+          <div class="field"><label>Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-tunnel-min-bits" min="0" max="5" step="0.1"></div>
         </div>
         <button type="submit">Save anomaly detection settings</button>
       </form>
@@ -1124,6 +1145,28 @@
         <thead><tr><th>Name</th><th>URL</th><th>Entries</th><th>Status</th><th></th></tr></thead>
         <tbody id="answer-ip-source-rows"></tbody>
       </table>
+    </section>
+
+    <section>
+      <h2>Typosquat protection</h2>
+      <p class="muted">
+        Flags a query as a probable typosquat when it's a close spelling variant (e.g.
+        <code>paypa1.com</code>, <code>faceb00k.com</code>) or has a protected brand name
+        embedded in a longer domain (e.g. <code>paypal-security-check.com</code>) - never an
+        exact match or a real subdomain of the protected domain itself. This only raises an
+        alert (Anomalies tab, with a notification if configured) - it doesn't block, since a
+        close-but-wrong guess is a real risk signal but not certain enough to cut off on its
+        own. Toggle "Detect typosquatting" in Settings -> DNS to turn it on.
+      </p>
+      <p class="muted" style="font-size:0.8rem;">
+        Built-in protected domains (<span id="typosquat-default-count">0</span>):
+        <span id="typosquat-default-list" style="font-family:monospace;"></span>
+      </p>
+      <form class="inline" id="add-typosquat-form">
+        <input type="text" id="typosquat-domain" placeholder="your-own-domain.com" required>
+        <button type="submit">Add</button>
+      </form>
+      <table><tbody id="typosquat-extra-rows"></tbody></table>
     </section>
   </div>
 
@@ -2050,10 +2093,25 @@ async function loadRules() {
   }
 
   await loadAnswerIpSources();
+  await loadTyposquatDomains();
 }
 
 async function loadAnswerIpSources() {
   await loadSourceTable("/api/answer-ip-sources", "answer-ip-source-rows", "answer_ip_sources", "answer_ip_source_formats");
+}
+
+async function loadTyposquatDomains() {
+  const data = await api("/api/typosquat-domains");
+  document.getElementById("typosquat-default-count").textContent = (data.default || []).length;
+  document.getElementById("typosquat-default-list").textContent = (data.default || []).join(", ");
+
+  const rows = document.getElementById("typosquat-extra-rows");
+  rows.innerHTML = "";
+  for (const domain of data.extra || []) {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/typosquat-domains/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
+    rows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
+  }
 }
 
 function buildRuleEditor(title, items, onAdd, onRemove) {
@@ -2325,6 +2383,9 @@ async function loadSettings() {
   document.getElementById("s-dns-safe-search-enabled").checked = !!s.dns.safe_search_enabled;
   document.getElementById("s-dns-dnssec-enabled").checked = !!s.dns.dnssec_enabled;
   document.getElementById("s-dns-dnssec-cache-seconds").value = s.dns.dnssec_cache_seconds ?? 3600;
+  document.getElementById("s-dns-typosquat-enabled").checked = !!s.dns.typosquat_enabled;
+  document.getElementById("s-dns-typosquat-max-distance").value = s.dns.typosquat_max_distance ?? 2;
+  document.getElementById("s-dns-typosquat-cooldown").value = s.dns.typosquat_cooldown_minutes ?? 30;
   document.getElementById("s-dns-regex-denylist-enabled").checked = !!s.dns.regex_denylist_enabled;
   document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
   document.getElementById("s-dns-upstream-stats-window").value = s.dns.upstream_stats_window_minutes ?? "";
@@ -2378,6 +2439,9 @@ async function loadSettings() {
   document.getElementById("s-anomaly-entropy-min-length").value = an.domain_burst_min_label_length ?? "";
   document.getElementById("s-anomaly-entropy-min-bits").value = an.domain_burst_min_entropy ?? "";
   document.getElementById("s-anomaly-entropy-fraction").value = an.domain_burst_entropy_fraction ?? "";
+  document.getElementById("s-anomaly-tunnel-threshold").value = an.dns_tunneling_threshold ?? "";
+  document.getElementById("s-anomaly-tunnel-min-length").value = an.dns_tunneling_min_label_length ?? "";
+  document.getElementById("s-anomaly-tunnel-min-bits").value = an.dns_tunneling_min_entropy ?? "";
 
   const ar = s.alert_rules || {};
   document.getElementById("s-alert-check-interval").value = ar.check_interval_seconds ?? "";
@@ -2821,6 +2885,9 @@ document.getElementById("anomaly-settings-form").addEventListener("submit", asyn
       domain_burst_min_entropy: floatField("s-anomaly-entropy-min-bits"),
       domain_burst_entropy_fraction: floatField("s-anomaly-entropy-fraction"),
       blocked_domain_burst_threshold: intField("s-anomaly-blocked-domain-burst"),
+      dns_tunneling_threshold: intField("s-anomaly-tunnel-threshold"),
+      dns_tunneling_min_label_length: intField("s-anomaly-tunnel-min-length"),
+      dns_tunneling_min_entropy: floatField("s-anomaly-tunnel-min-bits"),
       cooldown_minutes: floatField("s-anomaly-cooldown"),
     }),
   });
@@ -3015,6 +3082,9 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
       safe_search_enabled: document.getElementById("s-dns-safe-search-enabled").checked,
       dnssec_enabled: document.getElementById("s-dns-dnssec-enabled").checked,
       dnssec_cache_seconds: Number(document.getElementById("s-dns-dnssec-cache-seconds").value) || 3600,
+      typosquat_enabled: document.getElementById("s-dns-typosquat-enabled").checked,
+      typosquat_max_distance: intField("s-dns-typosquat-max-distance"),
+      typosquat_cooldown_minutes: floatField("s-dns-typosquat-cooldown"),
       regex_denylist_enabled: document.getElementById("s-dns-regex-denylist-enabled").checked,
       upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
       upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),
@@ -3516,6 +3586,19 @@ document.getElementById("add-answer-ip-source-form").addEventListener("submit", 
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, url }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-typosquat-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = document.getElementById("typosquat-domain").value.trim();
+  if (!domain) return;
+  await api("/api/typosquat-domains", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain }),
   });
   e.target.reset();
   refreshAll();

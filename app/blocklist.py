@@ -13,6 +13,7 @@ import requests
 
 from app.netmatch import client_matches
 from app.schedule import is_schedule_blocked
+from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
 from app.upstream import protected_hostnames
 
 logger = logging.getLogger("dnsshield.blocklist")
@@ -201,6 +202,9 @@ class BlocklistManager:
         self._answer_ip_source_counts: dict[str, int] = {}
         self._answer_ip_source_formats: dict[str, str] = {}
 
+        self._typosquat_lock = threading.Lock()
+        self._typosquat_cache: dict[str, tuple[str, str, int] | None] = {}
+
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
         return self.block_reason(qname, client_ip) is not None
 
@@ -276,6 +280,29 @@ class BlocklistManager:
         if matched is None:
             return None
         return matched, alert_domain_source.get(matched)
+
+    def typosquat_match(self, qname: str) -> tuple[str, str, int] | None:
+        if not self._config.get("dns", "typosquat_enabled", default=False):
+            return None
+        qname = qname.rstrip(".").lower()
+        with self._typosquat_lock:
+            if qname in self._typosquat_cache:
+                return self._typosquat_cache[qname]
+
+        extra = self._config.get("dns", "typosquat_extra_domains", default=[]) or []
+        protected = list(DEFAULT_PROTECTED_DOMAINS) + list(extra)
+        max_distance = int(self._config.get("dns", "typosquat_max_distance", default=2))
+        result = find_typosquat_match(qname, protected, max_distance)
+
+        with self._typosquat_lock:
+            if len(self._typosquat_cache) > 50000:
+                self._typosquat_cache.clear()
+            self._typosquat_cache[qname] = result
+        return result
+
+    def clear_typosquat_cache(self) -> None:
+        with self._typosquat_lock:
+            self._typosquat_cache.clear()
 
     def _compiled_regex_patterns(self) -> list[tuple[str, re.Pattern]]:
         patterns = tuple(self._config.get("denylist_regex", default=[]) or [])

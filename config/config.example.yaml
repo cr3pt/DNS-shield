@@ -17,6 +17,10 @@ dns:
   safe_search_enabled: false
   dnssec_enabled: false
   dnssec_cache_seconds: 3600
+  typosquat_enabled: false
+  typosquat_max_distance: 2
+  typosquat_cooldown_minutes: 30
+  typosquat_extra_domains: []
   regex_denylist_enabled: false
   cache_enabled: true
   cache_max_entries: 10000
@@ -85,6 +89,9 @@ anomaly:
   domain_burst_min_entropy: 3.3
   domain_burst_entropy_fraction: 0.5
   blocked_domain_burst_threshold: 15
+  dns_tunneling_threshold: 30
+  dns_tunneling_min_label_length: 20
+  dns_tunneling_min_entropy: 3.0
   cooldown_minutes: 60
 
 alert_rules:

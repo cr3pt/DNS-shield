@@ -990,6 +990,24 @@ client that's queried it in that window:
   (`anomaly.blocked_domain_burst_threshold`, default 15) - a stronger
   signal than the ratio check alone, since it can't be explained by one
   ad-heavy page reloading the same handful of ad domains.
+- **DNS tunneling** - a client queried an unusually large number of
+  *distinct subdomains of the same domain* in the window
+  (`anomaly.dns_tunneling_threshold`, default 30), most of which look
+  long and random rather than a real site's normal handful of
+  subdomains - the same entropy scoring as the domain-burst check above,
+  but applied to the first label of each subdomain instead of a whole
+  domain (`anomaly.dns_tunneling_min_label_length`, default 20;
+  `anomaly.dns_tunneling_min_entropy`, default 3.0 bits/character). DNS
+  tunneling abuses DNS as a covert data channel by encoding a chunk of
+  data into a unique subdomain per query
+  (`k3f9a...92mz.tunnel.example.com`, one query per chunk) - this is the
+  enterprise DNS-security detection technique for that, applied to
+  domain *counts* rather than raw traffic volume, so it needs no new
+  data beyond what's already logged. The distinction from the
+  distinct-domain burst above: that one fires on many different
+  *domains* (DGA malware trying candidate C2 domains), this one fires on
+  many different *subdomains of one domain* (data being smuggled out
+  through one attacker-controlled domain).
 
 Every flagged anomaly is stored locally in `data/anomalies.db` and shown
 in its own top-level **Anomalies** tab (between Logs and Stats, with an
@@ -1039,9 +1057,52 @@ own `anomalies.db`, never touching the query-answering path at all. A
 bug here can, at worst, stop producing new alerts; it cannot break or
 slow down DNS resolution.
 
+### Typosquat detection
+
+Settings -> DNS has a separate "Detect typosquatting" toggle (also off by
+default) that checks every query against a list of well-known brand
+domains for two things a real visit to that brand would never produce:
+
+- **A close spelling variant** - one or two characters off from the real
+  domain (`paypa1.com`, `faceb00k.com`, `gooogle.com`), measured as
+  [Levenshtein edit distance](https://en.wikipedia.org/wiki/Levenshtein_distance)
+  between the queried domain's own label and the protected domain's,
+  within `dns.typosquat_max_distance` (default 2).
+- **The brand name embedded in a longer domain** - `paypal-security-check.com`,
+  `secure-allegro-login.pl` - a classic combosquatting pattern edit
+  distance alone won't catch, since inserting a dozen extra characters is
+  a large distance even though the brand name is sitting right there
+  unmodified.
+
+An exact match or a real subdomain of the protected domain itself
+(`mail.google.com`, `accounts.google.com`) is explicitly never flagged -
+only something that's *close but not actually it*. A match raises an
+alert through the same pipeline as the anomaly heuristics above (visible
+in the Anomalies tab, notification-capable, its own per-client/domain
+cooldown - `dns.typosquat_cooldown_minutes`, default 30) rather than
+blocking the query outright: a close-but-wrong guess is a real signal,
+not a certainty, and false positives here would land on legitimate
+traffic (a domain that happens to be a couple of characters from a brand
+name for entirely unrelated reasons) rather than being silently absorbed
+the way an over-broad blocklist entry might be.
+
+Own lists -> Typosquat protection shows the built-in list of ~50 protected
+domains (major tech/finance/shipping brands plus a handful of commonly-
+targeted Polish services - banks, Allegro, InPost, mobile carriers) and
+lets you add your own on top - your own company's domain, say. This list
+is additive-only by design, the same reasoning as a client group's extra
+blocklist sources: you can make the check cover more, not silently drop
+one of the curated defaults.
+
+This is a per-query, real-time check (unlike the window-based heuristics
+above), but a cheap one: distance is only computed against ~50 short
+strings, and results are cached per distinct domain so a repeat query
+never redoes the comparison - the cache is cleared automatically whenever
+the protected-domains list or max-distance setting changes.
+
 ### Alert rules (watched domains and lists)
 
-The three heuristics above are statistical guesses over a rolling window -
+The four heuristics above are statistical guesses over a rolling window -
 useful for "something looks off", but not for "tell me the instant this
 *specific* domain gets queried". Alert rules cover that instead: still in
 Settings -> Anomalies, right below the anomaly-detection settings, is a

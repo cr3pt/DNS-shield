@@ -52,6 +52,9 @@ class FilteringResolver:
         alert_match = self._blocklist.alert_match(qname) if qname else None
         alert_rule = alert_match[0] if alert_match else None
 
+        typosquat = self._blocklist.typosquat_match(qname) if qname else None
+        typosquat_match = f"{typosquat[0]}|{typosquat[1]}|{typosquat[2]}" if typosquat else None
+
         if blocked:
             response = self._blocked_reply(request)
         else:
@@ -79,7 +82,9 @@ class FilteringResolver:
                         reason = f"Blocked destination IP ({matched_pattern})"
                         break
 
-        self._stats.record(qname, blocked, client_ip, qtype_name, reason, self._answer_ip(response), alert_rule)
+        self._stats.record(
+            qname, blocked, client_ip, qtype_name, reason, self._answer_ip(response), alert_rule, typosquat_match
+        )
         return response
 
     @staticmethod

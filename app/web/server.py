@@ -21,6 +21,7 @@ from app.import_adguard import import_config
 from app.import_pihole import import_config as import_pihole_config
 from app.netmatch import ip_matches
 from app.sessions import COOKIE_NAME, SessionStore
+from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
 from app.users import UserStore, public_user
@@ -49,6 +50,9 @@ _ANOMALY_DEFAULTS: dict[str, Any] = {
     "domain_burst_min_label_length": 10,
     "domain_burst_entropy_fraction": 0.5,
     "blocked_domain_burst_threshold": 15,
+    "dns_tunneling_threshold": 30,
+    "dns_tunneling_min_label_length": 20,
+    "dns_tunneling_min_entropy": 3.0,
     "cooldown_minutes": 60,
 }
 
@@ -152,6 +156,9 @@ class DnsSettingsIn(BaseModel):
     safe_search_enabled: bool | None = None
     dnssec_enabled: bool | None = None
     dnssec_cache_seconds: float | None = None
+    typosquat_enabled: bool | None = None
+    typosquat_max_distance: int | None = None
+    typosquat_cooldown_minutes: float | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -246,6 +253,9 @@ class AnomalySettingsIn(BaseModel):
     domain_burst_min_label_length: int | None = None
     domain_burst_entropy_fraction: float | None = None
     blocked_domain_burst_threshold: int | None = None
+    dns_tunneling_threshold: int | None = None
+    dns_tunneling_min_label_length: int | None = None
+    dns_tunneling_min_entropy: float | None = None
     cooldown_minutes: float | None = None
 
 
@@ -775,6 +785,25 @@ def create_app(
     @app.delete("/api/log-ignore/clients/{value}")
     def remove_ignored_client(value: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _remove_nested_rule("logging", "ignored_clients", value.strip())
+
+    @app.get("/api/typosquat-domains")
+    def get_typosquat_domains(_: dict[str, Any] = Depends(require_admin)) -> dict[str, list[str]]:
+        return {
+            "default": list(DEFAULT_PROTECTED_DOMAINS),
+            "extra": config_store.get("dns", "typosquat_extra_domains", default=[]) or [],
+        }
+
+    @app.post("/api/typosquat-domains")
+    def add_typosquat_domain(body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        result = _add_nested_rule("dns", "typosquat_extra_domains", body.domain.strip().lower().rstrip("."))
+        blocklist.clear_typosquat_cache()
+        return result
+
+    @app.delete("/api/typosquat-domains/{value}")
+    def remove_typosquat_domain(value: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        result = _remove_nested_rule("dns", "typosquat_extra_domains", value.strip().lower().rstrip("."))
+        blocklist.clear_typosquat_cache()
+        return result
 
     @app.get("/api/client-groups")
     def list_client_groups(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:

@@ -32,6 +32,18 @@ def _looks_like_dga(domain: str, min_label_length: int, min_entropy: float) -> b
         return False
     return _shannon_entropy(label) >= min_entropy
 
+
+def _base_domain(domain: str) -> str:
+    labels = domain.rstrip(".").split(".")
+    return ".".join(labels[-2:]) if len(labels) >= 2 else domain
+
+
+def _looks_like_tunnel_label(domain: str, min_label_length: int, min_entropy: float) -> bool:
+    first_label = domain.rstrip(".").split(".")[0]
+    if len(first_label) < min_label_length:
+        return False
+    return _shannon_entropy(first_label) >= min_entropy
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS anomalies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +64,7 @@ KIND_LABELS = {
     "high_blocked_ratio": "High blocked-query ratio",
     "domain_burst": "Burst of random-looking domains (possible DGA)",
     "blocked_domain_burst": "Unusually many distinct blocked domains",
+    "dns_tunneling": "Many distinct subdomains of one domain (possible DNS tunneling)",
 }
 
 
@@ -69,6 +82,7 @@ class AnomalyDetector:
         self._thread: threading.Thread | None = None
         self._watch_thread: threading.Thread | None = None
         self._watch_last_id: int | None = None
+        self._typosquat_watch_last_id: int | None = None
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, timeout=10)
@@ -115,6 +129,10 @@ class AnomalyDetector:
                 self.check_watched_domains()
             except Exception:
                 logger.exception("watched-domain check failed")
+            try:
+                self.check_typosquat_hits()
+            except Exception:
+                logger.exception("typosquat check failed")
 
     def check_once(self) -> list[dict[str, Any]]:
         window_minutes = float(self._config.get("anomaly", "window_minutes", default=15) or 15)
@@ -147,6 +165,13 @@ class AnomalyDetector:
         blocked_domain_burst_threshold = int(
             self._config.get("anomaly", "blocked_domain_burst_threshold", default=15) or 15
         )
+        dns_tunneling_threshold = int(self._config.get("anomaly", "dns_tunneling_threshold", default=30) or 30)
+        dns_tunneling_min_label_length = int(
+            self._config.get("anomaly", "dns_tunneling_min_label_length", default=20) or 20
+        )
+        dns_tunneling_min_entropy = float(
+            self._config.get("anomaly", "dns_tunneling_min_entropy", default=3.0) or 3.0
+        )
         cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
 
@@ -154,7 +179,8 @@ class AnomalyDetector:
         now = until_ts
         found: list[dict[str, Any]] = []
 
-        needs_domains = any(row["distinct_domains"] >= domain_burst_threshold for row in activity)
+        domain_list_threshold = min(domain_burst_threshold, dns_tunneling_threshold)
+        needs_domains = any(row["distinct_domains"] >= domain_list_threshold for row in activity)
         domains_by_client = self._stats.client_domains(window_minutes * 60, until_ts=until_ts) if needs_domains else {}
 
         with self._lock:
@@ -211,6 +237,34 @@ class AnomalyDetector:
                             f"{distinct_blocked_domains} distinct blocked domains hit in the last {window_minutes:g} min",
                         ))
 
+                    dns_tunneling_base: str | None = None
+                    dns_tunneling_subdomain_count: int | None = None
+                    dns_tunneling_avg_length: float | None = None
+                    if distinct_domains >= dns_tunneling_threshold:
+                        client_domains = domains_by_client.get(client, [])
+                        groups: dict[str, list[str]] = {}
+                        for d in client_domains:
+                            groups.setdefault(_base_domain(d), []).append(d)
+                        for base, subdomains in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+                            if len(subdomains) < dns_tunneling_threshold:
+                                break
+                            avg_length = sum(len(d) for d in subdomains) / len(subdomains)
+                            random_like = [
+                                d for d in subdomains
+                                if _looks_like_tunnel_label(d, dns_tunneling_min_label_length, dns_tunneling_min_entropy)
+                            ]
+                            if len(random_like) / len(subdomains) >= 0.5:
+                                dns_tunneling_base = base
+                                dns_tunneling_subdomain_count = len(subdomains)
+                                dns_tunneling_avg_length = avg_length
+                                severity = "high" if len(subdomains) >= dns_tunneling_threshold * 2 else "medium"
+                                candidates.append((
+                                    "dns_tunneling", severity,
+                                    f"{len(subdomains)} distinct, long/random-looking subdomains of {base} queried "
+                                    f"in the last {window_minutes:g} min (avg name length {avg_length:.0f} chars)",
+                                ))
+                                break
+
                     for kind, severity, summary in candidates:
                         last = last_fired.get((client, kind))
                         if last is not None and now - last < cooldown_seconds:
@@ -225,6 +279,10 @@ class AnomalyDetector:
                         if kind == "domain_burst":
                             details["random_looking_domains"] = domain_burst_random_count
                             details["random_looking_percent"] = domain_burst_entropy_pct
+                        if kind == "dns_tunneling":
+                            details["base_domain"] = dns_tunneling_base
+                            details["subdomain_count"] = dns_tunneling_subdomain_count
+                            details["avg_name_length"] = dns_tunneling_avg_length
                         conn.execute(
                             "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
                             "VALUES (?, ?, ?, ?, ?, ?, 0)",
@@ -308,10 +366,80 @@ class AnomalyDetector:
                     logger.exception("on_new_anomalies callback failed")
         return found
 
+    def check_typosquat_hits(self) -> list[dict[str, Any]]:
+        if not self._config.get("dns", "typosquat_enabled", default=False):
+            return []
+        if self._typosquat_watch_last_id is None:
+            self._typosquat_watch_last_id = self._stats.max_query_id()
+            return []
+
+        hits = self._stats.typosquat_hits_since(self._typosquat_watch_last_id)
+        if not hits:
+            return []
+
+        cooldown_minutes = float(self._config.get("dns", "typosquat_cooldown_minutes", default=30) or 30)
+        cooldown_seconds = max(cooldown_minutes, 1.0) * 60
+        now = time.time()
+        found: list[dict[str, Any]] = []
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.row_factory = sqlite3.Row
+                last_fired = {
+                    (row["client"], row["kind"]): row["last_ts"]
+                    for row in conn.execute(
+                        "SELECT client, kind, MAX(ts) AS last_ts FROM anomalies GROUP BY client, kind"
+                    ).fetchall()
+                }
+
+                for hit in hits:
+                    client = hit["client"]
+                    domain = hit["domain"]
+                    parts = (hit["typosquat_match"] or "").split("|")
+                    protected = parts[0] if parts else "?"
+                    match_type = parts[1] if len(parts) > 1 else "typo"
+                    kind = f"typosquat:{protected}"
+                    last = last_fired.get((client, kind))
+                    if last is not None and now - last < cooldown_seconds:
+                        continue
+                    verb = "impersonates" if match_type == "embedded" else "looks like a typo of"
+                    summary = f'Domain "{domain}" {verb} "{protected}"'
+                    details = {
+                        "domain": domain, "protected_domain": protected,
+                        "match_type": match_type, "query_ts": hit["ts"],
+                    }
+                    conn.execute(
+                        "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
+                        "VALUES (?, ?, ?, 'high', ?, ?, 0)",
+                        (now, client, kind, summary, json.dumps(details)),
+                    )
+                    last_fired[(client, kind)] = now
+                    found.append({"ts": now, "client": client, "kind": kind, "severity": "high", "summary": summary})
+
+                conn.commit()
+            finally:
+                conn.close()
+
+        self._typosquat_watch_last_id = max(hit["id"] for hit in hits)
+
+        if found:
+            logger.info(
+                "typosquat check: %d new alert%s flagged", len(found), "" if len(found) == 1 else "s"
+            )
+            if self._on_new_anomalies is not None:
+                try:
+                    self._on_new_anomalies(found)
+                except Exception:
+                    logger.exception("on_new_anomalies callback failed")
+        return found
+
     @staticmethod
     def _kind_label(kind: str) -> str:
         if kind.startswith("watched_domain:"):
             return f"Watched domain: {kind.split(':', 1)[1]}"
+        if kind.startswith("typosquat:"):
+            return f"Possible typosquat of {kind.split(':', 1)[1]}"
         return KIND_LABELS.get(kind, kind)
 
     @classmethod
