@@ -7,7 +7,7 @@ import time
 
 import socket
 
-from dnslib import AAAA, QTYPE, RCODE, RR, A, DNSRecord
+from dnslib import AAAA, EDNS0, QTYPE, RCODE, RR, A, DNSHeader, DNSRecord
 from dnslib.server import DNSServer
 from dnslib.server import TCPServer as _DNSLibTCPServer
 from dnslib.server import UDPServer as _DNSLibUDPServer
@@ -19,15 +19,20 @@ from app.safe_search import find_safe_search_target
 
 logger = logging.getLogger("dnsshield.dns")
 
+_DNSSEC_UDP_SIZE = 1232
+
 
 class FilteringResolver:
-    def __init__(self, blocklist, stats, config_store, cache=None, client_names=None, upstream_stats=None):
+    def __init__(
+        self, blocklist, stats, config_store, cache=None, client_names=None, upstream_stats=None, dnssec_cache=None
+    ):
         self._blocklist = blocklist
         self._stats = stats
         self._config = config_store
         self._cache = cache
         self._client_names = client_names
         self._upstream_stats = upstream_stats
+        self._dnssec_cache = dnssec_cache
 
     def resolve(self, request, handler):
         qname = str(request.q.qname).rstrip(".").lower()
@@ -141,14 +146,30 @@ class FilteringResolver:
         upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
         return [u for u in upstreams if not upstream_transport.is_disabled(u)]
 
+    def _dnssec_enabled(self) -> bool:
+        return self._dnssec_cache is not None and bool(self._config.get("dns", "dnssec_enabled", default=False))
+
+    def _prepare_upstream_data(self, request: DNSRecord) -> bytes:
+        if not self._dnssec_enabled():
+            return request.pack()
+        outgoing = DNSRecord(DNSHeader(id=request.header.id, rd=request.header.rd), q=request.q)
+        outgoing.add_ar(EDNS0(flags="do", udp_len=_DNSSEC_UDP_SIZE))
+        return outgoing.pack()
+
+    def _record_dnssec(self, qname: str, response: DNSRecord) -> None:
+        if self._dnssec_enabled() and qname:
+            ttl_seconds = float(self._config.get("dns", "dnssec_cache_seconds", default=3600))
+            self._dnssec_cache.set_ttl(ttl_seconds)
+            self._dnssec_cache.record(qname, bool(response.header.get_ad()))
+
     def _forward(self, request: DNSRecord, qname: str, client_ip: str) -> DNSRecord:
-        data = request.pack()
+        data = self._prepare_upstream_data(request)
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
         upstreams = self._select_upstreams(qname, client_ip)
         strategy = self._config.get("dns", "upstream_strategy", default="in_order")
 
         if strategy == "race" and len(upstreams) > 1:
-            return self._forward_race(request, data, upstreams, timeout)
+            return self._forward_race(request, data, upstreams, timeout, qname)
 
         if self._upstream_stats is not None:
             upstreams = self._upstream_stats.rank(upstreams, strategy)
@@ -159,7 +180,9 @@ class FilteringResolver:
                 resp = upstream_transport.forward(data, upstream, timeout)
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
-                return DNSRecord.parse(resp)
+                parsed = DNSRecord.parse(resp)
+                self._record_dnssec(qname, parsed)
+                return parsed
             except Exception as exc:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, False)
@@ -170,7 +193,9 @@ class FilteringResolver:
         reply.header.rcode = RCODE.SERVFAIL
         return reply
 
-    def _forward_race(self, request: DNSRecord, data: bytes, upstreams: list[str], timeout: float) -> DNSRecord:
+    def _forward_race(
+        self, request: DNSRecord, data: bytes, upstreams: list[str], timeout: float, qname: str = ""
+    ) -> DNSRecord:
         results: queue.Queue[tuple[str, bytes | None, Exception | None]] = queue.Queue()
 
         def worker(upstream: str) -> None:
@@ -191,7 +216,9 @@ class FilteringResolver:
         for _ in upstreams:
             upstream, resp, exc = results.get()
             if resp is not None:
-                return DNSRecord.parse(resp)
+                parsed = DNSRecord.parse(resp)
+                self._record_dnssec(qname, parsed)
+                return parsed
             logger.warning("upstream %s failed (race mode): %s", upstream, exc)
 
         reply = request.reply()
@@ -246,10 +273,23 @@ def reuse_port_supported() -> bool:
 
 
 def start_dns_servers(
-    config_store, blocklist, stats, cache=None, client_names=None, upstream_stats=None, reuse_port=False
+    config_store,
+    blocklist,
+    stats,
+    cache=None,
+    client_names=None,
+    upstream_stats=None,
+    reuse_port=False,
+    dnssec_cache=None,
 ) -> list[DNSServer]:
     resolver = FilteringResolver(
-        blocklist, stats, config_store, cache=cache, client_names=client_names, upstream_stats=upstream_stats
+        blocklist,
+        stats,
+        config_store,
+        cache=cache,
+        client_names=client_names,
+        upstream_stats=upstream_stats,
+        dnssec_cache=dnssec_cache,
     )
     logger_ = QuietLogger()
     address = config_store.get("dns", "listen_address", default="0.0.0.0")

@@ -12,6 +12,7 @@ from typing import Any, Iterable
 import requests
 
 from app.netmatch import client_matches
+from app.schedule import is_schedule_blocked
 from app.upstream import protected_hostnames
 
 logger = logging.getLogger("dnsshield.blocklist")
@@ -224,6 +225,8 @@ class BlocklistManager:
             return None
         if self._is_client_blocked(client_ip):
             return "Client blocked (manually)"
+        if group is not None and is_schedule_blocked(group.get("schedule")):
+            return f'Scheduled block (client group "{group.get("name", "")}")'
         if group and matches(group.get("denylist")):
             return f"Denylist (client group \"{group.get('name', '')}\")"
         if matches(self._config.get("denylist", default=[])):

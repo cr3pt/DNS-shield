@@ -109,10 +109,23 @@ class ClientGroupIn(BaseModel):
     upstreams: list[str] = []
     blocklist_sources: list[dict[str, Any]] = []
     safe_search: bool | None = None
+    schedule: dict[str, Any] | None = None
 
 
 class GroupSafeSearchIn(BaseModel):
     safe_search: bool | None = None
+
+
+class ScheduleWindowIn(BaseModel):
+    days: list[int]
+    start: str
+    end: str
+
+
+class GroupScheduleIn(BaseModel):
+    enabled: bool = False
+    timezone: str = ""
+    windows: list[ScheduleWindowIn] = []
 
 
 class DnsSettingsIn(BaseModel):
@@ -137,6 +150,8 @@ class DnsSettingsIn(BaseModel):
     block_page_port: int | None = None
     regex_denylist_enabled: bool | None = None
     safe_search_enabled: bool | None = None
+    dnssec_enabled: bool | None = None
+    dnssec_cache_seconds: float | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -268,6 +283,7 @@ def create_app(
     notifications=None,
     users: UserStore | None = None,
     sessions: SessionStore | None = None,
+    dnssec_cache=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -392,6 +408,10 @@ def create_app(
             "answer_ip_source_formats": blocklist.answer_ip_source_formats(),
             "cache": cache.stats() if cache is not None else None,
             "upstream_stats": upstream_stats.snapshot() if upstream_stats is not None else {},
+            "dnssec": {
+                "enabled": bool(config_store.get("dns", "dnssec_enabled", default=False)),
+                "cached_domains": dnssec_cache.counts() if dnssec_cache is not None else {"secure": 0, "insecure": 0},
+            },
             "pause": {
                 "active": blocklist.is_paused(),
                 "until": config_store.get("pause", "until", default=None),
@@ -854,6 +874,23 @@ def create_app(
     ) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["safe_search"] = body.safe_search
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.put("/api/client-groups/{index}/schedule")
+    def set_group_schedule(
+        index: int, body: GroupScheduleIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            group["schedule"] = {
+                "enabled": body.enabled,
+                "timezone": body.timezone.strip(),
+                "windows": [
+                    {"days": sorted({d for d in w.days if 0 <= d <= 6}), "start": w.start.strip(), "end": w.end.strip()}
+                    for w in body.windows
+                ],
+            }
             return group
 
         return _group_mutate(index, _fn)

@@ -292,6 +292,40 @@ by deleting it outright. Under the hood this just prefixes the entry with
 convention as commenting a line out by hand in the "one per line" textarea
 above the table, or in a hand-edited config file.
 
+### DNSSEC
+
+`dns.dnssec_enabled` (Settings -> DNS, off by default) makes DNS-shield
+set the DNSSEC OK (`DO`) bit on every query it forwards and check the
+`AD` (Authenticated Data) flag on the reply. This is **trust-in-upstream**
+DNSSEC handling, not independent cryptographic validation: DNS-shield
+doesn't parse RRSIG/DNSKEY/DS records or walk the chain of trust itself
+(that's a large amount of crypto machinery this project isn't taking on),
+it relies on the upstream resolver having already validated and asks it
+to say so. Point it at a validating public resolver (1.1.1.1, 9.9.9.9, and
+8.8.8.8 all validate by default) for this to mean anything - an upstream
+that doesn't validate will simply never set `AD`, and this feature has
+nothing to check.
+
+Because checking a domain's status shouldn't mean redoing verification on
+every single query for it, results are kept in a small in-memory cache
+independent of the regular DNS answer cache - `{domain: (secure, expires
+at)}` - with its own TTL, `dns.dnssec_cache_seconds` (default 3600). This
+matters because a query answered from the *regular* answer cache never
+reaches the forwarding code path at all, so without a separate cache
+DNS-shield would have no idea whether a cached answer was ever
+DNSSEC-authenticated; the dedicated cache is populated only on a live
+upstream round-trip and is what `GET /api/status`'s `dnssec.cached_domains`
+counts (`secure`/`insecure`) are read from. This is observability, not
+enforcement - an insecure/unsigned result is normal for the large fraction
+of domains that don't sign their zone at all, so DNS-shield doesn't block
+or otherwise treat unsigned answers differently; a validating upstream
+already refuses (SERVFAIL) to hand back an answer whose signature fails
+verification on its own, before DNS-shield ever sees it.
+
+Turning the setting back off (or leaving it off) reverts to exactly the
+pre-existing behavior - queries are packed and forwarded with no EDNS0
+record added, at no extra cost.
+
 ### Upstream and blocklist hostnames are always resolvable and never logged
 
 Whatever hostname a `dot://`/`doh://` upstream needs DNS to resolve (e.g.
@@ -528,6 +562,33 @@ same as with any DNS-based parental control (AdGuard Home and Pi-hole
 included) - pair it with your router blocking outbound DNS-over-HTTPS/TLS
 to third parties and forcing all LAN DNS through DNS-shield if you need
 that to actually hold.
+
+A third piece, also opt-in per group: a **bedtime schedule** that blocks
+every query from a group's clients during one or more time windows -
+"no internet 22:00-07:00" rather than "no adult content". Set it from the
+group's card in the Clients tab (one window: days + start/end time,
+plus its own enable checkbox) or via `client_groups[].schedule`:
+
+```yaml
+client_groups:
+  - name: "Kids"
+    match: ["192.168.1.50"]
+    schedule:
+      enabled: true
+      timezone: ""            # blank = container's local time (set TZ in docker-compose.yml)
+      windows:
+        - days: [0, 1, 2, 3, 4, 5, 6]   # Monday=0 .. Sunday=6
+          start: "22:00"
+          end: "07:00"
+```
+
+A window is checked against the group's clients on every query - it beats
+even the group's own allowlist while active (the point of a bedtime block
+is that it's total), the same way `blocked_clients` beats everything except
+`enabled: false`. `start`/`end` can wrap past midnight (`22:00`-`07:00`
+above spans two calendar days); the `enabled` flag turns the whole thing
+off without losing the saved window, and defaults to off for a group that
+doesn't set it, so this is fully opt-in.
 
 ### Blocking a client entirely
 

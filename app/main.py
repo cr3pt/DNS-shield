@@ -18,6 +18,7 @@ from app.client_names import ClientNameResolver
 from app.config import ConfigStore
 from app.dns_cache import DNSCache
 from app.dns_server import reuse_port_supported, start_dns_servers
+from app.dnssec import DnssecCache
 from app.enrichment_store import EnrichmentStore
 from app.mac_resolve import MacResolver
 from app.notifications import NotificationSender
@@ -53,6 +54,7 @@ def _run_dns_worker(worker_id: int, num_workers: int, data_dir: Path, log_level:
     stats = Stats(data_dir / "stats.db", config_store)
     cache = DNSCache(config_store)
     upstream_stats = UpstreamStats(config_store)
+    dnssec_cache = DnssecCache()
 
     start_dns_servers(
         config_store,
@@ -62,6 +64,7 @@ def _run_dns_worker(worker_id: int, num_workers: int, data_dir: Path, log_level:
         client_names=client_names,
         upstream_stats=upstream_stats,
         reuse_port=True,
+        dnssec_cache=dnssec_cache,
     )
     logger.info("DNS worker %d/%d ready", worker_id + 1, num_workers)
     threading.Event().wait()
@@ -129,6 +132,7 @@ def main() -> None:
 
     cache = DNSCache(config_store)
     upstream_stats = UpstreamStats(config_store)
+    dnssec_cache = DnssecCache()
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")
 
     notifications = NotificationSender(config_store)
@@ -149,6 +153,7 @@ def main() -> None:
         client_names=client_names,
         upstream_stats=upstream_stats,
         reuse_port=num_workers > 1,
+        dnssec_cache=dnssec_cache,
     )
 
     if config_store.get("dns", "block_page_enabled", default=False):
@@ -172,6 +177,7 @@ def main() -> None:
         notifications=notifications,
         users=users,
         sessions=sessions,
+        dnssec_cache=dnssec_cache,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))

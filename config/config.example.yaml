@@ -15,6 +15,8 @@ dns:
   block_ipv6: false
   block_non_latin: false
   safe_search_enabled: false
+  dnssec_enabled: false
+  dnssec_cache_seconds: 3600
   regex_denylist_enabled: false
   cache_enabled: true
   cache_max_entries: 10000
