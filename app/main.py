@@ -20,6 +20,7 @@ from app.dns_cache import DNSCache
 from app.dns_server import reuse_port_supported, start_dns_servers
 from app.dnssec import DnssecCache
 from app.enrichment_store import EnrichmentStore
+from app.tls import ensure_self_signed_cert
 from app.mac_resolve import MacResolver
 from app.notifications import NotificationSender
 from app.sessions import SessionStore
@@ -181,9 +182,22 @@ def main() -> None:
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))
-    logger.info("web UI listening on %s:%d", web_host, web_port)
 
-    uvicorn.run(app, host=web_host, port=web_port, log_level="warning")
+    ssl_kwargs: dict[str, str] = {}
+    if config_store.get("web", "https_enabled", default=False):
+        cert_path_cfg = config_store.get("web", "https_cert_path", default="") or ""
+        key_path_cfg = config_store.get("web", "https_key_path", default="") or ""
+        if cert_path_cfg and key_path_cfg:
+            cert_path, key_path = Path(cert_path_cfg), Path(key_path_cfg)
+        else:
+            cert_path, key_path = DATA_DIR / "tls" / "cert.pem", DATA_DIR / "tls" / "key.pem"
+            ensure_self_signed_cert(cert_path, key_path)
+        ssl_kwargs = {"ssl_certfile": str(cert_path), "ssl_keyfile": str(key_path)}
+        logger.info("web UI listening on https://%s:%d", web_host, web_port)
+    else:
+        logger.info("web UI listening on http://%s:%d", web_host, web_port)
+
+    uvicorn.run(app, host=web_host, port=web_port, log_level="warning", **ssl_kwargs)
     _stop_workers()
 
 

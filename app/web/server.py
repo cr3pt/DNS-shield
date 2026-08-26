@@ -19,6 +19,7 @@ from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app.enrichment import enrich as run_enrichment
 from app.import_adguard import import_config
 from app.import_pihole import import_config as import_pihole_config
+from app.login_throttle import LoginThrottle
 from app.netmatch import ip_matches
 from app.sessions import COOKIE_NAME, SessionStore
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
@@ -183,6 +184,11 @@ class WebSettingsIn(BaseModel):
     listen_address: str | None = None
     listen_port: int | None = None
     theme: str | None = None
+    https_enabled: bool | None = None
+    https_cert_path: str | None = None
+    https_key_path: str | None = None
+    login_max_attempts: int | None = None
+    login_lockout_minutes: float | None = None
 
 
 class LoginIn(BaseModel):
@@ -301,6 +307,7 @@ def create_app(
 
     users = users if users is not None else UserStore(config_store)
     sessions = sessions if sessions is not None else SessionStore()
+    login_throttle = LoginThrottle()
 
     NO_CACHE = {"Cache-Control": "no-cache"}
 
@@ -349,16 +356,33 @@ def create_app(
         return FileResponse(STATIC_DIR / "login.html", headers=NO_CACHE)
 
     @app.post("/api/login")
-    def login(body: LoginIn, response: Response) -> dict[str, Any]:
+    def login(body: LoginIn, request: Request, response: Response) -> dict[str, Any]:
+        client_ip = request.client.host if request.client else "unknown"
+        max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
+        lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
+        login_throttle.configure(max_attempts, lockout_seconds)
+
+        retry_after = login_throttle.retry_after(client_ip)
+        if retry_after is not None:
+            wait_seconds = int(retry_after) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed login attempts - try again in {wait_seconds}s",
+                headers={"Retry-After": str(wait_seconds)},
+            )
+
         user = users.verify_login(body.username.strip(), body.password)
         if user is None:
+            login_throttle.record_failure(client_ip)
             raise HTTPException(status_code=401, detail="Invalid username or password")
+        login_throttle.record_success(client_ip)
         token = sessions.create(user["username"])
         response.set_cookie(
             COOKIE_NAME,
             token,
             httponly=True,
             samesite="lax",
+            secure=bool(config_store.get("web", "https_enabled", default=False)),
             max_age=7 * 24 * 3600,
             path="/",
         )
@@ -1160,6 +1184,11 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "listen_address": web_cfg.get("listen_address"),
                 "listen_port": web_cfg.get("listen_port"),
                 "theme": web_cfg.get("theme", "navy"),
+                "https_enabled": bool(web_cfg.get("https_enabled", False)),
+                "https_cert_path": web_cfg.get("https_cert_path", "") or "",
+                "https_key_path": web_cfg.get("https_key_path", "") or "",
+                "login_max_attempts": web_cfg.get("login_max_attempts", 5),
+                "login_lockout_minutes": web_cfg.get("login_lockout_minutes", 15),
             },
             "logging": snap.get("logging", {}),
             "blocklists_refresh_interval_hours": snap.get("blocklists", {}).get("refresh_interval_hours", 24),
@@ -1188,6 +1217,9 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "web.listen_port",
                 "dns.block_page_enabled",
                 "dns.block_page_port",
+                "web.https_enabled",
+                "web.https_cert_path",
+                "web.https_key_path",
             ],
             "restart_note": RESTART_NOTE,
         }

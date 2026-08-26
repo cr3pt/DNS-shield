@@ -1272,6 +1272,39 @@ every account's bcrypt hash - not reversible to the original password,
 but still worth keeping private, same as any other credential in that
 file.
 
+### HTTPS for the dashboard
+
+`web.https_enabled` (Settings -> General, off by default) makes the
+dashboard's own web port serve HTTPS instead of plain HTTP - this
+replaces the port, it doesn't add a second one, so once it's on, only
+`https://` reaches the dashboard on `web.listen_port`. Requires
+restarting the container to take effect, same as the listen
+address/port themselves.
+
+With no certificate configured, DNS-shield generates its own self-signed
+certificate the first time it starts with HTTPS on, and reuses that same
+one on every later restart (`<data dir>/tls/cert.pem`/`key.pem` - part
+of the data volume, so it survives a container recreate, and the private
+key is written with `0600` permissions). Your browser will show a "not
+trusted" warning the first time you connect, since a self-signed
+certificate isn't backed by a certificate authority your browser already
+trusts - the connection itself is genuinely encrypted either way, this
+warning is only about identity verification, not encryption strength.
+Click through it once, or - the actually correct fix if this matters to
+you - set `web.https_cert_path`/`web.https_key_path` to a real
+certificate and key pair instead (e.g. one an ACME client like
+`certbot`/`lego` issues for a domain name that actually resolves to
+this host, mounted into the container alongside the data volume).
+DNS-shield never talks to an ACME provider itself - it only ever reads
+whatever cert/key files you point it at, the same "no outbound calls you
+didn't ask for" principle as everything else in this project.
+
+Turning HTTPS on also puts the `Secure` flag on the session cookie
+automatically (see **Security notes** below), so it's worth doing even
+with a self-signed certificate if the dashboard is reachable beyond
+localhost - encrypting the login request and session cookie in transit
+doesn't need a browser-trusted certificate to be worthwhile.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide
@@ -1525,11 +1558,16 @@ shared across them.
   beyond localhost (Settings -> General -> "Your account", or Settings ->
   Users). Passwords are always bcrypt-hashed - see **Multi-user accounts,
   roles, and the public view** above.
-- The web UI has no rate limiting; put it behind your own reverse proxy /
-  VPN if you expose it outside your LAN. Login sessions use a cookie
-  without the `Secure` flag (this is meant for plain-HTTP LAN use); a
-  reverse proxy terminating TLS in front of it is also how you'd get
-  `Secure` cookies.
+- The login endpoint is rate-limited per source IP (`web.login_max_attempts`,
+  default 5 failures before a `web.login_lockout_minutes`-long, default
+  15, lockout - a correct password doesn't bypass an active lockout).
+  Nothing else on the API is rate-limited, though; put the dashboard
+  behind your own reverse proxy / VPN if you're exposing more of it
+  outside your LAN than the login form. The session cookie gets the
+  `Secure` flag automatically once `web.https_enabled` is on (see
+  [HTTPS for the dashboard](#https-for-the-dashboard) below) - it's left
+  off by default since a plain-HTTP LAN deployment couldn't ever send it
+  back.
 - The public, signed-out view (`/` and `GET /api/public/summary`) is
   intentionally reachable without a login - it only ever returns the
   query trend and top blocked domains, nothing client- or domain-specific
@@ -1564,8 +1602,9 @@ shared across them.
   and hostname matching depends on client name resolution being enabled -
   neither is available out of the box with the default bridge-networked
   `docker-compose.yml`.
-- No built-in HTTPS for the web UI - put a reverse proxy in front of it if
-  you need TLS.
+- HTTPS for the dashboard (see above) is self-signed by default - a
+  browser-trusted certificate still means either providing your own or
+  putting a reverse proxy with its own ACME client in front of it.
 - Blocklist matching is domain/subdomain based. `||domain^` block rules and
   `@@||domain^` exception rules (both from subscribed lists and a group's
   own extra sources) are understood; a domain covered by an exception is

@@ -529,6 +529,27 @@
             </select>
           </div>
         </div>
+        <div class="field checkbox">
+          <input type="checkbox" id="s-web-https-enabled">
+          <label for="s-web-https-enabled">Serve the dashboard over HTTPS</label>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label>Certificate file path (optional)</label><input type="text" id="s-web-https-cert-path" placeholder="leave blank to auto-generate a self-signed one"></div>
+          <div class="field"><label>Key file path (optional)</label><input type="text" id="s-web-https-key-path" placeholder="leave blank to auto-generate a self-signed one"></div>
+        </div>
+        <p class="hint">
+          With no certificate/key path set, DNS-shield generates and reuses its own self-signed
+          certificate (stored in the data volume) - your browser will show a security warning
+          the first time since it isn't from a trusted authority, but the connection is still
+          encrypted. Provide your own certificate/key file paths instead if you have a real one
+          (e.g. from a reverse proxy's ACME client, mounted into the container). Requires
+          restarting the container either way.
+        </p>
+        <div class="field-grid">
+          <div class="field"><label>Max failed logins before lockout</label><input type="number" id="s-web-login-max-attempts" min="1" step="1"></div>
+          <div class="field"><label>Lockout duration (minutes)</label><input type="number" id="s-web-login-lockout" min="1" step="1"></div>
+        </div>
+        <p class="hint">Locks out further login attempts from an IP after this many failures in a row, for this many minutes - takes effect immediately, no restart needed.</p>
         <p class="hint">Listen address/port changes require restarting the container.</p>
         <button type="submit">Save web settings</button>
       </form>
@@ -2425,6 +2446,11 @@ async function loadSettings() {
   document.getElementById("s-web-listen-address").value = s.web.listen_address ?? "";
   document.getElementById("s-web-listen-port").value = s.web.listen_port ?? "";
   document.getElementById("s-web-theme").value = s.web.theme ?? "navy";
+  document.getElementById("s-web-https-enabled").checked = !!s.web.https_enabled;
+  document.getElementById("s-web-https-cert-path").value = s.web.https_cert_path ?? "";
+  document.getElementById("s-web-https-key-path").value = s.web.https_key_path ?? "";
+  document.getElementById("s-web-login-max-attempts").value = s.web.login_max_attempts ?? 5;
+  document.getElementById("s-web-login-lockout").value = s.web.login_lockout_minutes ?? 15;
   document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
 
   document.getElementById("s-retention-days").value = s.logging.retention_days ?? "";
@@ -3142,6 +3168,11 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
     listen_address: document.getElementById("s-web-listen-address").value.trim(),
     listen_port: intField("s-web-listen-port"),
     theme,
+    https_enabled: document.getElementById("s-web-https-enabled").checked,
+    https_cert_path: document.getElementById("s-web-https-cert-path").value.trim(),
+    https_key_path: document.getElementById("s-web-https-key-path").value.trim(),
+    login_max_attempts: intField("s-web-login-max-attempts"),
+    login_lockout_minutes: floatField("s-web-login-lockout"),
   };
   document.documentElement.setAttribute("data-theme", theme);
   await api("/api/settings/web", {
