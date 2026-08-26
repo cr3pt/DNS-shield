@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import ssl
 import threading
 import time
 
@@ -284,6 +285,68 @@ def reuse_port_supported() -> bool:
     return hasattr(socket, "SO_REUSEPORT")
 
 
+def _make_dot_server_class(ssl_context: ssl.SSLContext):
+    class _DoTServer(_DNSLibTCPServer):
+        def finish_request(self, request, client_address):
+            # Wrapping the socket here (not in get_request()) means the TLS handshake
+            # runs inside the per-connection thread ThreadingMixIn already spawned, so a
+            # slow/hanging client can't block the accept loop for other connections.
+            try:
+                tls_request = ssl_context.wrap_socket(request, server_side=True)
+            except (ssl.SSLError, OSError) as exc:
+                logger.debug("DoT handshake failed from %s: %s", client_address, exc)
+                return
+            super().finish_request(tls_request, client_address)
+
+        def handle_error(self, request, client_address):
+            logger.debug("DoT connection error from %s", client_address, exc_info=True)
+
+    return _DoTServer
+
+
+def start_dot_server(
+    resolver: FilteringResolver,
+    cert_path,
+    key_path,
+    address: str = "0.0.0.0",
+    port: int = 853,
+) -> DNSServer:
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+
+    server = DNSServer(
+        resolver,
+        address=address,
+        port=port,
+        tcp=True,
+        logger=QuietLogger(),
+        server=_make_dot_server_class(ssl_context),
+    )
+    server.start_thread()
+    logger.info("DoT server listening on %s:%d (tls)", address, port)
+    return server
+
+
+def build_resolver(
+    config_store,
+    blocklist,
+    stats,
+    cache=None,
+    client_names=None,
+    upstream_stats=None,
+    dnssec_cache=None,
+) -> FilteringResolver:
+    return FilteringResolver(
+        blocklist,
+        stats,
+        config_store,
+        cache=cache,
+        client_names=client_names,
+        upstream_stats=upstream_stats,
+        dnssec_cache=dnssec_cache,
+    )
+
+
 def start_dns_servers(
     config_store,
     blocklist,
@@ -293,16 +356,18 @@ def start_dns_servers(
     upstream_stats=None,
     reuse_port=False,
     dnssec_cache=None,
+    resolver: FilteringResolver | None = None,
 ) -> list[DNSServer]:
-    resolver = FilteringResolver(
-        blocklist,
-        stats,
-        config_store,
-        cache=cache,
-        client_names=client_names,
-        upstream_stats=upstream_stats,
-        dnssec_cache=dnssec_cache,
-    )
+    if resolver is None:
+        resolver = build_resolver(
+            config_store,
+            blocklist,
+            stats,
+            cache=cache,
+            client_names=client_names,
+            upstream_stats=upstream_stats,
+            dnssec_cache=dnssec_cache,
+        )
     logger_ = QuietLogger()
     address = config_store.get("dns", "listen_address", default="0.0.0.0")
     port = int(config_store.get("dns", "listen_port", default=53))

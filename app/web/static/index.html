@@ -692,6 +692,22 @@
             resolution. Either way, an alert is still raised the same as "Alert only".
           </p>
           <div class="field checkbox">
+            <input type="checkbox" id="s-dns-dot-enabled">
+            <label for="s-dns-dot-enabled">Accept DNS-over-TLS (DoT) from clients on the port below (requires restart)</label>
+          </div>
+          <div class="field" id="s-dns-dot-port-field">
+            <label>DoT listen port</label>
+            <input type="number" id="s-dns-dot-port" min="1" max="65535" step="1">
+          </div>
+          <p class="hint">
+            Reuses the same certificate as the dashboard's HTTPS setting above (a self-signed one
+            is auto-generated if you haven't set your own). Most OS-level DoT clients (Android's
+            "Private DNS", systemd-resolved, etc.) refuse a self-signed certificate outright -
+            unlike a browser, they won't let you click through the warning - so this is mainly
+            useful once you've configured a real, CA-trusted certificate. Runs only in the main
+            process, not distributed across DNS worker processes.
+          </p>
+          <div class="field checkbox">
             <input type="checkbox" id="s-dns-regex-denylist-enabled">
             <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern in Own lists -> Regex denylist; CPU cost grows with the pattern list, keep it short)</label>
           </div>
@@ -2429,6 +2445,8 @@ async function loadSettings() {
   document.getElementById("s-dns-typosquat-cooldown").value = s.dns.typosquat_cooldown_minutes ?? 30;
   document.getElementById("s-dns-typosquat-action").value = s.dns.typosquat_action || "alert";
   document.getElementById("s-dns-typosquat-redirect-ip").value = s.dns.typosquat_redirect_ip || "";
+  document.getElementById("s-dns-dot-enabled").checked = !!s.dns.dot_enabled;
+  document.getElementById("s-dns-dot-port").value = s.dns.dot_port ?? 853;
   document.getElementById("s-dns-regex-denylist-enabled").checked = !!s.dns.regex_denylist_enabled;
   document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
   document.getElementById("s-dns-upstream-stats-window").value = s.dns.upstream_stats_window_minutes ?? "";
@@ -3135,6 +3153,8 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
       typosquat_cooldown_minutes: floatField("s-dns-typosquat-cooldown"),
       typosquat_action: document.getElementById("s-dns-typosquat-action").value,
       typosquat_redirect_ip: document.getElementById("s-dns-typosquat-redirect-ip").value.trim(),
+      dot_enabled: document.getElementById("s-dns-dot-enabled").checked,
+      dot_port: intField("s-dns-dot-port"),
       regex_denylist_enabled: document.getElementById("s-dns-regex-denylist-enabled").checked,
       upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
       upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),

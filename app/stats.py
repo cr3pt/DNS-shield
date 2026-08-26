@@ -369,6 +369,20 @@ class Stats:
         finally:
             conn.close()
 
+    def total_count(self) -> int:
+        conn = self._connect()
+        try:
+            return conn.execute("SELECT COUNT(*) FROM queries").fetchone()[0]
+        finally:
+            conn.close()
+
+    def blocked_count(self) -> int:
+        conn = self._connect()
+        try:
+            return conn.execute("SELECT COUNT(*) FROM queries WHERE blocked = 1").fetchone()[0]
+        finally:
+            conn.close()
+
     def alert_hits_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
         conn = self._connect()
         try:

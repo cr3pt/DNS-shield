@@ -17,7 +17,7 @@ from app.blocklist import BlocklistManager
 from app.client_names import ClientNameResolver
 from app.config import ConfigStore
 from app.dns_cache import DNSCache
-from app.dns_server import reuse_port_supported, start_dns_servers
+from app.dns_server import build_resolver, reuse_port_supported, start_dns_servers, start_dot_server
 from app.dnssec import DnssecCache
 from app.enrichment_store import EnrichmentStore
 from app.tls import ensure_self_signed_cert
@@ -146,6 +146,15 @@ def main() -> None:
     users = UserStore(config_store)
     sessions = SessionStore()
 
+    resolver = build_resolver(
+        config_store,
+        blocklist,
+        stats,
+        cache=cache,
+        client_names=client_names,
+        upstream_stats=upstream_stats,
+        dnssec_cache=dnssec_cache,
+    )
     start_dns_servers(
         config_store,
         blocklist,
@@ -155,6 +164,7 @@ def main() -> None:
         upstream_stats=upstream_stats,
         reuse_port=num_workers > 1,
         dnssec_cache=dnssec_cache,
+        resolver=resolver,
     )
 
     if config_store.get("dns", "block_page_enabled", default=False):
@@ -179,12 +189,16 @@ def main() -> None:
         users=users,
         sessions=sessions,
         dnssec_cache=dnssec_cache,
+        resolver=resolver,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))
 
-    ssl_kwargs: dict[str, str] = {}
-    if config_store.get("web", "https_enabled", default=False):
+    https_enabled = bool(config_store.get("web", "https_enabled", default=False))
+    dot_enabled = bool(config_store.get("dns", "dot_enabled", default=False))
+
+    cert_path = key_path = None
+    if https_enabled or dot_enabled:
         cert_path_cfg = config_store.get("web", "https_cert_path", default="") or ""
         key_path_cfg = config_store.get("web", "https_key_path", default="") or ""
         if cert_path_cfg and key_path_cfg:
@@ -192,10 +206,21 @@ def main() -> None:
         else:
             cert_path, key_path = DATA_DIR / "tls" / "cert.pem", DATA_DIR / "tls" / "key.pem"
             ensure_self_signed_cert(cert_path, key_path)
+
+    ssl_kwargs: dict[str, str] = {}
+    if https_enabled:
         ssl_kwargs = {"ssl_certfile": str(cert_path), "ssl_keyfile": str(key_path)}
         logger.info("web UI listening on https://%s:%d", web_host, web_port)
     else:
         logger.info("web UI listening on http://%s:%d", web_host, web_port)
+
+    if dot_enabled:
+        dot_port = int(config_store.get("dns", "dot_port", default=853))
+        dns_address = config_store.get("dns", "listen_address", default="0.0.0.0")
+        try:
+            start_dot_server(resolver, cert_path, key_path, address=dns_address, port=dot_port)
+        except OSError as exc:
+            logger.warning("could not start DoT server on %s:%d: %s", dns_address, dot_port, exc)
 
     uvicorn.run(app, host=web_host, port=web_port, log_level="warning", **ssl_kwargs)
     _stop_workers()

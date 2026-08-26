@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import re
 import sqlite3
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dnslib import DNSRecord
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -20,6 +22,7 @@ from app.enrichment import enrich as run_enrichment
 from app.import_adguard import import_config
 from app.import_pihole import import_config as import_pihole_config
 from app.login_throttle import LoginThrottle
+from app.metrics import render_metrics
 from app.netmatch import ip_matches
 from app.sessions import COOKIE_NAME, SessionStore
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
@@ -162,6 +165,8 @@ class DnsSettingsIn(BaseModel):
     typosquat_cooldown_minutes: float | None = None
     typosquat_action: str | None = None
     typosquat_redirect_ip: str | None = None
+    dot_enabled: bool | None = None
+    dot_port: int | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -302,6 +307,7 @@ def create_app(
     users: UserStore | None = None,
     sessions: SessionStore | None = None,
     dnssec_cache=None,
+    resolver=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -414,6 +420,46 @@ def create_app(
             "top_blocked_domains": snap["top_blocked_domains"],
             "timeseries": stats.timeseries("24h"),
         }
+
+    @app.get("/metrics")
+    def metrics() -> Response:
+        body = render_metrics(stats, blocklist, started_at, cache=cache, anomaly=anomaly, dnssec_cache=dnssec_cache)
+        return Response(content=body, media_type="text/plain; version=0.0.4; charset=utf-8")
+
+    if resolver is not None:
+
+        class _DoHHandler:
+            __slots__ = ("client_address",)
+
+            def __init__(self, client_ip: str) -> None:
+                self.client_address = (client_ip, 0)
+
+        def _doh_client_ip(request: Request) -> str:
+            return request.client.host if request.client else "?"
+
+        def _doh_respond(wire_bytes: bytes, client_ip: str) -> Response:
+            try:
+                dns_request = DNSRecord.parse(wire_bytes)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Malformed DNS message")
+            dns_response = resolver.resolve(dns_request, _DoHHandler(client_ip))
+            return Response(content=bytes(dns_response.pack()), media_type="application/dns-message")
+
+        @app.get("/dns-query")
+        def doh_get(request: Request, dns: str = "") -> Response:
+            if not dns:
+                raise HTTPException(status_code=400, detail="Missing 'dns' query parameter")
+            padded = dns + "=" * (-len(dns) % 4)
+            try:
+                wire_bytes = base64.urlsafe_b64decode(padded)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid base64url encoding")
+            return _doh_respond(wire_bytes, _doh_client_ip(request))
+
+        @app.post("/dns-query")
+        async def doh_post(request: Request) -> Response:
+            wire_bytes = await request.body()
+            return _doh_respond(wire_bytes, _doh_client_ip(request))
 
     @app.get("/")
     def index() -> FileResponse:
@@ -1220,6 +1266,8 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "web.https_enabled",
                 "web.https_cert_path",
                 "web.https_key_path",
+                "dns.dot_enabled",
+                "dns.dot_port",
             ],
             "restart_note": RESTART_NOTE,
         }

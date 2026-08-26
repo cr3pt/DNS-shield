@@ -31,6 +31,8 @@ dns:
   resolve_client_names: false
   client_name_resolver: ""
   client_name_cache_seconds: 3600
+  dot_enabled: false
+  dot_port: 853
 
 blocklists:
   refresh_interval_hours: 24

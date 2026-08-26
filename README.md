@@ -106,12 +106,12 @@ web UI) but keeps it **local-only by construction**:
   below for exactly what each file does.
 
 This intentionally does **not** try to be a full AdGuard Home replacement -
-no DHCP server, no DoH/DoT/DoQ termination, no time-of-day schedules or
-per-app controls. It's the "block ads/trackers network-wide from a Docker
-container, with nothing leaving my network that I didn't ask for" subset,
-plus the DNS-level pieces of parental control that fit that subset
-cleanly: forced SafeSearch/Restricted Mode and category blocklists scoped
-to a client group (see [Parental control / SafeSearch](#parental-control--safesearch)).
+no DHCP server, no DoQ, no per-app controls. It's the "block ads/trackers
+network-wide from a Docker container, with nothing leaving my network
+that I didn't ask for" subset, plus the DNS-level pieces of parental
+control that fit that subset cleanly: forced SafeSearch/Restricted Mode
+and category blocklists scoped to a client group (see
+[Parental control / SafeSearch](#parental-control--safesearch)).
 
 ## Quick start
 
@@ -250,8 +250,11 @@ dns:
 ```
 
 Plain `host:port` entries use UDP with an automatic TCP retry if the reply
-is truncated. DNS-shield itself still only ever listens for plain DNS from
-your LAN clients on port 53 - there's no DoT/DoH/DoQ *listener*.
+is truncated. This section is only about the *upstream* hop - DNS-shield
+also always listens for plain DNS from your LAN clients on port 53, plus
+optionally DoH/DoT for clients that want an encrypted hop to DNS-shield
+itself; see [DNS-over-HTTPS / DNS-over-TLS for clients](#dns-over-https--dns-over-tls-for-clients)
+below.
 
 ### Multiple upstreams and selection strategy
 
@@ -1305,6 +1308,65 @@ with a self-signed certificate if the dashboard is reachable beyond
 localhost - encrypting the login request and session cookie in transit
 doesn't need a browser-trusted certificate to be worthwhile.
 
+### DNS-over-HTTPS / DNS-over-TLS for clients
+
+Everything above this point is about DNS-shield as a DoH/DoT *client*
+talking to your upstream resolver. This section is the other direction:
+DNS-shield itself answering DoH/DoT queries *from* your clients, on top
+of the plain port-53 UDP/TCP it always listens on.
+
+**DoH** needs no separate toggle - `POST /dns-query` and
+`GET /dns-query?dns=<base64url>` (RFC 8484, raw DNS wire format in
+`application/dns-message`) are always present on the same web port as
+the dashboard, sharing its cache, DNSSEC cache, and blocklist state, so
+a DoH query is filtered/blocked/logged exactly like a plain one. It's
+only actually useful once `web.https_enabled` is on, though - DoH is
+DNS-over-*HTTPS*, and most clients that support it (browsers' built-in
+DoH settings, `curl --doh-url`, etc.) either require TLS outright or
+won't send real traffic over plain HTTP.
+
+**DoT** is off by default - `dns.dot_enabled` (Settings -> DNS, requires
+a container restart) opens a second listener on `dns.dot_port` (853 by
+default) speaking DNS-over-TLS (RFC 7858): the same length-prefixed
+wire format as plain DNS-over-TCP, wrapped in TLS. It reuses whatever
+certificate the dashboard's HTTPS setting resolves to - your own
+`web.https_cert_path`/`web.https_key_path` if set, otherwise the same
+auto-generated self-signed one described above. That matters more here
+than for the dashboard: most OS-level DoT clients (Android's "Private
+DNS", systemd-resolved, etc.) verify the certificate against a trusted
+CA and simply refuse a self-signed one - there's no "click through the
+warning" option like a browser gives you - so a self-signed certificate
+makes DoT mostly untestable-but-present until you point it at a real
+one.
+
+Both listeners run only in the main process, not distributed across
+`DNSSHIELD_DNS_WORKERS` worker processes the way plain UDP/TCP is - the
+web dashboard itself is already single-process-only, and DoH/DoT follow
+that same boundary rather than adding per-worker certificate loading and
+`SO_REUSEPORT` interaction for a comparatively low-volume path. Neither
+is published in the shipped `docker-compose.yml` by default; add a
+`- "853:853/tcp"` mapping (or whatever port you set) once `dns.dot_enabled`
+is on, matching the block page's own port-mapping pattern above.
+
+### Prometheus metrics
+
+`GET /metrics` (unauthenticated, same as the public dashboard summary)
+exposes a small set of Prometheus counters and gauges in the standard
+text exposition format: `dnsshield_queries_total` /
+`dnsshield_blocked_total` (derived live from `stats.db`, so they read
+correctly across every `DNSSHIELD_DNS_WORKERS` process sharing that
+database, and Prometheus's own `rate()`/`increase()` handle a reset from
+clearing the log or 30-day retention pruning the normal way - as a
+counter reset, not a negative rate), `dnsshield_blocklist_domains` /
+`dnsshield_allowlist_domains`, `dnsshield_cache_entries` /
+`dnsshield_cache_hits_total` / `dnsshield_cache_misses_total`,
+`dnsshield_anomalies_unacknowledged`, and `dnsshield_uptime_seconds`.
+The two `dnsshield_dnssec_*_cached` gauges are the one exception to the
+"aggregates across workers" property above - the DNSSEC cache is
+per-process, so with more than one DNS worker these only reflect
+whichever process the web UI happens to be (the same one that owns
+`create_app`), not a sum across all of them.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide
@@ -1457,8 +1519,12 @@ app/
                        patterns
   blocklist_catalog.py  fixed list of well-known public blocklists offered as one-click
                        "Suggested lists" in the dashboard's Blocklists section
-  dns_server.py        dnslib-based UDP/TCP DNS server; blocks locally, answers a custom
-                        record, serves a cached answer, or forwards to your upstreams
+  dns_server.py        dnslib-based UDP/TCP DNS server (plus an optional DoT listener);
+                        blocks locally, answers a custom record, serves a cached answer,
+                        or forwards to your upstreams
+  metrics.py            renders the Prometheus text-exposition format for GET /metrics
+                        (see above) from the same stats.db/blocklist/cache/anomaly state
+                        everything else already reads
   dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)
@@ -1591,11 +1657,12 @@ shared across them.
 
 ## Limitations / roadmap
 
-- No DHCP server, no DoH/DoT/DoQ *listener* (only as an upstream transport -
-  see above). [Parental control](#parental-control--safesearch) is limited
-  to what DNS resolution can actually do - forced SafeSearch and
-  per-group category blocklists - not time-of-day schedules, per-app
-  limits, or content inspection.
+- No DHCP server, no DoQ (DoH/DoT are supported both as an upstream
+  transport and as a listener for clients - see above). [Parental
+  control](#parental-control--safesearch) is limited to what DNS
+  resolution can actually do - forced SafeSearch, per-group category
+  blocklists, and per-group bedtime schedules - not per-app limits or
+  content inspection.
 - Client groups and `blocked_clients` also match by MAC address or resolved
   hostname (`mac:`/`host:` patterns, see above), but MAC matching depends
   on the host's ARP table being visible to the container (host networking)
