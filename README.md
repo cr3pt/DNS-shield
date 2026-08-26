@@ -426,13 +426,67 @@ fixed list baked into DNS-shield itself (nothing fetched to build it) -
 StevenBlack's Unified Hosts, AdGuard's own DNS filter, a handful of
 [Firebog](https://firebog.net)'s recommended ("ticked") lists,
 [HaGeZi's](https://github.com/hagezi/dns-blocklists) actively maintained
-Multi PRO and Threat Intelligence Feeds lists, badmojr's
-[1Hosts (Lite)](https://github.com/badmojr/1Hosts), and DurableNapkin's
-scam-focused list. Clicking Add just fills in the normal add-a-source form
-for you; the list is then fetched, and from there can be disabled or
-removed exactly like any source you'd typed in by hand. An entry drops
-off Suggested lists once you've added it - there's nothing left to
-suggest - so the list only ever shows what you haven't already picked up.
+Multi PRO, Threat Intelligence Feeds, and Newly Registered Domains lists
+(see below), badmojr's [1Hosts (Lite)](https://github.com/badmojr/1Hosts),
+and DurableNapkin's scam-focused list. Clicking Add just fills in the
+normal add-a-source form for you; the list is then fetched, and from
+there can be disabled or removed exactly like any source you'd typed in
+by hand. An entry drops off Suggested lists once you've added it - there's
+nothing left to suggest - so the list only ever shows what you haven't
+already picked up. The same catalog is also offered per client group, in
+the Clients tab (see [Parental control](#parental-control--safesearch)
+above).
+
+### Newly registered domains (NRD)
+
+Enterprise DNS security products (Infoblox's BloxOne Threat Defense calls
+this "Newly Observed Domains", and it's a standard feature of Cisco
+Umbrella and similar) block or flag any domain registered within roughly
+the last 7-30 days, on the observation that phishing and malware campaigns
+overwhelmingly register a domain and put it to use within days - by the
+time a domain's been live a month, it's already made it past the window
+where this technique catches anything. It's a real, effective technique
+that doesn't need machine learning or a live feed subscription to
+implement - it's just another domain list, so it plugs into the exact
+same `blocklists.sources`/`blocklist_sources` mechanism as everything
+else in this section. The Suggested lists catalog includes **HaGeZi
+Newly Registered Domains (7-day)** for exactly this.
+
+Read this before turning it on, though - it's a real tradeoff, not a free
+win:
+
+- **It's enormous.** ~2.8 million domains get registered somewhere in the
+  world on a given day, and the list is refreshed daily. Loaded, it costs
+  roughly **650MB of RAM** (measured directly - see
+  [Concurrency](#concurrency) for how blocklists are held fully in memory
+  as `frozenset`s for O(1) matching, and what that costs in general). On
+  a resource-constrained host, that alone may be a reason to skip it -
+  and if you run multiple [DNS workers](#concurrency), each one loads its
+  own independent copy.
+- **It blocks legitimate new sites too.** A brand-new SaaS product, a
+  friend's personal blog, a startup that just launched - all indistinguishable
+  from a phishing domain by registration date alone, and all blocked for
+  their first week. This is the accepted cost of the technique in every
+  product that ships it, not a bug in this implementation.
+
+Given both, consider adding it as a specific client group's own extra
+`blocklist_sources` entry (a security-conscious admin's own devices,
+say) rather than the global list, so the false-positive cost lands only
+where you've chosen to accept it - the same reasoning as the parental-control
+category lists above. Only the 7-day window is offered; HaGeZi also
+publishes 14/21/28/35-day-old windows at
+[github.com/hagezi/nrd](https://github.com/hagezi/nrd) if you want to add
+one by hand, but the marginal security value drops sharply with domain
+age while the memory cost stays just as large, so they aren't suggested
+here.
+
+DNS-shield's [local anomaly detection](#local-anomaly-detection) already
+covers an adjacent enterprise technique - the `domain_burst` heuristic's
+entropy scoring flags a client rapidly querying many high-entropy,
+algorithmically-generated-looking domains, the same DGA (Domain Generation
+Algorithm) pattern BloxOne's ML-based analytics are built to catch for
+malware command-and-control traffic - so that piece already exists
+independent of any list subscription.
 
 ### Regex denylist (experimental)
 
@@ -1367,6 +1421,19 @@ throughput regardless of worker count: each forwarded query opens a fresh
 UDP socket to the upstream (no connection reuse/pooling). The cache above
 absorbs most of the repeat traffic that would otherwise hit the upstream
 resolver.
+
+**Memory**: every blocklist (global, per-group, allow-list, alert-rule,
+malicious-answer-IP) is held fully in memory as a `frozenset[str]` once
+refreshed, which is what makes matching an O(1) set lookup instead of a
+per-query network or disk read. Measured directly against real feeds: a
+combination of StevenBlack's Unified Hosts plus three large HaGeZi lists
+(~867k unique domains total) costs about **196MB**; the
+[Newly Registered Domains](#newly-registered-domains-nrd) list alone is
+~2.8M domains and costs about **650MB** - roughly 200-230 bytes per
+domain either way, consistent across both measurements. Multiple DNS
+workers (above) each hold an independent copy, so the same set of
+subscribed lists costs proportionally more RAM per worker, not once
+shared across them.
 
 ## Security notes
 

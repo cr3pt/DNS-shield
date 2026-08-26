@@ -68,6 +68,12 @@ BLOCKLIST_CATALOG: list[dict[str, str]] = [
         "description": "HaGeZi's aggregation of live threat-intel feeds - malware, cryptojacking, spam, scam and phishing domains. Very large and refreshed frequently; heavier than the other lists here.",
     },
     {
+        "name": "HaGeZi Newly Registered Domains (7-day)",
+        "url": "https://raw.githubusercontent.com/hagezi/nrd/main/domains/nrd7.txt",
+        "category": "Newly registered domains",
+        "description": "Every domain registered anywhere in the last 7 days (~2.8M entries, ~650MB RAM once loaded, refreshed daily) - phishing/malware campaigns overwhelmingly use a domain within days of registering it, so this is a real enterprise DNS-security technique (Infoblox and similar call it 'Newly Observed Domains'), but it also blocks brand-new legitimate sites for their first week. Read the README before enabling: consider a dedicated client group instead of the global list, and make sure the container has the RAM to spare.",
+    },
+    {
         "name": "1Hosts (Lite)",
         "url": "https://raw.githubusercontent.com/badmojr/1Hosts/master/Lite/hosts.txt",
         "category": "Ads, tracking & malware",
