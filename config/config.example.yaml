@@ -20,6 +20,8 @@ dns:
   typosquat_enabled: false
   typosquat_max_distance: 2
   typosquat_cooldown_minutes: 30
+  typosquat_action: "alert"
+  typosquat_redirect_ip: ""
   typosquat_extra_domains: []
   regex_denylist_enabled: false
   cache_enabled: true

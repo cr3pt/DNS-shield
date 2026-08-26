@@ -1076,15 +1076,38 @@ domains for two things a real visit to that brand would never produce:
 
 An exact match or a real subdomain of the protected domain itself
 (`mail.google.com`, `accounts.google.com`) is explicitly never flagged -
-only something that's *close but not actually it*. A match raises an
-alert through the same pipeline as the anomaly heuristics above (visible
-in the Anomalies tab, notification-capable, its own per-client/domain
-cooldown - `dns.typosquat_cooldown_minutes`, default 30) rather than
-blocking the query outright: a close-but-wrong guess is a real signal,
-not a certainty, and false positives here would land on legitimate
-traffic (a domain that happens to be a couple of characters from a brand
-name for entirely unrelated reasons) rather than being silently absorbed
-the way an over-broad blocklist entry might be.
+only something that's *close but not actually it*. A match always raises
+an alert through the same pipeline as the anomaly heuristics above
+(visible in the Anomalies tab, notification-capable, its own per-client/domain
+cooldown - `dns.typosquat_cooldown_minutes`, default 30); `dns.typosquat_action`
+(also Settings -> DNS) separately controls what happens to the *answer*:
+
+- `"alert"` (default) - resolve the queried domain normally. The alert is
+  the only effect; nothing about the answer changes.
+- `"redirect_real"` - resolve the *protected* domain's own real address
+  and hand it back under the name that was actually queried, so a client
+  that typed `paypa1.com` transparently lands on the real PayPal instead
+  of whatever `paypa1.com` actually points to. Uses the same
+  resolve-a-different-hostname mechanism as
+  [forced SafeSearch](#parental-control--safesearch) above, including
+  going through the answer cache the same way.
+- `"redirect_custom"` - always answer with one fixed address you set in
+  `dns.typosquat_redirect_ip`, e.g. a local page explaining what
+  happened (you'd run that page yourself - DNS-shield doesn't ship one).
+  Falls back to normal resolution if the field is left blank rather than
+  answering with nothing.
+
+`"redirect_real"` is a judgment call worth being explicit about: it's
+convenient (a mistyped brand name quietly still works) but it also means
+DNS-shield is guessing what the user *meant* to type rather than just
+reporting what they *actually* queried - reasonable for an honest typo,
+less reasonable if you'd rather a human looked at every hit before
+anything auto-resolves differently. `"alert"` keeps that judgment with
+you; a close-but-wrong guess is a real signal, not a certainty, and
+false positives here would land on legitimate traffic (a domain that
+happens to be a couple of characters from a brand name for entirely
+unrelated reasons) rather than being silently absorbed the way an
+over-broad blocklist entry might be.
 
 Own lists -> Typosquat protection shows the built-in list of ~50 protected
 domains (major tech/finance/shipping brands plus a handful of commonly-

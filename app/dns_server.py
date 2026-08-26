@@ -54,21 +54,28 @@ class FilteringResolver:
 
         typosquat = self._blocklist.typosquat_match(qname) if qname else None
         typosquat_match = f"{typosquat[0]}|{typosquat[1]}|{typosquat[2]}" if typosquat else None
+        typosquat_action = self._config.get("dns", "typosquat_action", default="alert") if typosquat else "alert"
+        typosquat_can_redirect = bool(typosquat) and qname and qtype_name in ("A", "AAAA")
 
         if blocked:
             response = self._blocked_reply(request)
         else:
             rewrite_ip = find_rewrite(qname, qtype_name, self._config) if qname else None
+            redirect_ip = self._config.get("dns", "typosquat_redirect_ip", default="") or ""
             if rewrite_ip is not None:
                 response = self._rewrite_reply(request, qtype, rewrite_ip)
+            elif typosquat_can_redirect and typosquat_action == "redirect_custom" and redirect_ip:
+                response = self._rewrite_reply(request, qtype, redirect_ip)
             else:
                 response = self._cache.get(request) if self._cache is not None else None
                 if response is None:
-                    safe_search_target = None
-                    if qname and qtype_name in ("A", "AAAA") and self._blocklist.safe_search_enabled_for(client_ip):
-                        safe_search_target = find_safe_search_target(qname)
-                    if safe_search_target is not None:
-                        response = self._safe_search_reply(request, safe_search_target, client_ip)
+                    redirect_target = None
+                    if typosquat_can_redirect and typosquat_action == "redirect_real":
+                        redirect_target = typosquat[0]
+                    elif qname and qtype_name in ("A", "AAAA") and self._blocklist.safe_search_enabled_for(client_ip):
+                        redirect_target = find_safe_search_target(qname)
+                    if redirect_target is not None:
+                        response = self._redirect_to_hostname(request, redirect_target, client_ip)
                     else:
                         response = self._forward(request, qname, client_ip)
                     if self._cache is not None:
@@ -113,7 +120,7 @@ class FilteringResolver:
             reply.header.rcode = RCODE.NXDOMAIN
         return reply
 
-    def _safe_search_reply(self, request: DNSRecord, target_hostname: str, client_ip: str) -> DNSRecord:
+    def _redirect_to_hostname(self, request: DNSRecord, target_hostname: str, client_ip: str) -> DNSRecord:
         qtype_name = QTYPE.get(request.q.qtype, "A")
         sub_request = DNSRecord.question(target_hostname, qtype=qtype_name)
         resolved = self._forward(sub_request, target_hostname, client_ip)

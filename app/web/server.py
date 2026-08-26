@@ -159,6 +159,8 @@ class DnsSettingsIn(BaseModel):
     typosquat_enabled: bool | None = None
     typosquat_max_distance: int | None = None
     typosquat_cooldown_minutes: float | None = None
+    typosquat_action: str | None = None
+    typosquat_redirect_ip: str | None = None
 
 
 class UpstreamsIn(BaseModel):
