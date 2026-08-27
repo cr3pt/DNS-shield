@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import queue
 import ssl
@@ -58,6 +59,9 @@ class FilteringResolver:
         typosquat_action = self._config.get("dns", "typosquat_action", default="alert") if typosquat else "alert"
         typosquat_can_redirect = bool(typosquat) and qname and qtype_name in ("A", "AAAA")
 
+        local_tld_match = self._blocklist.local_tld_match(qname) if qname else None
+        rebinding_ip: str | None = None
+
         if blocked:
             response = self._blocked_reply(request)
         else:
@@ -88,12 +92,45 @@ class FilteringResolver:
                         response = self._blocked_reply(request)
                         blocked = True
                         reason = f"Blocked destination IP ({matched_pattern})"
+                        rebinding_ip = None
                         break
+                    if rebinding_ip is None and self._is_rebinding_candidate(qname, candidate_ip):
+                        rebinding_ip = candidate_ip
+
+                if rebinding_ip is not None and not blocked:
+                    rebinding_action = self._config.get("dns", "rebinding_action", default="alert")
+                    if rebinding_action == "block":
+                        response = self._blocked_reply(request)
+                        blocked = True
+                        reason = f"DNS rebinding protection ({rebinding_ip})"
 
         self._stats.record(
-            qname, blocked, client_ip, qtype_name, reason, self._answer_ip(response), alert_rule, typosquat_match
+            qname,
+            blocked,
+            client_ip,
+            qtype_name,
+            reason,
+            self._answer_ip(response),
+            alert_rule,
+            typosquat_match,
+            rebinding_ip,
+            local_tld_match,
         )
         return response
+
+    def _is_rebinding_candidate(self, qname: str, candidate_ip: str) -> bool:
+        if not qname or not self._config.get("dns", "rebinding_protection_enabled", default=False):
+            return False
+        try:
+            addr = ipaddress.ip_address(candidate_ip)
+        except ValueError:
+            return False
+        if not addr.is_private:
+            return False
+        if self._blocklist.local_tld_match_ignoring_toggle(qname):
+            return False
+        exempt = self._config.get("dns", "rebinding_exempt_domains", default=[]) or []
+        return not any(qname == d or qname.endswith("." + d) for d in exempt)
 
     @staticmethod
     def _answer_ip(response: DNSRecord) -> str | None:

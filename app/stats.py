@@ -70,6 +70,10 @@ class Stats:
                 conn.execute("ALTER TABLE queries ADD COLUMN alert_rule TEXT")
             if "typosquat_match" not in columns:
                 conn.execute("ALTER TABLE queries ADD COLUMN typosquat_match TEXT")
+            if "rebinding_ip" not in columns:
+                conn.execute("ALTER TABLE queries ADD COLUMN rebinding_ip TEXT")
+            if "local_tld_match" not in columns:
+                conn.execute("ALTER TABLE queries ADD COLUMN local_tld_match TEXT")
             conn.commit()
         finally:
             conn.close()
@@ -84,11 +88,25 @@ class Stats:
         answer_ip: str | None = None,
         alert_rule: str | None = None,
         typosquat_match: str | None = None,
+        rebinding_ip: str | None = None,
+        local_tld_match: str | None = None,
     ) -> None:
         if self._is_ignored(qname, client_ip):
             return
         self._queue.put(
-            (time.time(), qname, qtype, client_ip, int(blocked), reason, answer_ip, alert_rule, typosquat_match)
+            (
+                time.time(),
+                qname,
+                qtype,
+                client_ip,
+                int(blocked),
+                reason,
+                answer_ip,
+                alert_rule,
+                typosquat_match,
+                rebinding_ip,
+                local_tld_match,
+            )
         )
 
     def _is_ignored(self, qname: str, client_ip: str) -> bool:
@@ -116,8 +134,9 @@ class Stats:
                         break
                 conn.executemany(
                     "INSERT INTO queries "
-                    "(ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match, "
+                    "rebinding_ip, local_tld_match) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     batch,
                 )
                 conn.commit()
@@ -204,7 +223,8 @@ class Stats:
                 base_params + [top_n],
             ).fetchall()
             recent = conn.execute(
-                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match "
+                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match, "
+                f"rebinding_ip, local_tld_match "
                 f"FROM queries {where_clients} ORDER BY id DESC LIMIT ?",
                 base_params + [log_n],
             ).fetchall()
@@ -231,6 +251,8 @@ class Stats:
                     "answer_ip": row["answer_ip"],
                     "alert_rule": row["alert_rule"],
                     "typosquat_match": row["typosquat_match"],
+                    "rebinding_ip": row["rebinding_ip"],
+                    "local_tld_match": row["local_tld_match"],
                 }
                 for row in recent
             ],
@@ -294,7 +316,8 @@ class Stats:
             conn.row_factory = sqlite3.Row
             total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_sql}", params).fetchone()["c"]
             rows = conn.execute(
-                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match "
+                f"SELECT ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match, "
+                f"rebinding_ip, local_tld_match "
                 f"FROM queries {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?",
                 params + [limit, offset],
             ).fetchall()
@@ -313,6 +336,8 @@ class Stats:
                     "answer_ip": row["answer_ip"],
                     "alert_rule": row["alert_rule"],
                     "typosquat_match": row["typosquat_match"],
+                    "rebinding_ip": row["rebinding_ip"],
+                    "local_tld_match": row["local_tld_match"],
                 }
                 for row in rows
             ],
@@ -420,6 +445,55 @@ class Stats:
             }
             for row in rows
         ]
+
+    def rebinding_hits_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, ts, domain, client, rebinding_ip FROM queries "
+                "WHERE id > ? AND rebinding_ip IS NOT NULL ORDER BY id ASC LIMIT ?",
+                (last_id, limit),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {"id": row["id"], "ts": row["ts"], "domain": row["domain"], "client": row["client"], "rebinding_ip": row["rebinding_ip"]}
+            for row in rows
+        ]
+
+    def local_tld_hits_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, ts, domain, client, local_tld_match FROM queries "
+                "WHERE id > ? AND local_tld_match IS NOT NULL ORDER BY id ASC LIMIT ?",
+                (last_id, limit),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {"id": row["id"], "ts": row["ts"], "domain": row["domain"], "client": row["client"], "local_tld_match": row["local_tld_match"]}
+            for row in rows
+        ]
+
+    def client_ptr_targets(self, window_seconds: float, until_ts: float | None = None) -> dict[str, list[str]]:
+        until_ts = time.time() if until_ts is None else until_ts
+        since = until_ts - window_seconds
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT DISTINCT client, domain FROM queries WHERE qtype = 'PTR' AND ts >= ? AND ts < ?",
+                (since, until_ts),
+            ).fetchall()
+        finally:
+            conn.close()
+        by_client: dict[str, list[str]] = {}
+        for row in rows:
+            by_client.setdefault(row["client"], []).append(row["domain"])
+        return by_client
 
     def domains_for_client_window(
         self, client: str, since_ts: float, until_ts: float, blocked_only: bool = False

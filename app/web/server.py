@@ -61,6 +61,7 @@ _ANOMALY_DEFAULTS: dict[str, Any] = {
     "dns_tunneling_threshold": 30,
     "dns_tunneling_min_label_length": 20,
     "dns_tunneling_min_entropy": 3.0,
+    "ptr_scan_threshold": 15,
     "cooldown_minutes": 60,
 }
 
@@ -189,6 +190,12 @@ class DnsSettingsIn(BaseModel):
     typosquat_redirect_ip: str | None = None
     dot_enabled: bool | None = None
     dot_port: int | None = None
+    rebinding_protection_enabled: bool | None = None
+    rebinding_action: str | None = None
+    rebinding_exempt_domains: list[str] | None = None
+    local_tld_alert_enabled: bool | None = None
+    local_tld_list: list[str] | None = None
+    local_tld_cooldown_minutes: float | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -323,6 +330,7 @@ class AnomalySettingsIn(BaseModel):
     dns_tunneling_threshold: int | None = None
     dns_tunneling_min_label_length: int | None = None
     dns_tunneling_min_entropy: float | None = None
+    ptr_scan_threshold: int | None = None
     cooldown_minutes: float | None = None
 
 

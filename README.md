@@ -1015,6 +1015,15 @@ client that's queried it in that window:
   *domains* (DGA malware trying candidate C2 domains), this one fires on
   many different *subdomains of one domain* (data being smuggled out
   through one attacker-controlled domain).
+- **PTR scan** - a client issued an unusually large number of reverse-DNS
+  (PTR) lookups against *private/local* IP addresses in the window
+  (`anomaly.ptr_scan_threshold`, default 15) - one device methodically
+  asking "who is 192.168.1.1? who is 192.168.1.2? ..." looks like a
+  network-mapping tool enumerating hosts on the LAN, not normal browsing.
+  Only private-range targets count (decoded from the reversed
+  `in-addr.arpa`/`ip6.arpa` query name), since PTR lookups against public
+  IPs are unremarkable; severity escalates from `medium` to `high` at
+  double the threshold.
 
 Every flagged anomaly is stored locally in `data/anomalies.db` and shown
 in its own top-level **Anomalies** tab (between Logs and Stats, with an
@@ -1129,6 +1138,51 @@ above), but a cheap one: distance is only computed against ~50 short
 strings, and results are cached per distinct domain so a repeat query
 never redoes the comparison - the cache is cleared automatically whenever
 the protected-domains list or max-distance setting changes.
+
+### DNS rebinding protection
+
+[DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) is an attack
+where a domain the victim's browser trusts (because they just navigated to
+it) is made to resolve to a private/internal IP address, so JavaScript
+served from that domain can reach into the victim's own LAN - a router's
+admin panel, a NAS, an internal API - past same-origin protections that
+would normally stop a public web page from doing that. Settings -> DNS has
+a "DNS rebinding protection" toggle (off by default) that catches this at
+resolution time: every A/AAAA answer coming back from upstream is checked
+against [`ipaddress.is_private`](https://docs.python.org/3/library/ipaddress.html)
+(covers RFC1918, loopback, link-local, and IPv6 ULA in one call), and if a
+queried domain resolves to a private address, `dns.rebinding_action`
+decides what happens to that answer:
+
+- `"alert"` (default) - resolve normally, just raise an alert. Nothing
+  about the answer changes.
+- `"block"` - answer as blocked instead, the same shape as a blocklist hit,
+  with the reason recorded as `DNS rebinding protection (<ip>)`.
+
+Two things are exempt from this check entirely, since they *legitimately*
+resolve to private addresses: domains under the same local-TLD list used by
+[Local-TLD query alerts](#local-tld-query-alerts) below (`.local`, `.lan`,
+`.home`, etc. - a router or NAS answering its own hostname on the LAN isn't
+rebinding), and anything you list yourself under
+`dns.rebinding_exempt_domains` (and its subdomains) for your own internal
+services that are supposed to resolve locally. A hit also lands in the
+Anomalies tab as its own `high`-severity row (same cooldown/notification
+pipeline as every other anomaly here, via `anomaly.cooldown_minutes`), so
+`"alert"` mode still gets you paged even though the DNS answer itself goes
+through untouched.
+
+### Local-TLD query alerts
+
+A separate, unrelated toggle in Settings -> DNS - "Local TLD query alerts",
+also off by default - simply logs when a client queries a domain under one
+of those same local-only TLDs (`dns.local_tld_list`, defaults to `local`,
+`lan`, `home`, `internal`, `corp`, `home.arpa`). This isn't a threat
+signal by itself (mDNS/homenet traffic is completely normal on most LANs);
+it's a low-severity, informational row in the Anomalies tab
+(`dns.local_tld_cooldown_minutes` per domain/TLD combination, default 30)
+for people who want visibility into what's being queried under those
+suffixes - IoT devices probing `.local` names, say - without treating it as
+an incident. Leave it off if that's just noise for your network.
 
 ### Alert rules (watched domains and lists)
 

@@ -795,6 +795,51 @@
             process, not distributed across DNS worker processes.
           </p>
           <div class="field checkbox">
+            <input type="checkbox" id="s-dns-rebinding-enabled">
+            <label for="s-dns-rebinding-enabled">DNS rebinding protection - alert (or block) when a public domain's answer points at a local/private address</label>
+          </div>
+          <div class="field-grid" id="s-dns-rebinding-fields">
+            <div class="field">
+              <label>On detection</label>
+              <select id="s-dns-rebinding-action">
+                <option value="alert">Alert only - resolve normally</option>
+                <option value="block">Alert and block the answer</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Exempt domains, comma separated</label>
+              <input type="text" id="s-dns-rebinding-exempt" placeholder="e.g. internal.example.com">
+            </div>
+          </div>
+          <p class="hint">
+            An external domain answering with a <code>10.x</code>/<code>192.168.x</code>/
+            <code>127.x</code>/link-local/IPv6 ULA address is unusual - legitimate public sites
+            never do this, so it's a classic sign of a DNS rebinding attack trying to reach past
+            your network's perimeter through a client's browser. Domains under a local TLD below
+            are always exempt (they're supposed to answer with private addresses); add any other
+            internal domain you intentionally route to a private IP via per-domain upstreams here
+            so it isn't flagged too.
+          </p>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-local-tld-enabled">
+            <label for="s-dns-local-tld-enabled">Alert when a client queries a domain under a local TLD (e.g. mDNS/homenet naming)</label>
+          </div>
+          <div class="field-grid" id="s-dns-local-tld-fields">
+            <div class="field">
+              <label>Local TLDs, comma separated</label>
+              <input type="text" id="s-dns-local-tld-list" placeholder="local, lan, home, internal">
+            </div>
+            <div class="field">
+              <label>Re-alert cooldown (minutes)</label>
+              <input type="number" id="s-dns-local-tld-cooldown" min="1" step="1">
+            </div>
+          </div>
+          <p class="hint">
+            Off by default - this traffic is usually routine (mDNS-over-unicast, homenet device
+            naming) rather than suspicious, so expect some noise if you turn it on. The same TLD
+            list also decides which domains are exempt from DNS rebinding protection above.
+          </p>
+          <div class="field checkbox">
             <input type="checkbox" id="s-dns-regex-denylist-enabled">
             <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern in Own lists -> Regex denylist; CPU cost grows with the pattern list, keep it short)</label>
           </div>
@@ -1009,6 +1054,15 @@
           <div class="field"><label>Distinct-subdomain threshold</label><input type="number" id="s-anomaly-tunnel-threshold" min="1" step="1"></div>
           <div class="field"><label>Minimum subdomain length to score</label><input type="number" id="s-anomaly-tunnel-min-length" min="1" step="1"></div>
           <div class="field"><label>Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-tunnel-min-bits" min="0" max="5" step="0.1"></div>
+        </div>
+        <p class="hint" style="color:var(--muted);">
+          Fires when a client sends many distinct reverse-DNS (PTR) lookups for local/private IPs
+          within a single window - one-off lookups (a NAS resolving its gateway, a router
+          browsing the LAN) are normal, but a client working through a private range in sequence
+          looks like it's enumerating what's on your network.
+        </p>
+        <div class="field-grid">
+          <div class="field"><label>Distinct local-IP PTR lookups threshold</label><input type="number" id="s-anomaly-ptr-scan-threshold" min="1" step="1"></div>
         </div>
         <button type="submit">Save anomaly detection settings</button>
       </form>
@@ -2582,6 +2636,12 @@ async function loadSettings() {
   document.getElementById("s-dns-typosquat-redirect-ip").value = s.dns.typosquat_redirect_ip || "";
   document.getElementById("s-dns-dot-enabled").checked = !!s.dns.dot_enabled;
   document.getElementById("s-dns-dot-port").value = s.dns.dot_port ?? 853;
+  document.getElementById("s-dns-rebinding-enabled").checked = !!s.dns.rebinding_protection_enabled;
+  document.getElementById("s-dns-rebinding-action").value = s.dns.rebinding_action || "alert";
+  document.getElementById("s-dns-rebinding-exempt").value = (s.dns.rebinding_exempt_domains || []).join(", ");
+  document.getElementById("s-dns-local-tld-enabled").checked = !!s.dns.local_tld_alert_enabled;
+  document.getElementById("s-dns-local-tld-list").value = (s.dns.local_tld_list || ["local", "lan", "home", "internal"]).join(", ");
+  document.getElementById("s-dns-local-tld-cooldown").value = s.dns.local_tld_cooldown_minutes ?? 30;
   document.getElementById("s-dns-regex-denylist-enabled").checked = !!s.dns.regex_denylist_enabled;
   document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
   document.getElementById("s-dns-upstream-stats-window").value = s.dns.upstream_stats_window_minutes ?? "";
@@ -2641,6 +2701,7 @@ async function loadSettings() {
   document.getElementById("s-anomaly-entropy-min-bits").value = an.domain_burst_min_entropy ?? "";
   document.getElementById("s-anomaly-entropy-fraction").value = an.domain_burst_entropy_fraction ?? "";
   document.getElementById("s-anomaly-tunnel-threshold").value = an.dns_tunneling_threshold ?? "";
+  document.getElementById("s-anomaly-ptr-scan-threshold").value = an.ptr_scan_threshold ?? "";
   document.getElementById("s-anomaly-tunnel-min-length").value = an.dns_tunneling_min_label_length ?? "";
   document.getElementById("s-anomaly-tunnel-min-bits").value = an.dns_tunneling_min_entropy ?? "";
 
@@ -3166,6 +3227,7 @@ document.getElementById("anomaly-settings-form").addEventListener("submit", asyn
       domain_burst_entropy_fraction: floatField("s-anomaly-entropy-fraction"),
       blocked_domain_burst_threshold: intField("s-anomaly-blocked-domain-burst"),
       dns_tunneling_threshold: intField("s-anomaly-tunnel-threshold"),
+      ptr_scan_threshold: intField("s-anomaly-ptr-scan-threshold"),
       dns_tunneling_min_label_length: intField("s-anomaly-tunnel-min-length"),
       dns_tunneling_min_entropy: floatField("s-anomaly-tunnel-min-bits"),
       cooldown_minutes: floatField("s-anomaly-cooldown"),
@@ -3373,6 +3435,12 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
       typosquat_redirect_ip: document.getElementById("s-dns-typosquat-redirect-ip").value.trim(),
       dot_enabled: document.getElementById("s-dns-dot-enabled").checked,
       dot_port: intField("s-dns-dot-port"),
+      rebinding_protection_enabled: document.getElementById("s-dns-rebinding-enabled").checked,
+      rebinding_action: document.getElementById("s-dns-rebinding-action").value,
+      rebinding_exempt_domains: document.getElementById("s-dns-rebinding-exempt").value.split(",").map((s) => s.trim()).filter(Boolean),
+      local_tld_alert_enabled: document.getElementById("s-dns-local-tld-enabled").checked,
+      local_tld_list: document.getElementById("s-dns-local-tld-list").value.split(",").map((s) => s.trim()).filter(Boolean),
+      local_tld_cooldown_minutes: floatField("s-dns-local-tld-cooldown"),
       regex_denylist_enabled: document.getElementById("s-dns-regex-denylist-enabled").checked,
       upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
       upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),

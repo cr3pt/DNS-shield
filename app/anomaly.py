@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import math
@@ -44,6 +45,39 @@ def _looks_like_tunnel_label(domain: str, min_label_length: int, min_entropy: fl
         return False
     return _shannon_entropy(first_label) >= min_entropy
 
+
+def _ptr_name_to_ip(name: str) -> str | None:
+    name = name.rstrip(".").lower()
+    if name.endswith(".in-addr.arpa"):
+        parts = name[: -len(".in-addr.arpa")].split(".")
+        if len(parts) != 4:
+            return None
+        try:
+            octets = [int(p) for p in reversed(parts)]
+        except ValueError:
+            return None
+        if any(o < 0 or o > 255 for o in octets):
+            return None
+        return ".".join(str(o) for o in octets)
+    if name.endswith(".ip6.arpa"):
+        nibbles = name[: -len(".ip6.arpa")].split(".")
+        if len(nibbles) != 32 or not all(len(n) == 1 and n in "0123456789abcdef" for n in nibbles):
+            return None
+        hex_str = "".join(reversed(nibbles))
+        groups = [hex_str[i : i + 4] for i in range(0, 32, 4)]
+        return ":".join(groups)
+    return None
+
+
+def _is_private_ptr_target(name: str) -> bool:
+    ip = _ptr_name_to_ip(name)
+    if ip is None:
+        return False
+    try:
+        return ipaddress.ip_address(ip).is_private
+    except ValueError:
+        return False
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS anomalies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +99,7 @@ KIND_LABELS = {
     "domain_burst": "Burst of random-looking domains (possible DGA)",
     "blocked_domain_burst": "Unusually many distinct blocked domains",
     "dns_tunneling": "Many distinct subdomains of one domain (possible DNS tunneling)",
+    "ptr_scan": "Many reverse-DNS lookups of local/private IPs (possible internal network scan)",
 }
 
 
@@ -83,6 +118,8 @@ class AnomalyDetector:
         self._watch_thread: threading.Thread | None = None
         self._watch_last_id: int | None = None
         self._typosquat_watch_last_id: int | None = None
+        self._rebinding_watch_last_id: int | None = None
+        self._local_tld_watch_last_id: int | None = None
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, timeout=10)
@@ -133,6 +170,14 @@ class AnomalyDetector:
                 self.check_typosquat_hits()
             except Exception:
                 logger.exception("typosquat check failed")
+            try:
+                self.check_rebinding_hits()
+            except Exception:
+                logger.exception("rebinding check failed")
+            try:
+                self.check_local_tld_hits()
+            except Exception:
+                logger.exception("local-TLD check failed")
 
     def check_once(self) -> list[dict[str, Any]]:
         window_minutes = float(self._config.get("anomaly", "window_minutes", default=15) or 15)
@@ -172,6 +217,7 @@ class AnomalyDetector:
         dns_tunneling_min_entropy = float(
             self._config.get("anomaly", "dns_tunneling_min_entropy", default=3.0) or 3.0
         )
+        ptr_scan_threshold = int(self._config.get("anomaly", "ptr_scan_threshold", default=15) or 15)
         cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
 
@@ -182,6 +228,9 @@ class AnomalyDetector:
         domain_list_threshold = min(domain_burst_threshold, dns_tunneling_threshold)
         needs_domains = any(row["distinct_domains"] >= domain_list_threshold for row in activity)
         domains_by_client = self._stats.client_domains(window_minutes * 60, until_ts=until_ts) if needs_domains else {}
+
+        needs_ptr = any(row["total"] >= ptr_scan_threshold for row in activity)
+        ptr_targets_by_client = self._stats.client_ptr_targets(window_minutes * 60, until_ts=until_ts) if needs_ptr else {}
 
         with self._lock:
             conn = self._connect()
@@ -265,6 +314,18 @@ class AnomalyDetector:
                                 ))
                                 break
 
+                    ptr_scan_count: int | None = None
+                    ptr_targets = ptr_targets_by_client.get(client, [])
+                    private_ptr_targets = [t for t in ptr_targets if _is_private_ptr_target(t)]
+                    if len(private_ptr_targets) >= ptr_scan_threshold:
+                        ptr_scan_count = len(private_ptr_targets)
+                        severity = "high" if ptr_scan_count >= ptr_scan_threshold * 2 else "medium"
+                        candidates.append((
+                            "ptr_scan", severity,
+                            f"{ptr_scan_count} distinct reverse-DNS lookups of local/private IPs in the last "
+                            f"{window_minutes:g} min",
+                        ))
+
                     for kind, severity, summary in candidates:
                         last = last_fired.get((client, kind))
                         if last is not None and now - last < cooldown_seconds:
@@ -283,6 +344,8 @@ class AnomalyDetector:
                             details["base_domain"] = dns_tunneling_base
                             details["subdomain_count"] = dns_tunneling_subdomain_count
                             details["avg_name_length"] = dns_tunneling_avg_length
+                        if kind == "ptr_scan":
+                            details["ptr_scan_count"] = ptr_scan_count
                         conn.execute(
                             "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
                             "VALUES (?, ?, ?, ?, ?, ?, 0)",
@@ -434,12 +497,136 @@ class AnomalyDetector:
                     logger.exception("on_new_anomalies callback failed")
         return found
 
+    def check_rebinding_hits(self) -> list[dict[str, Any]]:
+        if not self._config.get("dns", "rebinding_protection_enabled", default=False):
+            return []
+        if self._rebinding_watch_last_id is None:
+            self._rebinding_watch_last_id = self._stats.max_query_id()
+            return []
+
+        hits = self._stats.rebinding_hits_since(self._rebinding_watch_last_id)
+        if not hits:
+            return []
+
+        cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
+        cooldown_seconds = max(cooldown_minutes, 1.0) * 60
+        now = time.time()
+        found: list[dict[str, Any]] = []
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.row_factory = sqlite3.Row
+                last_fired = {
+                    (row["client"], row["kind"]): row["last_ts"]
+                    for row in conn.execute(
+                        "SELECT client, kind, MAX(ts) AS last_ts FROM anomalies GROUP BY client, kind"
+                    ).fetchall()
+                }
+
+                for hit in hits:
+                    client = hit["client"]
+                    domain = hit["domain"]
+                    ip = hit["rebinding_ip"]
+                    kind = f"rebinding:{domain}"
+                    last = last_fired.get((client, kind))
+                    if last is not None and now - last < cooldown_seconds:
+                        continue
+                    summary = f'Domain "{domain}" resolved to a local/private address ({ip}) - possible DNS rebinding'
+                    details = {"domain": domain, "rebinding_ip": ip, "query_ts": hit["ts"]}
+                    conn.execute(
+                        "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
+                        "VALUES (?, ?, ?, 'high', ?, ?, 0)",
+                        (now, client, kind, summary, json.dumps(details)),
+                    )
+                    last_fired[(client, kind)] = now
+                    found.append({"ts": now, "client": client, "kind": kind, "severity": "high", "summary": summary})
+
+                conn.commit()
+            finally:
+                conn.close()
+
+        self._rebinding_watch_last_id = max(hit["id"] for hit in hits)
+
+        if found:
+            logger.info("rebinding check: %d new alert%s flagged", len(found), "" if len(found) == 1 else "s")
+            if self._on_new_anomalies is not None:
+                try:
+                    self._on_new_anomalies(found)
+                except Exception:
+                    logger.exception("on_new_anomalies callback failed")
+        return found
+
+    def check_local_tld_hits(self) -> list[dict[str, Any]]:
+        if not self._config.get("dns", "local_tld_alert_enabled", default=False):
+            return []
+        if self._local_tld_watch_last_id is None:
+            self._local_tld_watch_last_id = self._stats.max_query_id()
+            return []
+
+        hits = self._stats.local_tld_hits_since(self._local_tld_watch_last_id)
+        if not hits:
+            return []
+
+        cooldown_minutes = float(self._config.get("dns", "local_tld_cooldown_minutes", default=30) or 30)
+        cooldown_seconds = max(cooldown_minutes, 1.0) * 60
+        now = time.time()
+        found: list[dict[str, Any]] = []
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.row_factory = sqlite3.Row
+                last_fired = {
+                    (row["client"], row["kind"]): row["last_ts"]
+                    for row in conn.execute(
+                        "SELECT client, kind, MAX(ts) AS last_ts FROM anomalies GROUP BY client, kind"
+                    ).fetchall()
+                }
+
+                for hit in hits:
+                    client = hit["client"]
+                    domain = hit["domain"]
+                    tld = hit["local_tld_match"]
+                    kind = f"local_tld:{tld}"
+                    last = last_fired.get((client, kind))
+                    if last is not None and now - last < cooldown_seconds:
+                        continue
+                    summary = f'Queried local-TLD domain "{domain}" (.{tld})'
+                    details = {"domain": domain, "tld": tld, "query_ts": hit["ts"]}
+                    conn.execute(
+                        "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
+                        "VALUES (?, ?, ?, 'low', ?, ?, 0)",
+                        (now, client, kind, summary, json.dumps(details)),
+                    )
+                    last_fired[(client, kind)] = now
+                    found.append({"ts": now, "client": client, "kind": kind, "severity": "low", "summary": summary})
+
+                conn.commit()
+            finally:
+                conn.close()
+
+        self._local_tld_watch_last_id = max(hit["id"] for hit in hits)
+
+        if found:
+            logger.info("local-TLD check: %d new alert%s flagged", len(found), "" if len(found) == 1 else "s")
+            if self._on_new_anomalies is not None:
+                try:
+                    self._on_new_anomalies(found)
+                except Exception:
+                    logger.exception("on_new_anomalies callback failed")
+        return found
+
     @staticmethod
     def _kind_label(kind: str) -> str:
         if kind.startswith("watched_domain:"):
             return f"Watched domain: {kind.split(':', 1)[1]}"
         if kind.startswith("typosquat:"):
             return f"Possible typosquat of {kind.split(':', 1)[1]}"
+        if kind.startswith("rebinding:"):
+            return f"Possible DNS rebinding: {kind.split(':', 1)[1]}"
+        if kind.startswith("local_tld:"):
+            return f"Local-TLD query: .{kind.split(':', 1)[1]}"
         return KIND_LABELS.get(kind, kind)
 
     @classmethod

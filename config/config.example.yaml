@@ -33,6 +33,12 @@ dns:
   client_name_cache_seconds: 3600
   dot_enabled: false
   dot_port: 853
+  rebinding_protection_enabled: false
+  rebinding_action: "alert"
+  rebinding_exempt_domains: []
+  local_tld_alert_enabled: false
+  local_tld_list: ["local", "lan", "home", "internal", "corp", "home.arpa"]
+  local_tld_cooldown_minutes: 30
 
 blocklists:
   refresh_interval_hours: 24
@@ -101,6 +107,7 @@ anomaly:
   dns_tunneling_threshold: 30
   dns_tunneling_min_label_length: 20
   dns_tunneling_min_entropy: 3.0
+  ptr_scan_threshold: 15
   cooldown_minutes: 60
 
 alert_rules:

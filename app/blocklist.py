@@ -23,6 +23,8 @@ _ADBLOCK_RE = re.compile(r"^\|\|([a-z0-9.\-_]+)\^")
 _ADBLOCK_EXCEPTION_RE = re.compile(r"^@@\|\|([a-z0-9.\-_]+)\^")
 _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$")
 
+DEFAULT_LOCAL_TLDS = ("local", "lan", "home", "internal", "corp", "home.arpa")
+
 
 def is_non_latin_domain(domain: str) -> bool:
     if "xn--" in domain:
@@ -303,6 +305,25 @@ class BlocklistManager:
     def clear_typosquat_cache(self) -> None:
         with self._typosquat_lock:
             self._typosquat_cache.clear()
+
+    def local_tlds(self) -> list[str]:
+        tlds = self._config.get("dns", "local_tld_list", default=None)
+        return list(tlds) if tlds else list(DEFAULT_LOCAL_TLDS)
+
+    def local_tld_match(self, qname: str) -> str | None:
+        if not self._config.get("dns", "local_tld_alert_enabled", default=False):
+            return None
+        return self.local_tld_match_ignoring_toggle(qname)
+
+    def local_tld_match_ignoring_toggle(self, qname: str) -> str | None:
+        qname = qname.rstrip(".").lower()
+        if not qname:
+            return None
+        for tld in self.local_tlds():
+            tld = tld.strip(".").lower()
+            if tld and (qname == tld or qname.endswith("." + tld)):
+                return tld
+        return None
 
     def _compiled_regex_patterns(self) -> list[tuple[str, re.Pattern]]:
         patterns = tuple(self._config.get("denylist_regex", default=[]) or [])
