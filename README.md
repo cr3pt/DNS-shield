@@ -8,6 +8,10 @@ sit as your network's DNS resolver and drop queries to ad/tracker domains -
 but with a much smaller, auditable footprint and **no built-in calls to any
 third-party cloud service**.
 
+See [`docs/features.html`](docs/features.html) for a categorized map of
+every feature this ships with (open it in a browser after cloning, or
+download it directly from GitHub).
+
 ## Screenshots
 
 | Logs | Stats |

@@ -1,0 +1,366 @@
+<title>DNS-shield Capability Map</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F1F4F8;
+    --surface: #FFFFFF;
+    --surface-alt: #E8EDF3;
+    --ink: #131C2A;
+    --muted: #56687D;
+    --accent: #B0701D;
+    --accent-ink: #FFFFFF;
+    --accent-tint: #F4E6D0;
+    --border: #D7DEE7;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --font-sans: "IBM Plex Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0C1119;
+      --surface: #121B29;
+      --surface-alt: #182233;
+      --ink: #E7ECF4;
+      --muted: #93A3B8;
+      --accent: #E0A045;
+      --accent-ink: #1A1204;
+      --accent-tint: #2C2413;
+      --border: #223047;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0C1119;
+    --surface: #121B29;
+    --surface-alt: #182233;
+    --ink: #E7ECF4;
+    --muted: #93A3B8;
+    --accent: #E0A045;
+    --accent-ink: #1A1204;
+    --accent-tint: #2C2413;
+    --border: #223047;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hero, .group {
+      animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .group:nth-of-type(1) { animation-delay: 0.05s; }
+    .group:nth-of-type(2) { animation-delay: 0.09s; }
+    .group:nth-of-type(3) { animation-delay: 0.13s; }
+    .group:nth-of-type(4) { animation-delay: 0.17s; }
+    .group:nth-of-type(5) { animation-delay: 0.21s; }
+    .group:nth-of-type(6) { animation-delay: 0.25s; }
+    .group:nth-of-type(7) { animation-delay: 0.29s; }
+    .group:nth-of-type(8) { animation-delay: 0.33s; }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  }
+
+  a { color: var(--accent); }
+
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 4.5rem 1.75rem 6rem;
+  }
+
+  .hero {
+    position: relative;
+    padding: 2.75rem 2.5rem;
+    margin-bottom: 3.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background:
+      radial-gradient(circle at 1.5px 1.5px, color-mix(in srgb, var(--ink) 7%, transparent) 1px, transparent 0) 0 0 / 18px 18px,
+      var(--surface);
+    overflow: hidden;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    font-family: var(--font-mono);
+    font-size: clamp(2rem, 4.5vw, 2.75rem);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0.6rem 0 0.85rem;
+    text-wrap: balance;
+  }
+
+  .dek {
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0 0 1.5rem;
+  }
+
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .stat b {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat span {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .groups {
+    display: flex;
+    flex-direction: column;
+    gap: 3rem;
+  }
+
+  .group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .group-head h2 {
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0;
+  }
+
+  .group-head .tag {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  .group-dek {
+    color: var(--muted);
+    font-size: 0.95rem;
+    max-width: 68ch;
+    margin: 0 0 1.4rem;
+  }
+
+  .rule {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0 0 1.4rem;
+  }
+
+  .items {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  @media (max-width: 640px) {
+    .items { grid-template-columns: 1fr; }
+  }
+
+  .item {
+    background: var(--surface);
+    padding: 1rem 1.15rem;
+  }
+
+  .item.full {
+    grid-column: 1 / -1;
+  }
+
+  @media (max-width: 640px) {
+    .item.full { grid-column: auto; }
+  }
+
+  .item dt {
+    font-weight: 600;
+    font-size: 0.92rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .item dd {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.87rem;
+    line-height: 1.5;
+  }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.82rem;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  footer .stamp {
+    font-family: var(--font-mono);
+  }
+</style>
+
+<div class="page">
+  <header class="hero">
+    <div class="eyebrow">Self-hosted &middot; Docker &middot; no telemetry</div>
+    <h1>DNS-shield capability map</h1>
+    <p class="dek">
+      A privacy-respecting DNS ad and tracker blocker that runs entirely on your own
+      network. Everything below ships in the box - filtering, per-client policy,
+      anomaly detection, and the account security to let more than one person
+      administer it safely.
+    </p>
+    <div class="stats">
+      <div class="stat"><b>8</b><span>feature groups</span></div>
+      <div class="stat"><b>50+</b><span>individual capabilities</span></div>
+      <div class="stat"><b>0</b><span>external services required</span></div>
+    </div>
+  </header>
+
+  <main class="groups">
+
+    <section class="group">
+      <div class="group-head"><h2>DNS filtering &amp; resolution</h2><span class="tag">core</span></div>
+      <p class="group-dek">The actual blocking and answering path - what gets refused, what gets rewritten, and how a query finds its way upstream.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Blocklist filtering</dt><dd>Hosts, AdBlock, and plain-domain source formats, refreshed on a schedule, cached to disk for offline restarts.</dd></div>
+        <div class="item"><dt>Allow / deny lists</dt><dd>Global overrides on top of every blocklist, plus an experimental regex denylist for pattern matches.</dd></div>
+        <div class="item"><dt>Destination-IP blocking</dt><dd>Refuses an answer by the IP it resolves to, not just the domain that was asked for.</dd></div>
+        <div class="item"><dt>Non-Latin domain blocking</dt><dd>Refuses Cyrillic, Arabic, and CJK-script domains outright.</dd></div>
+        <div class="item"><dt>Category blocklists per group</dt><dd>Adult, gambling, or social-media lists scoped to one client group instead of the whole network.</dd></div>
+        <div class="item"><dt>Forced SafeSearch</dt><dd>Restricted Mode across Google, Bing, DuckDuckGo, YouTube, and Yandex, network-wide or per group.</dd></div>
+        <div class="item"><dt>Newly Registered Domains</dt><dd>HaGeZi's NRD feed blocks domains registered in the last 7 days - the "baby domain" defense enterprise gateways use.</dd></div>
+        <div class="item"><dt>Typosquat detection</dt><dd>Catches close spelling variants and embedded brand names, with an option to redirect to the real address or one you specify.</dd></div>
+        <div class="item"><dt>DNSSEC</dt><dd>Sets the DO bit on upstream queries and caches the validation status per domain.</dd></div>
+        <div class="item"><dt>Custom DNS records</dt><dd>Local A/AAAA answers for your own hostnames - no upstream round trip.</dd></div>
+        <div class="item"><dt>Upstream routing &amp; strategy</dt><dd>Per-domain and per-group upstream selection; in-order, fastest, most-stable, or race-all-at-once.</dd></div>
+        <div class="item"><dt>Answer caching</dt><dd>An in-memory, TTL-respecting cache shared by every worker process.</dd></div>
+        <div class="item full"><dt>Pause blocking</dt><dd>Suspends every list network-wide for a set duration, without editing a single rule.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <div class="group-head"><h2>Clients &amp; schedules</h2><span class="tag">policy</span></div>
+      <p class="group-dek">Different rules for different devices, and for different times of day.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Client groups</dt><dd>Matched by IP/CIDR range, MAC address, or resolved hostname.</dd></div>
+        <div class="item"><dt>Bedtime schedules</dt><dd>Per-group time windows that block everything, independent of any blocklist.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <div class="group-head"><h2>Anomaly detection &amp; alerts</h2><span class="tag">watch</span></div>
+      <p class="group-dek">Heuristics that flag unusual traffic without sending a single query off your network.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Heuristic anomaly detection</dt><dd>Flags blocked-ratio spikes, domain bursts, and DNS-tunneling-shaped traffic patterns.</dd></div>
+        <div class="item"><dt>Alert rules</dt><dd>Watch specific domains or entire list sources and get notified on any hit.</dd></div>
+        <div class="item full"><dt>Historical reanalysis</dt><dd>Replays past traffic against the current rules to catch what a new rule would have flagged.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <div class="group-head"><h2>Notifications</h2><span class="tag">alerts out</span></div>
+      <p class="group-dek">Three independent channels, all off by default, all pointed at a service you control.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Email</dt><dd>Sent through your own SMTP server - not a third-party relay.</dd></div>
+        <div class="item"><dt>Webhooks</dt><dd>Discord, Slack, or a Telegram bot, each with its own minimum severity.</dd></div>
+        <div class="item full"><dt>Browser notifications</dt><dd>Native OS popups while a dashboard tab is open, nothing server-side to configure.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <div class="group-head"><h2>Accounts &amp; security</h2><span class="tag">access</span></div>
+      <p class="group-dek">Multiple administrators, several ways to prove it's really them, and a record of what each of them did.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Multi-user accounts</dt><dd>Admin and restricted roles, with per-user scoping to specific clients or groups.</dd></div>
+        <div class="item"><dt>Public view</dt><dd>A login-free summary - trend and top blocked domains only - safe to leave on a shared screen.</dd></div>
+        <div class="item"><dt>HTTPS for the dashboard</dt><dd>Self-signed out of the box, or point it at a certificate of your own.</dd></div>
+        <div class="item"><dt>Login rate limiting</dt><dd>Locks out an IP after repeated failed attempts, for a duration you set.</dd></div>
+        <div class="item"><dt>Two-factor authentication</dt><dd>TOTP with QR-code setup and one-time backup codes for when the device isn't at hand.</dd></div>
+        <div class="item"><dt>Passkeys</dt><dd>WebAuthn as a second factor - a hardware key or a device's own biometric unlock - alongside or instead of TOTP.</dd></div>
+        <div class="item"><dt>API tokens</dt><dd>Bearer tokens for scripts and dashboards, inheriting the permissions of the account that issued them.</dd></div>
+        <div class="item"><dt>Audit log</dt><dd>Every successful change, who made it, and which address it came from.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <div class="group-head"><h2>Administration</h2><span class="tag">operate</span></div>
+      <p class="group-dek">Getting existing config in, current config out, and answers about what a query actually did.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>AdGuard Home &amp; Pi-hole import</dt><dd>Brings over existing filter lists, rules, and client groups from either project.</dd></div>
+        <div class="item"><dt>Config backup &amp; restore</dt><dd>A full configuration snapshot as a downloadable zip, built entirely in memory.</dd></div>
+        <div class="item"><dt>Query log browser</dt><dd>Searchable and filterable, with a quick block/unblock action on every row.</dd></div>
+        <div class="item"><dt>Threat-intel enrichment</dt><dd>On-demand lookups against VirusTotal, AbuseIPDB, OTX, or a local service you run.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <div class="group-head"><h2>Observability &amp; network integrations</h2><span class="tag">wire</span></div>
+      <p class="group-dek">Plugging DNS-shield into the rest of your infrastructure, and letting other clients speak to it encrypted.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Prometheus metrics</dt><dd>A /metrics endpoint covering queries, blocks, cache state, and unacknowledged anomalies.</dd></div>
+        <div class="item"><dt>Health endpoint</dt><dd>/healthz, wired directly into the Docker image's own HEALTHCHECK.</dd></div>
+        <div class="item"><dt>DoH &amp; DoT upstream</dt><dd>Encrypts the hop from DNS-shield to whichever resolver you send queries to.</dd></div>
+        <div class="item"><dt>DoH &amp; DoT listeners</dt><dd>DNS-shield itself answers encrypted queries from clients that ask for them.</dd></div>
+        <div class="item full"><dt>Local block page</dt><dd>An explained "why was this blocked" page for null_ip mode, naming the exact rule that matched.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <div class="group-head"><h2>Dashboard</h2><span class="tag">interface</span></div>
+      <p class="group-dek">The control surface all of the above is operated through.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Eight color themes</dt><dd>Four dark, four light, each a paired hue.</dd></div>
+        <div class="item"><dt>Self-contained UI</dt><dd>No external assets or CDN - the dashboard works fully offline.</dd></div>
+      </dl>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>DNS-shield &middot; self-hosted, runs in Docker</span>
+    <span class="stamp">docs/features.html</span>
+  </footer>
+</div>
