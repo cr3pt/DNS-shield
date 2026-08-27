@@ -246,6 +246,10 @@ class ChangePasswordIn(BaseModel):
     new_password: str
 
 
+class ApiTokenIn(BaseModel):
+    name: str
+
+
 class LoggingSettingsIn(BaseModel):
     retention_days: float | None = None
 
@@ -346,11 +350,15 @@ def create_app(
     NO_CACHE = {"Cache-Control": "no-cache"}
 
     def _current_user(request: Request) -> dict[str, Any] | None:
-        token = request.cookies.get(COOKIE_NAME)
-        username = sessions.username_for(token)
-        if username is None:
-            return None
-        return users.get(username)
+        cookie_token = request.cookies.get(COOKIE_NAME)
+        username = sessions.username_for(cookie_token)
+        if username is not None:
+            return users.get(username)
+
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return users.find_by_token(auth_header[len("Bearer ") :].strip())
+        return None
 
     def require_auth(request: Request) -> dict[str, Any]:
         user = _current_user(request)
@@ -1766,6 +1774,26 @@ To restore into an EXISTING instance (data/config.db already exists):
         if not body.new_password:
             raise HTTPException(status_code=400, detail="New password is required")
         users.update(user["username"], password=body.new_password)
+        return {"ok": True}
+
+    @app.get("/api/account/tokens")
+    def list_api_tokens(user: dict[str, Any] = Depends(require_auth)) -> list[dict[str, Any]]:
+        return users.list_tokens(user["username"])
+
+    @app.post("/api/account/tokens")
+    def create_api_token(body: ApiTokenIn, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            token, record = users.create_token(user["username"], body.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"token": token, **record}
+
+    @app.delete("/api/account/tokens/{token_id}")
+    def revoke_api_token(token_id: str, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            users.revoke_token(user["username"], token_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"ok": True}
 
     return app

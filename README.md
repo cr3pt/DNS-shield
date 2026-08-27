@@ -1293,6 +1293,25 @@ every account's bcrypt hash - not reversible to the original password,
 but still worth keeping private, same as any other credential in that
 file.
 
+**API tokens** let a script, cron job, or dashboard (Grafana, a Home
+Assistant automation, your own tooling) call the API without a browser
+session - Settings -> General -> "API tokens". Each token is tied to the
+account that created it and acts as that account for every permission
+check: an admin's token can do anything an admin can through the API, a
+restricted user's token is limited the same way that account already is.
+Send it as `Authorization: Bearer <token>` on any request; `GET /metrics`
+and the DoH endpoint (`/dns-query`) never need one, since both are
+unauthenticated by design (see above) - a token only matters for the
+rest of the API. The token itself is a 256-bit random value
+(`secrets.token_urlsafe`, prefixed `dnss_` so it's recognizable in a
+config file or a `.env`) - only its SHA-256 hash is ever stored, and the
+plaintext is shown exactly once, at creation, with nowhere in the UI to
+retrieve it again afterward; lose it and you create a new one and revoke
+the old. Revoking (or deleting the owning user) invalidates it
+immediately - there's no grace period. Like a bcrypt password hash, a
+token's hash isn't reversible to the original value, but a downloaded
+config backup still includes it, same caveat as **Passwords** above.
+
 ### HTTPS for the dashboard
 
 `web.https_enabled` (Settings -> General, off by default) makes the
@@ -1652,6 +1671,13 @@ shared across them.
   [HTTPS for the dashboard](#https-for-the-dashboard) below) - it's left
   off by default since a plain-HTTP LAN deployment couldn't ever send it
   back.
+- API tokens (`Authorization: Bearer <token>`, see **API tokens** above)
+  are deliberately not rate-limited the way the login endpoint is - a
+  256-bit random value makes guessing infeasible regardless, unlike a
+  human-chosen password. A token is a bearer credential: anyone holding
+  it can use it, indistinguishably from the account that created it, for
+  as long as it stays valid - treat it like a password, and revoke it the
+  moment you suspect it leaked.
 - The public, signed-out view (`/` and `GET /api/public/summary`) is
   intentionally reachable without a login - it only ever returns the
   query trend and top blocked domains, nothing client- or domain-specific

@@ -568,6 +568,26 @@
     </section>
 
     <section>
+      <h2>API tokens</h2>
+      <p class="muted">
+        Bearer tokens for scripts, cron jobs, or dashboards (e.g. Grafana) that need to call
+        DNS-shield's API without a browser session - each token acts as you, with your own role
+        and permissions, and works by sending <code>Authorization: Bearer &lt;token&gt;</code>.
+        <code>GET /metrics</code> and the DoH endpoint never need one - they're unauthenticated
+        by design (see above) - a token is only for the rest of the API.
+      </p>
+      <form class="inline" id="add-token-form">
+        <input type="text" id="token-name" placeholder="Name (e.g. Grafana)" required>
+        <button type="submit">Create token</button>
+      </form>
+      <div id="new-token-box" class="hint" style="display:none; margin-top:10px;"></div>
+      <table>
+        <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+        <tbody id="token-rows"></tbody>
+      </table>
+    </section>
+
+    <section>
       <h2>Backup</h2>
       <p class="muted">
         Downloads a .zip with a full snapshot of everything in this instance's config -
@@ -3238,6 +3258,7 @@ async function refreshAll() {
   await loadAlertSources();
   await loadWebhooks();
   await loadUsers();
+  await loadTokens();
 }
 
 document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
@@ -3354,6 +3375,46 @@ function allowedSummary(u) {
   const parts = [...(perms.allowed_clients || []), ...(perms.allowed_groups || [])];
   return parts.length ? parts.join(", ") : "nothing yet";
 }
+
+async function loadTokens() {
+  const tokens = await api("/api/account/tokens");
+  const rows = document.getElementById("token-rows");
+  rows.innerHTML = "";
+  tokens.forEach((t) => {
+    const revokeBtn = el("button", { class: "danger", text: "Revoke" });
+    revokeBtn.onclick = async () => {
+      if (!confirm(`Revoke the token "${t.name}"? Anything using it will stop working immediately.`)) return;
+      await api(`/api/account/tokens/${t.id}`, { method: "DELETE" });
+      loadTokens();
+    };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: t.name }),
+      el("td", { text: new Date(t.created_at * 1000).toLocaleString() }),
+      el("td", { text: t.last_used_at ? new Date(t.last_used_at * 1000).toLocaleString() : "never" }),
+      el("td", {}, [revokeBtn]),
+    ]));
+  });
+}
+
+document.getElementById("add-token-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("token-name").value.trim();
+  if (!name) return;
+  const result = await api("/api/account/tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  e.target.reset();
+  const box = document.getElementById("new-token-box");
+  box.style.display = "";
+  box.innerHTML = "";
+  box.appendChild(el("strong", { text: "Copy this token now - it won't be shown again: " }));
+  const code = el("code", { text: result.token });
+  box.appendChild(code);
+  box.appendChild(copyButton(result.token));
+  loadTokens();
+});
 
 async function loadUsers() {
   const tbody = document.getElementById("users-rows");

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
+from app.api_tokens import generate_token, generate_token_id, hash_token
 from app.auth import hash_password, verify_password
+
+_TOKEN_TOUCH_MIN_INTERVAL = 60.0
 
 DEFAULT_PERMISSIONS: dict[str, Any] = {
     "allowed_clients": [],
@@ -31,6 +35,15 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "username": user["username"],
         "role": user["role"],
         "permissions": _normalized_permissions(user.get("permissions")),
+    }
+
+
+def public_token(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "name": record.get("name", ""),
+        "created_at": record.get("created_at"),
+        "last_used_at": record.get("last_used_at"),
     }
 
 
@@ -144,6 +157,79 @@ class UserStore:
             if target.get("role") == "admin" and _admin_count(users) <= 1:
                 raise ValueError("Can't delete the last remaining administrator")
             users.remove(target)
+
+        self._config.mutate(_mutate)
+
+    def list_tokens(self, username: str) -> list[dict[str, Any]]:
+        user = self.get(username)
+        if user is None:
+            raise ValueError(f'No such user: "{username}"')
+        return [public_token(t) for t in (user.get("api_tokens") or [])]
+
+    def create_token(self, username: str, name: str) -> tuple[str, dict[str, Any]]:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("Token name is required")
+        token = generate_token()
+        record = {
+            "id": generate_token_id(),
+            "name": name,
+            "token_hash": hash_token(token),
+            "created_at": time.time(),
+            "last_used_at": None,
+        }
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for user in data.setdefault("users", []):
+                if user.get("username") == username:
+                    user.setdefault("api_tokens", []).append(record)
+                    return
+            raise ValueError(f'No such user: "{username}"')
+
+        self._config.mutate(_mutate)
+        return token, public_token(record)
+
+    def revoke_token(self, username: str, token_id: str) -> None:
+        def _mutate(data: dict[str, Any]) -> None:
+            for user in data.setdefault("users", []):
+                if user.get("username") != username:
+                    continue
+                tokens = user.setdefault("api_tokens", [])
+                remaining = [t for t in tokens if t.get("id") != token_id]
+                if len(remaining) == len(tokens):
+                    raise ValueError("No such token")
+                user["api_tokens"] = remaining
+                return
+            raise ValueError(f'No such user: "{username}"')
+
+        self._config.mutate(_mutate)
+
+    def find_by_token(self, token: str) -> dict[str, Any] | None:
+        if not token:
+            return None
+        thash = hash_token(token)
+        for user in self.list():
+            for record in user.get("api_tokens") or []:
+                if record.get("token_hash") == thash:
+                    self._touch_token(user["username"], record.get("id"), record.get("last_used_at"))
+                    return user
+        return None
+
+    def _touch_token(self, username: str, token_id: str | None, last_used_at: float | None) -> None:
+        if token_id is None:
+            return
+        now = time.time()
+        if last_used_at and now - last_used_at < _TOKEN_TOUCH_MIN_INTERVAL:
+            return
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for user in data.get("users", []):
+                if user.get("username") != username:
+                    continue
+                for record in user.get("api_tokens") or []:
+                    if record.get("id") == token_id:
+                        record["last_used_at"] = now
+                        return
 
         self._config.mutate(_mutate)
 
