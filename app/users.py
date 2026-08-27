@@ -5,6 +5,13 @@ from typing import Any
 
 from app.api_tokens import generate_token, generate_token_id, hash_token
 from app.auth import hash_password, verify_password
+from app.two_factor import (
+    generate_backup_codes,
+    generate_secret,
+    hash_backup_code,
+    provisioning_uri,
+    verify_code,
+)
 
 _TOKEN_TOUCH_MIN_INTERVAL = 60.0
 
@@ -35,6 +42,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "username": user["username"],
         "role": user["role"],
         "permissions": _normalized_permissions(user.get("permissions")),
+        "totp_enabled": bool(user.get("totp_enabled", False)),
     }
 
 
@@ -232,6 +240,92 @@ class UserStore:
                         return
 
         self._config.mutate(_mutate)
+
+    def begin_totp_setup(self, username: str) -> tuple[str, str]:
+        user = self.get(username)
+        if user is None:
+            raise ValueError(f'No such user: "{username}"')
+        secret = generate_secret()
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for u in data.setdefault("users", []):
+                if u.get("username") == username:
+                    u["totp_pending_secret"] = secret
+                    return
+            raise ValueError(f'No such user: "{username}"')
+
+        self._config.mutate(_mutate)
+        return secret, provisioning_uri(secret, username)
+
+    def confirm_totp_setup(self, username: str, code: str) -> list[str]:
+        user = self.get(username)
+        if user is None:
+            raise ValueError(f'No such user: "{username}"')
+        secret = user.get("totp_pending_secret")
+        if not secret:
+            raise ValueError("No pending TOTP setup - start setup again")
+        if not verify_code(secret, code):
+            raise ValueError("Incorrect code - check your authenticator app and try again")
+
+        backup_codes = generate_backup_codes()
+        backup_hashes = [hash_backup_code(c) for c in backup_codes]
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for u in data.setdefault("users", []):
+                if u.get("username") == username:
+                    u["totp_enabled"] = True
+                    u["totp_secret"] = secret
+                    u.pop("totp_pending_secret", None)
+                    u["totp_backup_codes"] = backup_hashes
+                    return
+            raise ValueError(f'No such user: "{username}"')
+
+        self._config.mutate(_mutate)
+        return backup_codes
+
+    def disable_totp(self, username: str, password: str) -> None:
+        user = self.get(username)
+        if user is None:
+            raise ValueError(f'No such user: "{username}"')
+        if not verify_password(password, user.get("password_hash", "")):
+            raise ValueError("Current password is incorrect")
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for u in data.setdefault("users", []):
+                if u.get("username") == username:
+                    u["totp_enabled"] = False
+                    u.pop("totp_secret", None)
+                    u.pop("totp_pending_secret", None)
+                    u.pop("totp_backup_codes", None)
+                    return
+            raise ValueError(f'No such user: "{username}"')
+
+        self._config.mutate(_mutate)
+
+    def verify_totp_or_backup_code(self, username: str, code: str) -> bool:
+        user = self.get(username)
+        if user is None or not user.get("totp_enabled"):
+            return False
+        code = (code or "").strip()
+        if not code:
+            return False
+
+        if verify_code(user.get("totp_secret", ""), code):
+            return True
+
+        code_hash = hash_backup_code(code)
+        backup_hashes = user.get("totp_backup_codes") or []
+        if code_hash not in backup_hashes:
+            return False
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for u in data.setdefault("users", []):
+                if u.get("username") == username:
+                    u["totp_backup_codes"] = [h for h in (u.get("totp_backup_codes") or []) if h != code_hash]
+                    return
+
+        self._config.mutate(_mutate)
+        return True
 
 
 def _admin_count(users: list[dict[str, Any]]) -> int:

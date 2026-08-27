@@ -88,15 +88,25 @@
     </div>
     <button type="submit" id="submit-btn">Sign in</button>
   </form>
+  <form id="totp-form" style="display:none;">
+    <div>
+      <label for="totp-code">Authenticator code</label>
+      <input type="text" id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code, or a backup code" required autofocus>
+    </div>
+    <button type="submit" id="totp-submit-btn">Verify</button>
+  </form>
   <a class="public-link" href="/">View public stats without signing in &rarr;</a>
 </div>
 <script>
 const form = document.getElementById("login-form");
+const totpForm = document.getElementById("totp-form");
 const errorBox = document.getElementById("error");
 const submitBtn = document.getElementById("submit-btn");
+const totpSubmitBtn = document.getElementById("totp-submit-btn");
 
 const params = new URLSearchParams(location.search);
 const nextUrl = params.get("next") || "/";
+let pendingTotpToken = null;
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -112,9 +122,16 @@ form.addEventListener("submit", async (e) => {
         password: document.getElementById("password").value,
       }),
     });
+    const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       throw new Error(body.detail || "Invalid username or password");
+    }
+    if (body.totp_required) {
+      pendingTotpToken = body.totp_token;
+      form.style.display = "none";
+      totpForm.style.display = "flex";
+      document.getElementById("totp-code").focus();
+      return;
     }
     location.href = nextUrl.startsWith("/") ? nextUrl : "/";
   } catch (err) {
@@ -123,6 +140,34 @@ form.addEventListener("submit", async (e) => {
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = "Sign in";
+  }
+});
+
+totpForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorBox.style.display = "none";
+  totpSubmitBtn.disabled = true;
+  totpSubmitBtn.textContent = "Verifying...";
+  try {
+    const res = await fetch("/api/login/totp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        totp_token: pendingTotpToken,
+        code: document.getElementById("totp-code").value,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || "Incorrect code");
+    }
+    location.href = nextUrl.startsWith("/") ? nextUrl : "/";
+  } catch (err) {
+    errorBox.textContent = err.message || "Verification failed";
+    errorBox.style.display = "block";
+  } finally {
+    totpSubmitBtn.disabled = false;
+    totpSubmitBtn.textContent = "Verify";
   }
 });
 </script>

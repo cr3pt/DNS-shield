@@ -1293,6 +1293,28 @@ every account's bcrypt hash - not reversible to the original password,
 but still worth keeping private, same as any other credential in that
 file.
 
+**Two-factor authentication (TOTP)** adds a second step to signing in -
+Settings -> General -> "Two-factor authentication", off by default, one
+account at a time (each account turns it on for itself, an admin can't
+force it on for someone else). Enabling it shows a QR code for any
+standard authenticator app (Google Authenticator, Authy, 1Password,
+Bitwarden, etc.) plus the underlying base32 key for manual entry if you'd
+rather type it in than scan - both encode the same
+[RFC 6238](https://www.rfc-editor.org/rfc/rfc6238) TOTP secret, generated
+server-side with `pyotp` and rendered to an inline SVG with `qrcode`
+(no Pillow, no external image service - the whole thing is one HTTP
+round trip). Confirming with the 6-digit code your app produces enables
+it and hands you 8 single-use backup codes, shown exactly once - store
+them somewhere safe, since each is worth one login if you lose the
+device your authenticator app is on. From then on, `/api/login` returns
+`{"totp_required": true, "totp_token": ...}` instead of setting a session
+cookie once the password checks out; `/api/login/totp` takes that token
+plus a 6-digit code (or an unused backup code) and only then sets the
+cookie. A wrong code counts against the same per-IP lockout as a wrong
+password (`web.login_max_attempts`/`web.login_lockout_minutes`, see
+**Security notes** below) - guessing codes isn't free. Disabling it back
+off asks for your current password first, same safeguard as changing it.
+
 **API tokens** let a script, cron job, or dashboard (Grafana, a Home
 Assistant automation, your own tooling) call the API without a browser
 session - Settings -> General -> "API tokens". Each token is tied to the

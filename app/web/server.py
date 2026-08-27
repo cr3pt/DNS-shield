@@ -25,6 +25,7 @@ from app.login_throttle import LoginThrottle
 from app.metrics import render_metrics
 from app.netmatch import ip_matches
 from app.sessions import COOKIE_NAME, SessionStore
+from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
@@ -250,6 +251,19 @@ class ApiTokenIn(BaseModel):
     name: str
 
 
+class TotpConfirmIn(BaseModel):
+    code: str
+
+
+class TotpDisableIn(BaseModel):
+    password: str
+
+
+class TotpLoginIn(BaseModel):
+    totp_token: str
+    code: str
+
+
 class LoggingSettingsIn(BaseModel):
     retention_days: float | None = None
 
@@ -346,6 +360,7 @@ def create_app(
     users = users if users is not None else UserStore(config_store)
     sessions = sessions if sessions is not None else SessionStore()
     login_throttle = LoginThrottle()
+    pending_totp = PendingTotpStore()
 
     NO_CACHE = {"Cache-Control": "no-cache"}
 
@@ -417,8 +432,52 @@ def create_app(
         if user is None:
             login_throttle.record_failure(client_ip)
             raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        if user.get("totp_enabled"):
+            totp_token = pending_totp.create(user["username"])
+            return {"ok": True, "totp_required": True, "totp_token": totp_token}
+
         login_throttle.record_success(client_ip)
         token = sessions.create(user["username"])
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=bool(config_store.get("web", "https_enabled", default=False)),
+            max_age=7 * 24 * 3600,
+            path="/",
+        )
+        return {"ok": True, "user": public_user(user)}
+
+    @app.post("/api/login/totp")
+    def login_totp(body: TotpLoginIn, request: Request, response: Response) -> dict[str, Any]:
+        client_ip = request.client.host if request.client else "unknown"
+        max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
+        lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
+        login_throttle.configure(max_attempts, lockout_seconds)
+
+        retry_after = login_throttle.retry_after(client_ip)
+        if retry_after is not None:
+            wait_seconds = int(retry_after) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed login attempts - try again in {wait_seconds}s",
+                headers={"Retry-After": str(wait_seconds)},
+            )
+
+        username = pending_totp.username_for(body.totp_token)
+        if username is None:
+            raise HTTPException(status_code=401, detail="Login session expired - sign in again")
+
+        if not users.verify_totp_or_backup_code(username, body.code):
+            login_throttle.record_failure(client_ip)
+            raise HTTPException(status_code=401, detail="Incorrect authenticator code")
+
+        pending_totp.consume(body.totp_token)
+        login_throttle.record_success(client_ip)
+        user = users.get(username)
+        token = sessions.create(username)
         response.set_cookie(
             COOKIE_NAME,
             token,
@@ -1774,6 +1833,27 @@ To restore into an EXISTING instance (data/config.db already exists):
         if not body.new_password:
             raise HTTPException(status_code=400, detail="New password is required")
         users.update(user["username"], password=body.new_password)
+        return {"ok": True}
+
+    @app.post("/api/account/totp/setup")
+    def start_totp_setup(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        secret, uri = users.begin_totp_setup(user["username"])
+        return {"secret": secret, "otpauth_uri": uri, "qr_svg": qr_svg(uri)}
+
+    @app.post("/api/account/totp/confirm")
+    def confirm_totp_setup(body: TotpConfirmIn, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            backup_codes = users.confirm_totp_setup(user["username"], body.code)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "backup_codes": backup_codes}
+
+    @app.post("/api/account/totp/disable")
+    def disable_totp(body: TotpDisableIn, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            users.disable_totp(user["username"], body.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True}
 
     @app.get("/api/account/tokens")

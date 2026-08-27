@@ -568,6 +568,48 @@
     </section>
 
     <section>
+      <h2>Two-factor authentication</h2>
+      <p class="muted" id="totp-status-text">-</p>
+
+      <div id="totp-disabled-view" style="display:none;">
+        <button type="button" id="totp-start-btn">Enable 2FA</button>
+      </div>
+
+      <div id="totp-setup-view" style="display:none;">
+        <p class="hint">
+          Scan this with your authenticator app (Google Authenticator, Authy, 1Password, etc.),
+          or enter the key manually, then type the 6-digit code it shows to confirm.
+        </p>
+        <div id="totp-qr" style="max-width:220px; background:#fff; padding:10px; border-radius:8px;"></div>
+        <p class="muted">Manual key: <code id="totp-manual-secret"></code></p>
+        <form id="totp-confirm-form" class="inline">
+          <input type="text" id="totp-confirm-code" placeholder="6-digit code" inputmode="numeric" autocomplete="one-time-code" required>
+          <button type="submit">Confirm</button>
+          <button type="button" class="secondary" id="totp-cancel-btn">Cancel</button>
+        </form>
+        <p class="muted" id="totp-confirm-error"></p>
+      </div>
+
+      <div id="totp-backup-codes-view" style="display:none;">
+        <p class="hint" style="color:var(--danger);">
+          <strong>Save these backup codes now - each works once if you lose access to your
+          authenticator app, and they won't be shown again.</strong>
+        </p>
+        <pre id="totp-backup-codes-list" style="background:var(--bg); padding:10px; border-radius:8px; user-select:all;"></pre>
+        <button type="button" class="secondary" id="totp-backup-done-btn">I've saved these</button>
+      </div>
+
+      <div id="totp-enabled-view" style="display:none;">
+        <p class="muted">Two-factor authentication is enabled for this account.</p>
+        <form id="totp-disable-form" class="inline">
+          <input type="password" id="totp-disable-password" placeholder="Current password" autocomplete="current-password" required>
+          <button type="submit" class="danger">Disable 2FA</button>
+        </form>
+        <p class="muted" id="totp-disable-error"></p>
+      </div>
+    </section>
+
+    <section>
       <h2>API tokens</h2>
       <p class="muted">
         Bearer tokens for scripts, cron jobs, or dashboards (e.g. Grafana) that need to call
@@ -3376,6 +3418,74 @@ function allowedSummary(u) {
   return parts.length ? parts.join(", ") : "nothing yet";
 }
 
+function renderTotpStatus() {
+  const enabled = !!(currentUser && currentUser.totp_enabled);
+  document.getElementById("totp-status-text").textContent = enabled
+    ? "Two-factor authentication is currently enabled."
+    : "Off by default - adds a second step (an authenticator app code) to signing in.";
+  document.getElementById("totp-disabled-view").style.display = enabled ? "none" : "";
+  document.getElementById("totp-enabled-view").style.display = enabled ? "" : "none";
+  document.getElementById("totp-setup-view").style.display = "none";
+  document.getElementById("totp-backup-codes-view").style.display = "none";
+}
+
+document.getElementById("totp-start-btn").addEventListener("click", async () => {
+  const result = await api("/api/account/totp/setup", { method: "POST" });
+  document.getElementById("totp-qr").innerHTML = result.qr_svg;
+  document.getElementById("totp-manual-secret").textContent = result.secret;
+  document.getElementById("totp-confirm-code").value = "";
+  document.getElementById("totp-confirm-error").textContent = "";
+  document.getElementById("totp-disabled-view").style.display = "none";
+  document.getElementById("totp-setup-view").style.display = "";
+});
+
+document.getElementById("totp-cancel-btn").addEventListener("click", () => {
+  renderTotpStatus();
+});
+
+document.getElementById("totp-confirm-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const code = document.getElementById("totp-confirm-code").value.trim();
+  const errBox = document.getElementById("totp-confirm-error");
+  errBox.textContent = "";
+  try {
+    const result = await api("/api/account/totp/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    currentUser.totp_enabled = true;
+    document.getElementById("totp-setup-view").style.display = "none";
+    document.getElementById("totp-backup-codes-list").textContent = result.backup_codes.join("\n");
+    document.getElementById("totp-backup-codes-view").style.display = "";
+  } catch (err) {
+    errBox.textContent = err.message || "Incorrect code";
+  }
+});
+
+document.getElementById("totp-backup-done-btn").addEventListener("click", () => {
+  renderTotpStatus();
+});
+
+document.getElementById("totp-disable-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const password = document.getElementById("totp-disable-password").value;
+  const errBox = document.getElementById("totp-disable-error");
+  errBox.textContent = "";
+  try {
+    await api("/api/account/totp/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    currentUser.totp_enabled = false;
+    document.getElementById("totp-disable-password").value = "";
+    renderTotpStatus();
+  } catch (err) {
+    errBox.textContent = err.message || "Incorrect password";
+  }
+});
+
 async function loadTokens() {
   const tokens = await api("/api/account/tokens");
   const rows = document.getElementById("token-rows");
@@ -4006,6 +4116,7 @@ async function boot() {
   setActiveTab(localStorage.getItem("dnsshield-tab"));
   setActiveSubtab(localStorage.getItem("dnsshield-settings-subtab"));
   document.getElementById("my-username").textContent = currentUser.username;
+  renderTotpStatus();
 
   await refreshAll();
   setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);
