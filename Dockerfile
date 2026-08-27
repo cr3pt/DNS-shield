@@ -20,6 +20,6 @@ ENV DNSSHIELD_CONFIG_DB=/data/config.db \
 EXPOSE 53/udp 53/tcp 3000/tcp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-    CMD python -c "import socket; s=socket.create_connection(('127.0.0.1',3000),timeout=3); s.close()"
+    CMD python -m app.healthcheck
 
 ENTRYPOINT ["python", "-m", "app.main"]

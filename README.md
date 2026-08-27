@@ -1426,6 +1426,22 @@ per-process, so with more than one DNS worker these only reflect
 whichever process the web UI happens to be (the same one that owns
 `create_app`), not a sum across all of them.
 
+### Health check
+
+`GET /healthz` (also unauthenticated) is a plain liveness check -
+`{"status": "ok", "uptime_seconds": ...}` with a 200 status if the web
+process is up and serving requests, nothing more (it doesn't touch
+`stats.db`, the blocklist, or any other subsystem, so it can't itself
+become slow or fail for reasons unrelated to "is this process alive").
+The shipped image's own `HEALTHCHECK` already points `docker inspect
+--format='{{.State.Health.Status}}'`/`docker ps` at it via
+`app/healthcheck.py`, which tries plain HTTP first and falls back to
+HTTPS (skipping certificate verification, since the target is always
+`127.0.0.1` inside the same container) so it keeps working whichever
+way `web.https_enabled` is set. Point an external uptime check or a
+Kubernetes `livenessProbe` at the same path if you're running this
+outside `docker compose`.
+
 ### Pause blocking
 
 The bar at the top of the dashboard can pause *all* blocking network-wide
@@ -1584,6 +1600,8 @@ app/
   metrics.py            renders the Prometheus text-exposition format for GET /metrics
                         (see above) from the same stats.db/blocklist/cache/anomaly state
                         everything else already reads
+  healthcheck.py         standalone script backing the Docker image's HEALTHCHECK - hits
+                        GET /healthz over HTTP then HTTPS, whichever the running config uses
   dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)

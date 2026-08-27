@@ -516,6 +516,10 @@ def create_app(
             "timeseries": stats.timeseries("24h"),
         }
 
+    @app.get("/healthz")
+    def healthz() -> dict[str, Any]:
+        return {"status": "ok", "uptime_seconds": time.time() - started_at}
+
     @app.get("/metrics")
     def metrics() -> Response:
         body = render_metrics(stats, blocklist, started_at, cache=cache, anomaly=anomaly, dnssec_cache=dnssec_cache)
