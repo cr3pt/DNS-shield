@@ -1334,6 +1334,24 @@ immediately - there's no grace period. Like a bcrypt password hash, a
 token's hash isn't reversible to the original value, but a downloaded
 config backup still includes it, same caveat as **Passwords** above.
 
+**Audit log** (Settings -> Users -> "Audit log") is a running, read-only
+record of every successful settings/config change made through the
+API - who (which account), what (`METHOD /api/path`), and from which
+address, newest first - plus sign-ins and sign-outs. It's built with a
+single piece of middleware that watches every `POST`/`PUT`/`PATCH`/
+`DELETE` under `/api/`, so new endpoints get covered automatically
+without needing an explicit log call added to each one; login/logout
+are logged explicitly instead, since a session cookie doesn't exist yet
+at the moment a login request arrives. Only requests that actually
+succeeded (status under 400) are recorded - a rejected or failed
+attempt leaves no entry - and only mutating requests: routine reads
+like loading a page or the dashboard's 10-second stats poll never
+appear. `GET /dns-query` (DoH) and `POST /dns-query` are deliberately
+excluded too - every DNS query would otherwise flood this into
+uselessness, and it's meant to answer "who changed what", not to be a
+second query log. Stored in its own `audit.db`, pruned on the same
+`logging.retention_days` schedule as the query log.
+
 ### HTTPS for the dashboard
 
 `web.https_enabled` (Settings -> General, off by default) makes the
@@ -1602,6 +1620,9 @@ app/
                         everything else already reads
   healthcheck.py         standalone script backing the Docker image's HEALTHCHECK - hits
                         GET /healthz over HTTP then HTTPS, whichever the running config uses
+  audit.py               who-changed-what log: SQLite storage (data/audit.db), fed by a
+                        single piece of middleware in web/server.py that covers every
+                        mutating /api/ endpoint automatically (see above)
   dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)

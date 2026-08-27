@@ -495,6 +495,7 @@
   <div class="subtabs" id="settings-subtabs">
     <button type="button" class="subtab-btn" data-subtab="general">General</button>
     <button type="button" class="subtab-btn" data-subtab="users">Users</button>
+    <button type="button" class="subtab-btn" data-subtab="auditlog">Audit log</button>
     <button type="button" class="subtab-btn" data-subtab="dns">DNS</button>
     <button type="button" class="subtab-btn" data-subtab="logging">Logging</button>
     <button type="button" class="subtab-btn" data-subtab="threat-intel">Threat intelligence</button>
@@ -1371,6 +1372,23 @@
       <h2>Query log</h2>
       <p class="muted">Irreversible - wipes every row already logged, regardless of retention. Resolution/blocking is unaffected; this only clears history, not policy.</p>
       <button type="button" class="danger" id="query-log-purge">Delete all logged queries</button>
+    </section>
+  </div>
+
+  <div id="subtab-auditlog" class="subtab-panel">
+    <section>
+      <h2>Audit log</h2>
+      <p class="muted">
+        Every successful settings/config change made through the API, newest first - who did
+        it, what endpoint they hit, and from which address. Signing in and out are logged too;
+        routine reads (loading a page, polling stats) are not. Read-only here; retained the
+        same length as the query log (Settings -> Logging -> retention).
+      </p>
+      <table>
+        <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Client IP</th></tr></thead>
+        <tbody id="audit-log-rows"></tbody>
+      </table>
+      <button type="button" class="secondary" id="audit-log-load-more" style="display:none;">Load more</button>
     </section>
   </div>
 
@@ -3301,6 +3319,7 @@ async function refreshAll() {
   await loadWebhooks();
   await loadUsers();
   await loadTokens();
+  await loadAuditLog(true);
 }
 
 document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
@@ -3485,6 +3504,38 @@ document.getElementById("totp-disable-form").addEventListener("submit", async (e
     errBox.textContent = err.message || "Incorrect password";
   }
 });
+
+let auditLogRows = [];
+let auditLogLoading = false;
+
+async function loadAuditLog(reset) {
+  if (reset) {
+    auditLogRows = [];
+    document.getElementById("audit-log-rows").innerHTML = "";
+  }
+  if (auditLogLoading) return;
+  auditLogLoading = true;
+  try {
+    const params = new URLSearchParams({ limit: "100" });
+    if (auditLogRows.length) params.set("before_id", auditLogRows[auditLogRows.length - 1].id);
+    const rows = await api(`/api/audit-log?${params}`);
+    auditLogRows = auditLogRows.concat(rows);
+    const tbody = document.getElementById("audit-log-rows");
+    for (const r of rows) {
+      tbody.appendChild(el("tr", {}, [
+        el("td", { text: new Date(r.ts * 1000).toLocaleString() }),
+        el("td", { text: r.username }),
+        el("td", { text: r.action }),
+        el("td", { text: r.client_ip || "-" }),
+      ]));
+    }
+    document.getElementById("audit-log-load-more").style.display = rows.length === 100 ? "" : "none";
+  } finally {
+    auditLogLoading = false;
+  }
+}
+
+document.getElementById("audit-log-load-more").addEventListener("click", () => loadAuditLog(false));
 
 async function loadTokens() {
   const tokens = await api("/api/account/tokens");
@@ -4016,7 +4067,7 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
   btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
 }
 
-const SUBTAB_NAMES = ["general", "users", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
+const SUBTAB_NAMES = ["general", "users", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
 
 function setActiveSubtab(subtab) {
   if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";

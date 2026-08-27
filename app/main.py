@@ -12,6 +12,7 @@ from pathlib import Path
 import uvicorn
 
 from app.anomaly import AnomalyDetector
+from app.audit import AuditLog
 from app.block_page import start_block_page_server
 from app.blocklist import BlocklistManager
 from app.client_names import ClientNameResolver
@@ -145,6 +146,7 @@ def main() -> None:
 
     users = UserStore(config_store)
     sessions = SessionStore()
+    audit_log = AuditLog(DATA_DIR / "audit.db", config_store)
 
     resolver = build_resolver(
         config_store,
@@ -190,6 +192,7 @@ def main() -> None:
         sessions=sessions,
         dnssec_cache=dnssec_cache,
         resolver=resolver,
+        audit_log=audit_log,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))

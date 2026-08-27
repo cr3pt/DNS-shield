@@ -354,6 +354,7 @@ def create_app(
     sessions: SessionStore | None = None,
     dnssec_cache=None,
     resolver=None,
+    audit_log=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -408,6 +409,24 @@ def create_app(
             return []
         return [ip for ip in stats.distinct_clients() if any(ip_matches(ip, p) for p in patterns)]
 
+    _AUDIT_EXCLUDED_PATHS = {"/api/login", "/api/login/totp", "/api/logout"}
+
+    @app.middleware("http")
+    async def audit_middleware(request: Request, call_next):
+        response = await call_next(request)
+        if (
+            audit_log is not None
+            and request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and request.url.path.startswith("/api/")
+            and request.url.path not in _AUDIT_EXCLUDED_PATHS
+            and response.status_code < 400
+        ):
+            user = _current_user(request)
+            if user is not None:
+                client_ip = request.client.host if request.client else "unknown"
+                audit_log.record(user["username"], f"{request.method} {request.url.path}", client_ip=client_ip)
+        return response
+
     @app.get("/login")
     def login_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "login.html", headers=NO_CACHE)
@@ -448,6 +467,8 @@ def create_app(
             max_age=7 * 24 * 3600,
             path="/",
         )
+        if audit_log is not None:
+            audit_log.record(user["username"], "login", client_ip=client_ip)
         return {"ok": True, "user": public_user(user)}
 
     @app.post("/api/login/totp")
@@ -487,12 +508,18 @@ def create_app(
             max_age=7 * 24 * 3600,
             path="/",
         )
+        if audit_log is not None:
+            audit_log.record(username, "login (2FA)", client_ip=client_ip)
         return {"ok": True, "user": public_user(user)}
 
     @app.post("/api/logout")
     def logout(request: Request, response: Response) -> dict[str, Any]:
+        user = _current_user(request)
         sessions.destroy(request.cookies.get(COOKIE_NAME))
         response.delete_cookie(COOKIE_NAME, path="/")
+        if audit_log is not None and user is not None:
+            client_ip = request.client.host if request.client else "unknown"
+            audit_log.record(user["username"], "logout", client_ip=client_ip)
         return {"ok": True}
 
     @app.get("/api/whoami")
@@ -1879,5 +1906,13 @@ To restore into an EXISTING instance (data/config.db already exists):
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"ok": True}
+
+    @app.get("/api/audit-log")
+    def list_audit_log(
+        before_id: int | None = None, limit: int = 200, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        if audit_log is None:
+            return []
+        return audit_log.list(limit=min(limit, 500), before_id=before_id)
 
     return app
