@@ -1315,6 +1315,35 @@ password (`web.login_max_attempts`/`web.login_lockout_minutes`, see
 **Security notes** below) - guessing codes isn't free. Disabling it back
 off asks for your current password first, same safeguard as changing it.
 
+**Passkeys (WebAuthn)** are the other second-factor option, alongside
+TOTP rather than replacing it - Settings -> General -> "Passkeys". A
+hardware security key or a device's own built-in authenticator (Touch
+ID, Windows Hello, a phone's fingerprint/face unlock) satisfies the
+same "second step" TOTP does, without typing a code: registering one
+is enough on its own to require a second factor at login, whether or
+not TOTP is also turned on for that account. When an account has both,
+the login page offers either - enter a code, or click "Use a passkey
+instead" - and if it only has a passkey (no TOTP), the browser's
+passkey prompt fires automatically the moment the password step
+succeeds, no extra click needed. Built on the
+[`webauthn`](https://github.com/duo-labs/py_webauthn) library for the
+actual registration/authentication ceremonies (`credential.create()`/
+`credential.get()` in the browser, verified server-side against a
+challenge that expires after 5 minutes either way), storing each
+account's credential public keys and signature counters - never
+anything that could be replayed on its own.
+
+This one comes with a real, unavoidable limitation worth knowing before
+you rely on it: WebAuthn's relying-party ID has to be an actual domain,
+and **browsers reject a bare LAN IP address outright** - registering a
+passkey while reaching the dashboard at `http://192.168.1.50:3000`
+fails immediately with "This is an invalid domain," confirmed against
+Chromium, not a guess. `localhost` works, and so does any real
+hostname (a LAN DNS entry, a hosts-file line, a domain through a
+reverse proxy) - if you normally reach DNS-shield by typing an IP,
+point a name at it first (the dashboard's own address bar will tell
+you which hostname it's currently reachable as).
+
 **API tokens** let a script, cron job, or dashboard (Grafana, a Home
 Assistant automation, your own tooling) call the API without a browser
 session - Settings -> General -> "API tokens". Each token is tied to the
@@ -1623,6 +1652,11 @@ app/
   audit.py               who-changed-what log: SQLite storage (data/audit.db), fed by a
                         single piece of middleware in web/server.py that covers every
                         mutating /api/ endpoint automatically (see above)
+  two_factor.py           TOTP secret/QR generation and verification (pyotp + qrcode),
+                        plus the short-lived pending-login-token store the two-step
+                        login flow uses (see Two-factor authentication above)
+  passkeys.py             WebAuthn registration/authentication ceremonies (see Passkeys
+                        above), thin wrapper over the webauthn library
   dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)

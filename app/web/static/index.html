@@ -611,6 +611,26 @@
     </section>
 
     <section>
+      <h2>Passkeys</h2>
+      <p class="muted">
+        A hardware security key, or your device's own built-in authenticator (Touch ID, Windows
+        Hello, a phone's fingerprint/face unlock), used as a second factor in place of typing a
+        TOTP code - registering one here satisfies the same "second step" that two-factor
+        authentication above requires, without needing to also turn TOTP on. Requires the
+        dashboard to be reached by a real hostname or <code>localhost</code> - most browsers
+        reject a bare LAN IP address (like <code>192.168.1.50</code>) as a WebAuthn relying
+        party, so set up local DNS or a hosts-file entry pointing a name at this host if that's
+        how you normally reach it.
+      </p>
+      <button type="button" id="passkey-register-btn">Add a passkey</button>
+      <table>
+        <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+        <tbody id="passkey-rows"></tbody>
+      </table>
+      <p class="muted" id="passkey-register-error"></p>
+    </section>
+
+    <section>
       <h2>API tokens</h2>
       <p class="muted">
         Bearer tokens for scripts, cron jobs, or dashboards (e.g. Grafana) that need to call
@@ -3318,6 +3338,7 @@ async function refreshAll() {
   await loadAlertSources();
   await loadWebhooks();
   await loadUsers();
+  await loadPasskeys();
   await loadTokens();
   await loadAuditLog(true);
 }
@@ -3536,6 +3557,82 @@ async function loadAuditLog(reset) {
 }
 
 document.getElementById("audit-log-load-more").addEventListener("click", () => loadAuditLog(false));
+
+function bufferToBase64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let str = "";
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlToBuffer(base64url) {
+  const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
+  const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const buffer = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) buffer[i] = raw.charCodeAt(i);
+  return buffer.buffer;
+}
+
+async function loadPasskeys() {
+  const passkeys = await api("/api/account/passkeys");
+  const rows = document.getElementById("passkey-rows");
+  rows.innerHTML = "";
+  passkeys.forEach((p) => {
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/account/passkeys/${p.id}`, { method: "DELETE" }); loadPasskeys(); };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: p.name || "-" }),
+      el("td", { text: new Date(p.created_at * 1000).toLocaleString() }),
+      el("td", { text: p.last_used_at ? new Date(p.last_used_at * 1000).toLocaleString() : "never" }),
+      el("td", {}, [delBtn]),
+    ]));
+  });
+}
+
+document.getElementById("passkey-register-btn").addEventListener("click", async () => {
+  const errBox = document.getElementById("passkey-register-error");
+  errBox.textContent = "";
+  if (!window.PublicKeyCredential) {
+    errBox.textContent = "This browser doesn't support passkeys/WebAuthn.";
+    return;
+  }
+  const name = prompt('Name this passkey (e.g. "YubiKey", "Laptop Touch ID")');
+  if (!name) return;
+  const btn = document.getElementById("passkey-register-btn");
+  btn.disabled = true;
+  btn.textContent = "Waiting for your passkey...";
+  try {
+    const { token, options } = await api("/api/account/passkeys/register/options", { method: "POST" });
+    const opts = JSON.parse(options);
+    opts.challenge = base64urlToBuffer(opts.challenge);
+    opts.user.id = base64urlToBuffer(opts.user.id);
+    if (opts.excludeCredentials) {
+      for (const c of opts.excludeCredentials) c.id = base64urlToBuffer(c.id);
+    }
+    const credential = await navigator.credentials.create({ publicKey: opts });
+    const credentialJson = {
+      id: credential.id,
+      rawId: bufferToBase64url(credential.rawId),
+      type: credential.type,
+      response: {
+        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+        attestationObject: bufferToBase64url(credential.response.attestationObject),
+      },
+    };
+    await api("/api/account/passkeys/register/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, name, credential: credentialJson }),
+    });
+    loadPasskeys();
+  } catch (err) {
+    errBox.textContent = err.message || "Could not register passkey";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Add a passkey";
+  }
+});
 
 async function loadTokens() {
   const tokens = await api("/api/account/tokens");

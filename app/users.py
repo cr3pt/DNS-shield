@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import time
 from typing import Any
 
 from app.api_tokens import generate_token, generate_token_id, hash_token
 from app.auth import hash_password, verify_password
+from app.passkeys import generate_passkey_id
 from app.two_factor import (
     generate_backup_codes,
     generate_secret,
@@ -43,10 +45,20 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "role": user["role"],
         "permissions": _normalized_permissions(user.get("permissions")),
         "totp_enabled": bool(user.get("totp_enabled", False)),
+        "has_passkeys": bool(user.get("webauthn_credentials")),
     }
 
 
 def public_token(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "name": record.get("name", ""),
+        "created_at": record.get("created_at"),
+        "last_used_at": record.get("last_used_at"),
+    }
+
+
+def public_passkey(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": record["id"],
         "name": record.get("name", ""),
@@ -237,6 +249,83 @@ class UserStore:
                 for record in user.get("api_tokens") or []:
                     if record.get("id") == token_id:
                         record["last_used_at"] = now
+                        return
+
+        self._config.mutate(_mutate)
+
+    def has_second_factor(self, username: str) -> bool:
+        user = self.get(username)
+        if user is None:
+            return False
+        return bool(user.get("totp_enabled")) or bool(user.get("webauthn_credentials"))
+
+    def list_passkeys(self, username: str) -> list[dict[str, Any]]:
+        user = self.get(username)
+        if user is None:
+            raise ValueError(f'No such user: "{username}"')
+        return [public_passkey(p) for p in (user.get("webauthn_credentials") or [])]
+
+    def passkey_credential_ids(self, username: str) -> list[str]:
+        user = self.get(username)
+        if user is None:
+            return []
+        return [p["credential_id"] for p in (user.get("webauthn_credentials") or [])]
+
+    def find_passkey_by_credential_id(self, username: str, credential_id: str) -> dict[str, Any] | None:
+        user = self.get(username)
+        if user is None:
+            return None
+        for p in user.get("webauthn_credentials") or []:
+            if p.get("credential_id") == credential_id:
+                return p
+        return None
+
+    def add_passkey(self, username: str, name: str, credential_id: str, public_key: bytes, sign_count: int) -> dict[str, Any]:
+        name = (name or "").strip() or "Passkey"
+        record = {
+            "id": generate_passkey_id(),
+            "name": name,
+            "credential_id": credential_id,
+            "public_key": base64.b64encode(public_key).decode("ascii"),
+            "sign_count": sign_count,
+            "created_at": time.time(),
+            "last_used_at": None,
+        }
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for u in data.setdefault("users", []):
+                if u.get("username") == username:
+                    u.setdefault("webauthn_credentials", []).append(record)
+                    return
+            raise ValueError(f'No such user: "{username}"')
+
+        self._config.mutate(_mutate)
+        return public_passkey(record)
+
+    def remove_passkey(self, username: str, passkey_id: str) -> None:
+        def _mutate(data: dict[str, Any]) -> None:
+            for u in data.setdefault("users", []):
+                if u.get("username") != username:
+                    continue
+                creds = u.setdefault("webauthn_credentials", [])
+                remaining = [c for c in creds if c.get("id") != passkey_id]
+                if len(remaining) == len(creds):
+                    raise ValueError("No such passkey")
+                u["webauthn_credentials"] = remaining
+                return
+            raise ValueError(f'No such user: "{username}"')
+
+        self._config.mutate(_mutate)
+
+    def record_passkey_use(self, username: str, credential_id: str, sign_count: int) -> None:
+        def _mutate(data: dict[str, Any]) -> None:
+            for u in data.get("users", []):
+                if u.get("username") != username:
+                    continue
+                for p in u.get("webauthn_credentials") or []:
+                    if p.get("credential_id") == credential_id:
+                        p["sign_count"] = sign_count
+                        p["last_used_at"] = time.time()
                         return
 
         self._config.mutate(_mutate)

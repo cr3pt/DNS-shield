@@ -24,6 +24,9 @@ from app.import_pihole import import_config as import_pihole_config
 from app.login_throttle import LoginThrottle
 from app.metrics import render_metrics
 from app.netmatch import ip_matches
+from app.passkeys import PendingChallengeStore
+from app import passkeys as passkeys_lib
+from webauthn.helpers import bytes_to_base64url
 from app.sessions import COOKIE_NAME, SessionStore
 from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
@@ -264,6 +267,21 @@ class TotpLoginIn(BaseModel):
     code: str
 
 
+class PasskeyLoginOptionsIn(BaseModel):
+    totp_token: str
+
+
+class PasskeyLoginVerifyIn(BaseModel):
+    totp_token: str
+    credential: dict[str, Any]
+
+
+class PasskeyRegisterVerifyIn(BaseModel):
+    token: str
+    name: str = ""
+    credential: dict[str, Any]
+
+
 class LoggingSettingsIn(BaseModel):
     retention_days: float | None = None
 
@@ -362,6 +380,13 @@ def create_app(
     sessions = sessions if sessions is not None else SessionStore()
     login_throttle = LoginThrottle()
     pending_totp = PendingTotpStore()
+    pending_challenges = PendingChallengeStore()
+
+    def _webauthn_rp_id(request: Request) -> str:
+        return request.url.hostname or "localhost"
+
+    def _webauthn_origin(request: Request) -> str:
+        return request.headers.get("origin") or f"{request.url.scheme}://{request.url.netloc}"
 
     NO_CACHE = {"Cache-Control": "no-cache"}
 
@@ -452,9 +477,15 @@ def create_app(
             login_throttle.record_failure(client_ip)
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        if user.get("totp_enabled"):
+        if users.has_second_factor(user["username"]):
             totp_token = pending_totp.create(user["username"])
-            return {"ok": True, "totp_required": True, "totp_token": totp_token}
+            return {
+                "ok": True,
+                "totp_required": True,
+                "totp_token": totp_token,
+                "totp_available": bool(user.get("totp_enabled")),
+                "passkey_available": bool(user.get("webauthn_credentials")),
+            }
 
         login_throttle.record_success(client_ip)
         token = sessions.create(user["username"])
@@ -510,6 +541,78 @@ def create_app(
         )
         if audit_log is not None:
             audit_log.record(username, "login (2FA)", client_ip=client_ip)
+        return {"ok": True, "user": public_user(user)}
+
+    @app.post("/api/login/passkey/options")
+    def login_passkey_options(body: PasskeyLoginOptionsIn, request: Request) -> dict[str, Any]:
+        username = pending_totp.username_for(body.totp_token)
+        if username is None:
+            raise HTTPException(status_code=401, detail="Login session expired - sign in again")
+        credential_ids = users.passkey_credential_ids(username)
+        if not credential_ids:
+            raise HTTPException(status_code=400, detail="No passkeys registered for this account")
+        options_json, challenge = passkeys_lib.authentication_options_json(_webauthn_rp_id(request), credential_ids)
+        pending_challenges.set(body.totp_token, username, challenge)
+        return {"options": options_json}
+
+    @app.post("/api/login/passkey/verify")
+    def login_passkey_verify(body: PasskeyLoginVerifyIn, request: Request, response: Response) -> dict[str, Any]:
+        client_ip = request.client.host if request.client else "unknown"
+        max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
+        lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
+        login_throttle.configure(max_attempts, lockout_seconds)
+
+        retry_after = login_throttle.retry_after(client_ip)
+        if retry_after is not None:
+            wait_seconds = int(retry_after) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed login attempts - try again in {wait_seconds}s",
+                headers={"Retry-After": str(wait_seconds)},
+            )
+
+        pending_username = pending_totp.username_for(body.totp_token)
+        challenge_entry = pending_challenges.get(body.totp_token)
+        if pending_username is None or challenge_entry is None or challenge_entry[0] != pending_username:
+            raise HTTPException(status_code=401, detail="Login session expired - sign in again")
+        username, challenge = challenge_entry
+
+        credential_id = body.credential.get("id")
+        passkey = users.find_passkey_by_credential_id(username, credential_id) if credential_id else None
+        if passkey is None:
+            login_throttle.record_failure(client_ip)
+            raise HTTPException(status_code=401, detail="Unrecognized passkey")
+
+        try:
+            result = passkeys_lib.verify_authentication(
+                credential=body.credential,
+                expected_challenge=challenge,
+                rp_id=_webauthn_rp_id(request),
+                origin=_webauthn_origin(request),
+                public_key=base64.b64decode(passkey["public_key"]),
+                sign_count=passkey.get("sign_count", 0),
+            )
+        except Exception:
+            login_throttle.record_failure(client_ip)
+            raise HTTPException(status_code=401, detail="Passkey verification failed")
+
+        users.record_passkey_use(username, passkey["credential_id"], result.new_sign_count)
+        pending_totp.consume(body.totp_token)
+        pending_challenges.pop(body.totp_token)
+        login_throttle.record_success(client_ip)
+        user = users.get(username)
+        token = sessions.create(username)
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=bool(config_store.get("web", "https_enabled", default=False)),
+            max_age=7 * 24 * 3600,
+            path="/",
+        )
+        if audit_log is not None:
+            audit_log.record(username, "login (passkey)", client_ip=client_ip)
         return {"ok": True, "user": public_user(user)}
 
     @app.post("/api/logout")
@@ -1885,6 +1988,49 @@ To restore into an EXISTING instance (data/config.db already exists):
             users.disable_totp(user["username"], body.password)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True}
+
+    @app.post("/api/account/passkeys/register/options")
+    def start_passkey_registration(request: Request, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        existing_ids = users.passkey_credential_ids(user["username"])
+        options_json, challenge = passkeys_lib.registration_options_json(
+            _webauthn_rp_id(request), "DNS-shield", user["username"], existing_ids
+        )
+        token = pending_challenges.new_token(user["username"], challenge)
+        return {"token": token, "options": options_json}
+
+    @app.post("/api/account/passkeys/register/verify")
+    def confirm_passkey_registration(
+        body: PasskeyRegisterVerifyIn, request: Request, user: dict[str, Any] = Depends(require_auth)
+    ) -> dict[str, Any]:
+        entry = pending_challenges.pop(body.token)
+        if entry is None or entry[0] != user["username"]:
+            raise HTTPException(status_code=400, detail="Registration session expired - try again")
+        challenge = entry[1]
+        try:
+            result = passkeys_lib.verify_registration(
+                credential=body.credential,
+                expected_challenge=challenge,
+                rp_id=_webauthn_rp_id(request),
+                origin=_webauthn_origin(request),
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not verify passkey: {exc}") from exc
+        credential_id = bytes_to_base64url(result.credential_id)
+        return users.add_passkey(
+            user["username"], body.name, credential_id, result.credential_public_key, result.sign_count
+        )
+
+    @app.get("/api/account/passkeys")
+    def list_passkeys(user: dict[str, Any] = Depends(require_auth)) -> list[dict[str, Any]]:
+        return users.list_passkeys(user["username"])
+
+    @app.delete("/api/account/passkeys/{passkey_id}")
+    def delete_passkey(passkey_id: str, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            users.remove_passkey(user["username"], passkey_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"ok": True}
 
     @app.get("/api/account/tokens")
