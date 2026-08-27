@@ -305,6 +305,11 @@ class EnrichmentSettingsIn(BaseModel):
     virustotal_api_key: str | None = None
     abuseipdb_api_key: str | None = None
     otx_api_key: str | None = None
+    greynoise_api_key: str | None = None
+    shodan_api_key: str | None = None
+    urlhaus_api_key: str | None = None
+    rdap_enabled: bool | None = None
+    crtsh_enabled: bool | None = None
     public_enabled: bool | None = None
     local_enabled: bool | None = None
     local_url: str | None = None
@@ -637,8 +642,20 @@ def create_app(
     def whoami(request: Request) -> dict[str, Any]:
         user = _current_user(request)
         enr = config_store.get("enrichment", default={}) or {}
-        public_ready = bool(enr.get("public_enabled")) and any(
-            enr.get(k) for k in ("virustotal_api_key", "abuseipdb_api_key", "otx_api_key")
+        public_ready = bool(enr.get("public_enabled")) and (
+            any(
+                enr.get(k)
+                for k in (
+                    "virustotal_api_key",
+                    "abuseipdb_api_key",
+                    "otx_api_key",
+                    "greynoise_api_key",
+                    "shodan_api_key",
+                    "urlhaus_api_key",
+                )
+            )
+            or enr.get("rdap_enabled")
+            or enr.get("crtsh_enabled")
         )
         local_ready = bool(enr.get("local_enabled")) and bool(enr.get("local_url"))
         return {
@@ -1482,6 +1499,14 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "abuseipdb_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("abuseipdb_api_key")),
                 "otx_api_key_set": bool(snap.get("enrichment", {}).get("otx_api_key")),
                 "otx_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("otx_api_key")),
+                "greynoise_api_key_set": bool(snap.get("enrichment", {}).get("greynoise_api_key")),
+                "greynoise_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("greynoise_api_key")),
+                "shodan_api_key_set": bool(snap.get("enrichment", {}).get("shodan_api_key")),
+                "shodan_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("shodan_api_key")),
+                "urlhaus_api_key_set": bool(snap.get("enrichment", {}).get("urlhaus_api_key")),
+                "urlhaus_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("urlhaus_api_key")),
+                "rdap_enabled": bool(snap.get("enrichment", {}).get("rdap_enabled", False)),
+                "crtsh_enabled": bool(snap.get("enrichment", {}).get("crtsh_enabled", False)),
                 "public_enabled": bool(snap.get("enrichment", {}).get("public_enabled", False)),
                 "local_enabled": bool(snap.get("enrichment", {}).get("local_enabled", False)),
                 "local_url": snap.get("enrichment", {}).get("local_url", "") or "",
@@ -1584,7 +1609,15 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.patch("/api/settings/enrichment")
     def update_enrichment_settings(body: EnrichmentSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
-        keep_if_blank = {"virustotal_api_key", "abuseipdb_api_key", "otx_api_key", "local_api_key"}
+        keep_if_blank = {
+            "virustotal_api_key",
+            "abuseipdb_api_key",
+            "otx_api_key",
+            "greynoise_api_key",
+            "shodan_api_key",
+            "urlhaus_api_key",
+            "local_api_key",
+        }
         data_in = body.model_dump(exclude_unset=True)
         payload = {k: v for k, v in data_in.items() if (v if k in keep_if_blank else v is not None)}
 
@@ -1598,6 +1631,14 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "abuseipdb_api_key_preview": _masked_key_preview(enr.get("abuseipdb_api_key")),
                 "otx_api_key_set": bool(enr.get("otx_api_key")),
                 "otx_api_key_preview": _masked_key_preview(enr.get("otx_api_key")),
+                "greynoise_api_key_set": bool(enr.get("greynoise_api_key")),
+                "greynoise_api_key_preview": _masked_key_preview(enr.get("greynoise_api_key")),
+                "shodan_api_key_set": bool(enr.get("shodan_api_key")),
+                "shodan_api_key_preview": _masked_key_preview(enr.get("shodan_api_key")),
+                "urlhaus_api_key_set": bool(enr.get("urlhaus_api_key")),
+                "urlhaus_api_key_preview": _masked_key_preview(enr.get("urlhaus_api_key")),
+                "rdap_enabled": bool(enr.get("rdap_enabled", False)),
+                "crtsh_enabled": bool(enr.get("crtsh_enabled", False)),
                 "public_enabled": bool(enr.get("public_enabled", False)),
                 "local_enabled": bool(enr.get("local_enabled", False)),
                 "local_url": enr.get("local_url", "") or "",

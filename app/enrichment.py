@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -14,7 +15,16 @@ _TIMEOUT = 20.0
 
 _session = requests.Session()
 
-THREAT_INTEL_HOSTNAMES = frozenset({"www.virustotal.com", "api.abuseipdb.com", "otx.alienvault.com"})
+THREAT_INTEL_HOSTNAMES = frozenset({
+    "www.virustotal.com",
+    "api.abuseipdb.com",
+    "otx.alienvault.com",
+    "api.greynoise.io",
+    "api.shodan.io",
+    "urlhaus-api.abuse.ch",
+    "crt.sh",
+    "rdap.org",
+})
 
 
 def _severity_max(a: str, b: str) -> str:
@@ -159,6 +169,215 @@ def query_otx(target: str, target_type: str, api_key: str) -> dict[str, Any]:
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
+def query_greynoise(ip: str, api_key: str) -> dict[str, Any]:
+    url = f"https://api.greynoise.io/v3/community/{quote(ip, safe='')}"
+    try:
+        resp = _session.get(url, headers={"key": api_key, "Accept": "application/json"}, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        riot = bool(data.get("riot"))
+        noise = bool(data.get("noise"))
+        classification = data.get("classification") or "unknown"
+        name = data.get("name") or "unclassified"
+
+        if riot:
+            verdict = "safe"
+            summary = f"Known benign business service ({name})"
+            score = 0
+        elif not noise:
+            verdict = "safe"
+            summary = "Not observed scanning the internet (no GreyNoise data on record)"
+            score = 0
+        elif classification == "malicious":
+            verdict = "high"
+            summary = f"Observed scanning the internet, classified malicious ({name})"
+            score = 70
+        elif classification == "benign":
+            verdict = "safe"
+            summary = f"Observed scanning the internet but classified benign ({name})"
+            score = 0
+        else:
+            verdict = "low"
+            summary = "Observed scanning the internet, unclassified"
+            score = 20
+
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": verdict,
+            "score": score,
+            "summary": summary,
+            "details": data,
+            "link": data.get("link") or f"https://viz.greynoise.io/ip/{quote(ip, safe='')}",
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:
+        logger.warning("GreyNoise lookup failed for %s: %s", ip, exc)
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+
+def query_shodan(ip: str, api_key: str) -> dict[str, Any]:
+    url = f"https://api.shodan.io/shodan/host/{quote(ip, safe='')}"
+    try:
+        resp = _session.get(url, params={"key": api_key}, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        ports = data.get("ports") or []
+        vulns = data.get("vulns") or []
+        tags = data.get("tags") or []
+
+        if any(t in tags for t in ("malware", "compromised", "botnet")):
+            verdict = "critical"
+        elif len(vulns) >= 5:
+            verdict = "high"
+        elif len(vulns) >= 1:
+            verdict = "medium"
+        else:
+            verdict = "safe"
+
+        summary = f"{len(ports)} open port(s), {len(vulns)} known vulnerabilit{'y' if len(vulns) == 1 else 'ies'}"
+        if tags:
+            summary += f" - tags: {', '.join(tags)}"
+
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": verdict,
+            "score": min(100, len(vulns) * 15),
+            "summary": summary,
+            "details": {"ports": ports, "vulns": vulns, "tags": tags, "org": data.get("org")},
+            "link": f"https://www.shodan.io/host/{quote(ip, safe='')}",
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:
+        logger.warning("Shodan lookup failed for %s: %s", ip, exc)
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+
+def query_urlhaus(target: str, target_type: str, api_key: str) -> dict[str, Any]:
+    url = "https://urlhaus-api.abuse.ch/v1/host/"
+    try:
+        resp = _session.post(url, data={"host": target}, headers={"Auth-Key": api_key}, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        status = data.get("query_status")
+
+        if status == "no_results":
+            return {
+                "configured": True,
+                "ok": True,
+                "verdict": "safe",
+                "score": 0,
+                "summary": "No known malware URLs hosted here",
+                "details": data,
+                "link": f"https://urlhaus.abuse.ch/host/{quote(target, safe='')}/",
+            }
+        if status != "ok":
+            return {"configured": True, "ok": False, "error": f"unrecognized response ({status or 'no status'})"}
+
+        urls = data.get("urls") or []
+        online = sum(1 for u in urls if u.get("url_status") == "online")
+        if online >= 3:
+            verdict = "critical"
+        elif online >= 1:
+            verdict = "high"
+        else:
+            verdict = "medium"
+
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": verdict,
+            "score": min(100, online * 25 + 10),
+            "summary": f"{len(urls)} malware URL(s) on record ({online} currently online)",
+            "details": {"url_count": len(urls), "online": online},
+            "link": f"https://urlhaus.abuse.ch/host/{quote(target, safe='')}/",
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:
+        logger.warning("URLhaus lookup failed for %s: %s", target, exc)
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+
+def query_rdap(domain: str) -> dict[str, Any]:
+    url = f"https://rdap.org/domain/{quote(domain, safe='')}"
+    try:
+        resp = _session.get(url, headers={"Accept": "application/rdap+json"}, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        registration_date = next(
+            (ev.get("eventDate") for ev in data.get("events", []) if ev.get("eventAction") == "registration"),
+            None,
+        )
+
+        age_days: int | None = None
+        if registration_date:
+            try:
+                reg_dt = datetime.fromisoformat(registration_date.replace("Z", "+00:00"))
+                age_days = (datetime.now(timezone.utc) - reg_dt).days
+            except ValueError:
+                age_days = None
+
+        if age_days is None:
+            verdict, summary = "safe", "No registration date on record"
+        elif age_days < 7:
+            verdict, summary = "high", f"Registered {age_days} day(s) ago - very recently registered"
+        elif age_days < 30:
+            verdict, summary = "medium", f"Registered {age_days} day(s) ago - recently registered"
+        elif age_days < 90:
+            verdict, summary = "low", f"Registered {age_days} day(s) ago"
+        else:
+            verdict, summary = "safe", f"Registered {age_days} day(s) ago"
+
+        score = {"safe": 0, "low": 20, "medium": 45, "high": 75}[verdict]
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": verdict,
+            "score": score,
+            "summary": summary,
+            "details": {"age_days": age_days, "registration_date": registration_date},
+            "link": f"https://who.is/whois/{quote(domain, safe='')}",
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:
+        logger.warning("RDAP lookup failed for %s: %s", domain, exc)
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+
+def query_crtsh(domain: str) -> dict[str, Any]:
+    url = "https://crt.sh/"
+    try:
+        resp = _session.get(url, params={"q": domain, "output": "json"}, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        entries = resp.json()
+        subdomains: set[str] = set()
+        for entry in entries:
+            for name in (entry.get("name_value") or "").split("\n"):
+                name = name.strip().lower()
+                if name:
+                    subdomains.add(name)
+
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": "safe",
+            "score": 0,
+            "summary": f"{len(entries)} certificate(s) logged, {len(subdomains)} distinct name(s) seen",
+            "details": {"certificate_count": len(entries), "distinct_names": len(subdomains)},
+            "link": f"https://crt.sh/?q={quote(domain, safe='')}",
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:
+        logger.warning("crt.sh lookup failed for %s: %s", domain, exc)
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+
 def query_local(target: str, target_type: str, url: str, api_key: str) -> dict[str, Any]:
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -200,17 +419,46 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
         else:
             jobs[name] = run
 
+    def _register_toggle(name: str, enabled: bool, run) -> None:
+        if not public_enabled:
+            sources[name] = {"configured": enabled, "enabled": False}
+        elif not enabled:
+            sources[name] = {"configured": False}
+        else:
+            jobs[name] = run
+
     vt_key = config_store.get("enrichment", "virustotal_api_key", default="") or ""
     _register("virustotal", vt_key, lambda: query_virustotal(target, target_type, vt_key))
 
     otx_key = config_store.get("enrichment", "otx_api_key", default="") or ""
     _register("otx", otx_key, lambda: query_otx(target, target_type, otx_key))
 
+    urlhaus_key = config_store.get("enrichment", "urlhaus_api_key", default="") or ""
+    _register("urlhaus", urlhaus_key, lambda: query_urlhaus(target, target_type, urlhaus_key))
+
     if target_type == "ip":
         abuse_key = config_store.get("enrichment", "abuseipdb_api_key", default="") or ""
         _register("abuseipdb", abuse_key, lambda: query_abuseipdb(target, abuse_key))
+
+        greynoise_key = config_store.get("enrichment", "greynoise_api_key", default="") or ""
+        _register("greynoise", greynoise_key, lambda: query_greynoise(target, greynoise_key))
+
+        shodan_key = config_store.get("enrichment", "shodan_api_key", default="") or ""
+        _register("shodan", shodan_key, lambda: query_shodan(target, shodan_key))
     else:
         sources["abuseipdb"] = None
+        sources["greynoise"] = None
+        sources["shodan"] = None
+
+    if target_type == "domain":
+        rdap_enabled = bool(config_store.get("enrichment", "rdap_enabled", default=False))
+        _register_toggle("rdap", rdap_enabled, lambda: query_rdap(target))
+
+        crtsh_enabled = bool(config_store.get("enrichment", "crtsh_enabled", default=False))
+        _register_toggle("crtsh", crtsh_enabled, lambda: query_crtsh(target))
+    else:
+        sources["rdap"] = None
+        sources["crtsh"] = None
 
     local_enabled = bool(config_store.get("enrichment", "local_enabled", default=False))
     local_url = config_store.get("enrichment", "local_url", default="") or ""

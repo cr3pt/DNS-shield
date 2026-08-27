@@ -950,12 +950,12 @@
       <form id="enrichment-settings-form">
         <div class="field checkbox">
           <input type="checkbox" id="s-enrich-public-enabled">
-          <label for="s-enrich-public-enabled">Enable public lookups (VirusTotal / AbuseIPDB / AlienVault OTX)</label>
+          <label for="s-enrich-public-enabled">Enable public lookups</label>
         </div>
         <p class="hint" style="color:var(--muted);">
           Off by default. This is the one thing in DNS-shield that calls out beyond your own
           network - saving an API key below does <strong>not</strong> turn it on by itself, and
-          Enrich will report each of these three as disabled until this box is checked too.
+          Enrich will report every service below as disabled until this box is checked too.
         </p>
         <div class="field-grid">
           <div class="field">
@@ -970,10 +970,38 @@
             <label>AlienVault OTX API key <span id="otx-key-status" class="muted"></span></label>
             <input type="password" id="s-otx-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
+          <div class="field">
+            <label>GreyNoise API key <span id="greynoise-key-status" class="muted"></span></label>
+            <input type="password" id="s-greynoise-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>Shodan API key <span id="shodan-key-status" class="muted"></span></label>
+            <input type="password" id="s-shodan-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>URLhaus (abuse.ch) Auth-Key <span id="urlhaus-key-status" class="muted"></span></label>
+            <input type="password" id="s-urlhaus-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
         </div>
         <p class="hint" style="color:var(--muted);">
-          Leave a key blank to skip that service. AbuseIPDB only supports IP lookups, so it's
-          skipped for domains regardless.
+          Leave a key blank to skip that service. AbuseIPDB, GreyNoise, and Shodan only support IP
+          lookups; they're skipped for domains regardless.
+        </p>
+
+        <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-rdap-enabled">
+          <label for="s-enrich-rdap-enabled">Domain age lookup (RDAP/WHOIS) - no key needed</label>
+        </div>
+        <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-crtsh-enabled">
+          <label for="s-enrich-crtsh-enabled">Certificate transparency lookup (crt.sh) - no key needed</label>
+        </div>
+        <p class="hint" style="color:var(--muted);">
+          Both are domain-only and keyless (free public services, no account needed) - still
+          gated behind "Enable public lookups" above since they're still third-party calls.
+          Domain age flags a domain registered very recently, a common phishing/typosquat
+          signal; crt.sh just reports how many certificates and distinct subdomain names are on
+          record for the domain, for your own reference.
         </p>
 
         <div class="field checkbox">
@@ -1723,6 +1751,8 @@ function openEnrichmentWindow(result) {
       if (!src.configured) {
         const hint = name === "local"
           ? "Not set up - enable it and add a URL in Settings -> Threat intelligence."
+          : name === "rdap" || name === "crtsh"
+          ? "Not enabled - turn it on in Settings -> Threat intelligence."
           : "Not configured - add an API key in Settings -> Threat intelligence.";
         return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">${hint}</p></div>`;
       }
@@ -2672,18 +2702,30 @@ async function loadSettings() {
   document.getElementById("s-vt-key").value = "";
   document.getElementById("s-abuseipdb-key").value = "";
   document.getElementById("s-otx-key").value = "";
+  document.getElementById("s-greynoise-key").value = "";
+  document.getElementById("s-shodan-key").value = "";
+  document.getElementById("s-urlhaus-key").value = "";
   document.getElementById("s-enrich-local-key").value = "";
   const enr = s.enrichment || {};
   const keyStatusText = (set, preview) => (set ? `(configured: ${preview}) ` : "(not set)");
   document.getElementById("vt-key-status").textContent = keyStatusText(enr.virustotal_api_key_set, enr.virustotal_api_key_preview);
   document.getElementById("abuseipdb-key-status").textContent = keyStatusText(enr.abuseipdb_api_key_set, enr.abuseipdb_api_key_preview);
   document.getElementById("otx-key-status").textContent = keyStatusText(enr.otx_api_key_set, enr.otx_api_key_preview);
+  document.getElementById("greynoise-key-status").textContent = keyStatusText(enr.greynoise_api_key_set, enr.greynoise_api_key_preview);
+  document.getElementById("shodan-key-status").textContent = keyStatusText(enr.shodan_api_key_set, enr.shodan_api_key_preview);
+  document.getElementById("urlhaus-key-status").textContent = keyStatusText(enr.urlhaus_api_key_set, enr.urlhaus_api_key_preview);
   document.getElementById("local-key-status").textContent = keyStatusText(enr.local_api_key_set, enr.local_api_key_preview);
   document.getElementById("s-enrich-public-enabled").checked = !!enr.public_enabled;
+  document.getElementById("s-enrich-rdap-enabled").checked = !!enr.rdap_enabled;
+  document.getElementById("s-enrich-crtsh-enabled").checked = !!enr.crtsh_enabled;
   document.getElementById("s-enrich-local-enabled").checked = !!enr.local_enabled;
   document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
 
-  const publicReady = !!enr.public_enabled && (enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set);
+  const publicReady = !!enr.public_enabled && (
+    enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set ||
+    enr.greynoise_api_key_set || enr.shodan_api_key_set || enr.urlhaus_api_key_set ||
+    enr.rdap_enabled || enr.crtsh_enabled
+  );
   const localReady = !!enr.local_enabled && !!enr.local_url;
   enrichmentAvailable = publicReady || localReady;
   updateEnrichButtons();
@@ -3832,16 +3874,24 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
   e.preventDefault();
   const body = {
     public_enabled: document.getElementById("s-enrich-public-enabled").checked,
+    rdap_enabled: document.getElementById("s-enrich-rdap-enabled").checked,
+    crtsh_enabled: document.getElementById("s-enrich-crtsh-enabled").checked,
     local_enabled: document.getElementById("s-enrich-local-enabled").checked,
     local_url: document.getElementById("s-enrich-local-url").value.trim(),
   };
   const vt = document.getElementById("s-vt-key").value.trim();
   const abuse = document.getElementById("s-abuseipdb-key").value.trim();
   const otx = document.getElementById("s-otx-key").value.trim();
+  const greynoise = document.getElementById("s-greynoise-key").value.trim();
+  const shodan = document.getElementById("s-shodan-key").value.trim();
+  const urlhaus = document.getElementById("s-urlhaus-key").value.trim();
   const localKey = document.getElementById("s-enrich-local-key").value.trim();
   if (vt) body.virustotal_api_key = vt;
   if (abuse) body.abuseipdb_api_key = abuse;
   if (otx) body.otx_api_key = otx;
+  if (greynoise) body.greynoise_api_key = greynoise;
+  if (shodan) body.shodan_api_key = shodan;
+  if (urlhaus) body.urlhaus_api_key = urlhaus;
   if (localKey) body.local_api_key = localKey;
   await api("/api/settings/enrichment", {
     method: "PATCH",

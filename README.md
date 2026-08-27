@@ -894,6 +894,31 @@ switch when you're ready. AbuseIPDB has no domain-lookup endpoint, so it's
 skipped (not treated as an error) for domain targets and only ever
 queried for IP targets; VirusTotal and OTX support both.
 
+**Five more public sources** sit alongside those three under the same
+switch and the same free-tier-key-required gate:
+[GreyNoise](https://www.greynoise.io/) and [Shodan](https://www.shodan.io/)
+(both IP-only) add internet-scanning classification (is this address
+noise, a known-benign business service, or something actively malicious)
+and exposed-service recon (open ports, known CVEs, abuse tags)
+respectively; [URLhaus](https://urlhaus.abuse.ch/) (abuse.ch, works for
+both domains and IPs, needs a free Auth-Key from their site) checks
+whether the indicator has hosted known malware URLs, live or historical.
+**RDAP domain age** and **[crt.sh](https://crt.sh/) certificate
+transparency** are the two exceptions to needing an API key at all -
+both domain-only, both free public lookups with no account or key,
+gated only by their own on/off toggle (still behind the public-lookups
+switch, since they're still third-party calls). RDAP flags a domain that
+was registered suspiciously recently - the same instinct behind
+[Typosquat detection](#typosquat-detection) above, a fresh registration
+next to a near-miss brand name is a classic phishing tell - and crt.sh
+just reports how many certificates and distinct subdomain names are on
+record for the domain, for your own reference. All eight public sources
+degrade the same way: skipped (not an error) for a target type they
+don't support, shown as disabled while the public-lookups switch is off,
+shown as unconfigured while their own key/toggle is off, and shown as
+failed with a plain-language reason if the call itself doesn't succeed
+(bad key, rate limit, no data on record, unreachable).
+
 A saved key's status line in Settings shows its first and last character
 (e.g. `a***********f`) rather than just "configured" - enough to recognize
 *which* key is saved (say, if you keep more than one VirusTotal account)
@@ -1728,8 +1753,9 @@ app/
                        hourly pruning, filterable search for the query-log browser
   import_adguard.py    one-off AdGuard Home -> DNS-shield config converter (see above)
   import_pihole.py      one-off Pi-hole gravity.db -> DNS-shield config converter (see above)
-  enrichment.py         VirusTotal/AbuseIPDB/OTX reputation lookups - only ever called from
-                        the "Enrich" button's endpoint, never on its own (see above)
+  enrichment.py         VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/RDAP/crt.sh reputation
+                        lookups - only ever called from the "Enrich" button's endpoint, never
+                        on its own (see above)
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
   anomaly.py             local, heuristic anomaly detection over the query log, plus the
                         watched-domain/alert-rules background loop - SQLite storage
@@ -1839,7 +1865,7 @@ shared across them.
   provided image runs as root for this (same approach as the official
   AdGuard Home / Pi-hole images). Run rootless via a compose override with
   `cap_add: [NET_BIND_SERVICE]` and a non-root `user:` if you need that.
-- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/your own local service)
+- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/your own local service)
   are stored in `config.db`/`config.backup.yaml` like any other setting -
   anyone with access to the web UI or `./data` volume can read or use
   them. The Settings page and `GET /api/settings` never echo a key back,
