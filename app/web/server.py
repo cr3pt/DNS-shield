@@ -90,6 +90,24 @@ def _notification_email_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _notification_webhook_public(cfg: dict[str, Any]) -> dict[str, Any]:
+    wtype = cfg.get("type", "discord")
+    result = {
+        "name": cfg.get("name", "") or "",
+        "type": wtype,
+        "enabled": bool(cfg.get("enabled", True)),
+        "min_severity": cfg.get("min_severity", "medium") or "medium",
+    }
+    if wtype in ("discord", "slack"):
+        result["url_set"] = bool(cfg.get("url"))
+        result["url_preview"] = _masked_key_preview(cfg.get("url"))
+    elif wtype == "telegram":
+        result["telegram_bot_token_set"] = bool(cfg.get("telegram_bot_token"))
+        result["telegram_bot_token_preview"] = _masked_key_preview(cfg.get("telegram_bot_token"))
+        result["telegram_chat_id"] = cfg.get("telegram_chat_id", "") or ""
+    return result
+
+
 class BlocklistSourceIn(BaseModel):
     name: str
     url: str
@@ -290,6 +308,16 @@ class NotificationEmailSettingsIn(BaseModel):
     smtp_password: str | None = None
     from_address: str | None = None
     to_addresses: list[str] | None = None
+    min_severity: str | None = None
+
+
+class NotificationWebhookIn(BaseModel):
+    name: str | None = None
+    type: str | None = None
+    enabled: bool | None = None
+    url: str | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
     min_severity: str | None = None
 
 
@@ -1255,6 +1283,9 @@ To restore into an EXISTING instance (data/config.db already exists):
             "alert_rules": _alert_rules_settings(snap.get("alert_rules", {})),
             "notifications": {
                 "email": _notification_email_settings(snap.get("notifications", {}).get("email", {})),
+                "webhooks": [
+                    _notification_webhook_public(w) for w in (snap.get("notifications", {}).get("webhooks", []) or [])
+                ],
             },
             "restart_required": [
                 "dns.listen_address",
@@ -1486,6 +1517,73 @@ To restore into an EXISTING instance (data/config.db already exists):
             raise HTTPException(status_code=503, detail="Notifications are not available")
         try:
             notifications.send_test_email()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True}
+
+    @app.post("/api/settings/notifications/webhooks")
+    def add_notification_webhook(
+        body: NotificationWebhookIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        if body.type not in ("discord", "slack", "telegram"):
+            raise HTTPException(status_code=400, detail="type must be discord, slack, or telegram")
+        entry = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+        entry.setdefault("enabled", True)
+        entry.setdefault("min_severity", "medium")
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            webhooks = data.setdefault("notifications", {}).setdefault("webhooks", [])
+            webhooks.append(entry)
+            return [_notification_webhook_public(w) for w in webhooks]
+
+        return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/notifications/webhooks/{index}")
+    def update_notification_webhook(
+        index: int, body: NotificationWebhookIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        data_in = body.model_dump(exclude_unset=True)
+        payload = {
+            k: v for k, v in data_in.items() if (v if k in ("url", "telegram_bot_token") else v is not None)
+        }
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            webhooks = data.setdefault("notifications", {}).setdefault("webhooks", [])
+            if not 0 <= index < len(webhooks):
+                raise HTTPException(status_code=404, detail="No such webhook")
+            webhooks[index].update(payload)
+            return [_notification_webhook_public(w) for w in webhooks]
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/settings/notifications/webhooks/{index}")
+    def delete_notification_webhook(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            webhooks = data.setdefault("notifications", {}).setdefault("webhooks", [])
+            if not 0 <= index < len(webhooks):
+                raise HTTPException(status_code=404, detail="No such webhook")
+            webhooks.pop(index)
+            return [_notification_webhook_public(w) for w in webhooks]
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/settings/notifications/webhooks/{index}/toggle")
+    def toggle_notification_webhook(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            webhooks = data.setdefault("notifications", {}).setdefault("webhooks", [])
+            if not 0 <= index < len(webhooks):
+                raise HTTPException(status_code=404, detail="No such webhook")
+            webhooks[index]["enabled"] = not webhooks[index].get("enabled", True)
+            return [_notification_webhook_public(w) for w in webhooks]
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/notifications/test-webhook/{index}")
+    def send_test_webhook(index: int, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        if notifications is None:
+            raise HTTPException(status_code=503, detail="Notifications are not available")
+        try:
+            notifications.send_test_webhook(index)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True}

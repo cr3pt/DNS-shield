@@ -1016,6 +1016,37 @@
     </section>
 
     <section>
+      <h2>Webhook notifications</h2>
+      <p class="hint" style="color:var(--muted);">
+        Posts a short summary of new anomalies straight to Discord, Slack, or a Telegram bot -
+        no third party in between, DNS-shield sends the HTTP request itself to whichever
+        webhook URL or bot token you provide. Add as many as you like, each with its own
+        minimum severity.
+      </p>
+      <form class="inline" id="add-webhook-form">
+        <input type="text" id="wh-name" placeholder="Name (optional)">
+        <select id="wh-type">
+          <option value="discord">Discord</option>
+          <option value="slack">Slack</option>
+          <option value="telegram">Telegram</option>
+        </select>
+        <input type="text" id="wh-url" placeholder="Webhook URL (Discord/Slack)">
+        <input type="text" id="wh-telegram-token" placeholder="Bot token (Telegram)" style="display:none;">
+        <input type="text" id="wh-telegram-chat-id" placeholder="Chat ID (Telegram)" style="display:none;">
+        <select id="wh-min-severity">
+          <option value="low">Low and above</option>
+          <option value="medium" selected>Medium and above</option>
+          <option value="high">High only</option>
+        </select>
+        <button type="submit">Add</button>
+      </form>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Target</th><th>Min severity</th><th>Enabled</th><th></th></tr></thead>
+        <tbody id="webhook-rows"></tbody>
+      </table>
+    </section>
+
+    <section>
       <h2>Browser notifications</h2>
       <p class="hint" style="color:var(--muted);">
         A native browser popup (via your browser's own Notification permission - nothing sent
@@ -2617,6 +2648,85 @@ async function loadRewrites() {
   });
 }
 
+function webhookTargetFieldsVisibility() {
+  const type = document.getElementById("wh-type").value;
+  document.getElementById("wh-url").style.display = type === "telegram" ? "none" : "";
+  document.getElementById("wh-telegram-token").style.display = type === "telegram" ? "" : "none";
+  document.getElementById("wh-telegram-chat-id").style.display = type === "telegram" ? "" : "none";
+}
+document.getElementById("wh-type").addEventListener("change", webhookTargetFieldsVisibility);
+webhookTargetFieldsVisibility();
+
+async function loadWebhooks() {
+  const s = await api("/api/settings");
+  const webhooks = (s.notifications || {}).webhooks || [];
+  const rows = document.getElementById("webhook-rows");
+  rows.innerHTML = "";
+  webhooks.forEach((w, i) => {
+    const target = w.type === "telegram"
+      ? (w.telegram_bot_token_set ? `bot ${w.telegram_bot_token_preview} -> chat ${w.telegram_chat_id}` : "(not configured)")
+      : (w.url_set ? w.url_preview : "(not configured)");
+
+    const toggleBtn = el("button", { class: "secondary", text: w.enabled ? "Disable" : "Enable" });
+    toggleBtn.onclick = async () => { await api(`/api/settings/notifications/webhooks/${i}/toggle`, { method: "POST" }); loadWebhooks(); };
+
+    const testBtn = el("button", { class: "secondary", text: "Test" });
+    testBtn.onclick = async () => {
+      testBtn.disabled = true;
+      try {
+        await api(`/api/notifications/test-webhook/${i}`, { method: "POST" });
+        testBtn.textContent = "Sent!";
+      } catch (err) {
+        testBtn.textContent = "Failed";
+        console.error(err);
+      }
+      setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2000);
+    };
+
+    const delBtn = el("button", { class: "danger", text: "Remove" });
+    delBtn.onclick = async () => { await api(`/api/settings/notifications/webhooks/${i}`, { method: "DELETE" }); loadWebhooks(); };
+
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: w.name || "-" }),
+      el("td", { text: w.type }),
+      el("td", { text: target }),
+      el("td", { text: w.min_severity }),
+      el("td", { text: w.enabled ? "yes" : "no" }),
+      el("td", { class: "inline" }, [toggleBtn, testBtn, delBtn]),
+    ]));
+  });
+}
+
+document.getElementById("add-webhook-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const type = document.getElementById("wh-type").value;
+  const body = {
+    name: document.getElementById("wh-name").value.trim(),
+    type,
+    min_severity: document.getElementById("wh-min-severity").value,
+    enabled: true,
+  };
+  if (type === "telegram") {
+    const token = document.getElementById("wh-telegram-token").value.trim();
+    const chatId = document.getElementById("wh-telegram-chat-id").value.trim();
+    if (!token || !chatId) return;
+    body.telegram_bot_token = token;
+    body.telegram_chat_id = chatId;
+  } else {
+    const url = document.getElementById("wh-url").value.trim();
+    if (!url) return;
+    body.url = url;
+  }
+  await api("/api/settings/notifications/webhooks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  e.target.reset();
+  webhookTargetFieldsVisibility();
+  loadWebhooks();
+});
+
 let queryLogOffset = 0;
 const QUERY_LOG_PAGE_SIZE = 100;
 
@@ -3126,6 +3236,7 @@ async function refreshAll() {
   await loadRewrites();
   await loadAlertDomains();
   await loadAlertSources();
+  await loadWebhooks();
   await loadUsers();
 }
 

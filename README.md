@@ -1166,9 +1166,9 @@ table.
 
 ### Notifications
 
-Settings -> Notifications has two independent ways to hear about a newly
+Settings -> Notifications has three independent ways to hear about a newly
 detected anomaly without having the dashboard open at the moment it
-fires - both off by default, both entirely under your own control:
+fires - all off by default, all entirely under your own control:
 
 **Email**, sent straight to the SMTP server *you* configure - your own
 mail server, or your own account at any provider - using nothing but
@@ -1185,6 +1185,24 @@ Anomalies tab regardless of this setting, it only affects what emails
 out. The SMTP password is masked the same way as the threat-intel API
 keys (first/last character only, e.g. `s******t`) and never round-trips
 to your browser in full once saved.
+
+**Webhooks**, straight to Discord, Slack, or a Telegram bot - DNS-shield
+posts the HTTP request itself (a plain `requests.post`, same library the
+threat-intel lookups already use), nothing routes through a third-party
+relay beyond whichever of those three services you point it at. Add as
+many as you want from the **Webhook notifications** section, each with
+its own name, target (a Discord/Slack incoming-webhook URL, or a
+Telegram bot token + chat ID), and its own `min_severity` - so a
+low-priority stream can go to a quiet Slack channel while only `high`
+pages a Telegram chat, say. Each entry gets its own **Test** button, and
+Enable/Disable without deleting it. A Discord/Slack webhook URL and a
+Telegram bot token are both masked the same way as the SMTP password
+above (they're bearer credentials - anyone holding one can post through
+it) and never round-trip to your browser in full once saved; a Telegram
+chat ID isn't a secret and is shown in plain text. One webhook failing
+(bad URL, revoked token, network error) is logged and never blocks the
+others - each is sent independently, same as email is independent of all
+of them.
 
 **Browser popups**, via your browser's own
 [Notification API](https://developer.mozilla.org/en-US/docs/Web/API/Notifications_API) -

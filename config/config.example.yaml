@@ -120,3 +120,4 @@ notifications:
     from_address: ""
     to_addresses: []
     min_severity: "medium"
+  webhooks: []
