@@ -2,6 +2,8 @@
 
 <p align="center"><img src="docs/logo.png" alt="DNS-shield logo" width="160"></p>
 
+*Czytasz to po polsku? Zobacz [`README.PL.md`](README.PL.md).*
+
 A small, self-hosted, network-wide DNS ad/tracker blocker you run in Docker.
 It does the same core job as [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) -
 sit as your network's DNS resolver and drop queries to ad/tracker domains -
