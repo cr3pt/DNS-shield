@@ -13,8 +13,8 @@ ale ze znacznie mniejszym, łatwym do zweryfikowania kodem i **bez żadnych
 wbudowanych połączeń z jakąkolwiek usługą chmurową firm trzecich**.
 
 Zobacz [`docs/features.html`](docs/features.html) - skategoryzowaną mapę
-wszystkich funkcji, w jakie wyposażony jest ten projekt (otwórz w
-przeglądarce po sklonowaniu repozytorium albo pobierz bezpośrednio z GitHub).
+wszystkich funkcji tego projektu (otwórz w przeglądarce po sklonowaniu
+repozytorium albo pobierz bezpośrednio z GitHub).
 
 ## Zrzuty ekranu
 
@@ -59,10 +59,10 @@ w skrócie:
 
 ### Skąd bierze się obawa o "wyciek danych"
 
-Żadna z tych funkcji nie wymaga "dzwonienia do domu" dla *podstawowej*
-funkcji blokowania reklam, ale kilka funkcji AdGuard Home domyślnie
-komunikuje się z własną infrastrukturą AdGuard, i to właśnie ludzie mają na
-myśli mówiąc o "wycieku":
+Sama *podstawowa* funkcja blokowania reklam nie wymaga "dzwonienia do
+domu", ale kilka innych funkcji AdGuard Home domyślnie komunikuje się z
+własną infrastrukturą AdGuard - i to właśnie ludzie mają na myśli, mówiąc
+o "wycieku":
 
 - **Safe Browsing / Kontrola rodzicielska** wysyłają (zahaszowane,
   przycięte do prefiksu) zapytanie o *każdą odwiedzaną domenę* do własnego
@@ -75,12 +75,12 @@ myśli mówiąc o "wycieku":
   (własny serwer DoH AdGuard, `dns.adguard-dns.com`) kierują Twój ruch DNS
   i odświeżanie list przez infrastrukturę zarządzaną przez AdGuard, o ile
   jawnie ich nie zmienisz.
-- To zamknięta powierzchnia zbliżona do telemetrii: nawet funkcje typu
-  opt-in są domyślnie włączone w niektórych buildach, a narzędzie
-  samodzielnie hostowane, którego zadaniem jest "widzieć każdą domenę,
-  jaką odwiedza Twoja sieć", to dokładnie ten rodzaj oprogramowania, w
-  którym każde połączenie wychodzące do firmy trzeciej zasługuje na
-  szczególną uwagę.
+- To obszar bliski telemetrii, nawet jeśli tak się go nie nazywa: nawet
+  funkcje typu opt-in bywają w niektórych wydaniach domyślnie włączone, a
+  narzędzie samodzielnie hostowane, którego zadaniem jest "widzieć każdą
+  domenę, jaką odwiedza Twoja sieć", to dokładnie ten rodzaj
+  oprogramowania, w którym każde połączenie wychodzące do firmy trzeciej
+  zasługuje na szczególną uwagę.
 
 Nic z tego nie czyni AdGuard Home złośliwym oprogramowaniem - producent
 dokumentuje te funkcje - ale dla narzędzia, które widzi dosłownie każdą
@@ -93,9 +93,10 @@ DNS-shield implementuje ten sam podstawowy mechanizm (sinkhole DNS + listy
 filtrów + interfejs webowy), ale z założenia utrzymuje go **wyłącznie
 lokalnie**:
 
-- Jedyne połączenia wychodzące, jakie kiedykolwiek wykonuje, to (a) adresy
-  URL list blokad, które *Ty* konfigurujesz, (b) resolwery nadrzędne, które
-  *Ty* konfigurujesz, (c) zapytanie o reputację przez threat-intel
+- Jedyne połączenia wychodzące, jakie kiedykolwiek wykonuje, to: (a)
+  żądania do adresów URL list blokad, które *Ty* konfigurujesz, (b)
+  zapytania do serwerów nadrzędnych, które *Ty* konfigurujesz, (c)
+  zapytanie o reputację przez threat-intel
   (VirusTotal/AbuseIPDB/AlienVault OTX i inne) - zabezpieczone kluczem API
   *oraz* osobnym przełącznikiem "Enable public lookups", domyślnie
   wyłączonym, a nawet wtedy uruchamiane tylko w momencie kliknięcia
@@ -128,7 +129,7 @@ lokalnie**:
   każdy plik.
 
 To celowo **nie** jest próba pełnego zastąpienia AdGuard Home - brak
-serwera DHCP, brak DoQ, brak kontroli per-aplikacja. To podzbiór "blokuj
+serwera DHCP, brak DoQ, brak kontroli na poziomie aplikacji. To podzbiór "blokuj
 reklamy/trackery w całej sieci z kontenera Docker, bez niczego opuszczającego
 moją sieć, o co nie prosiłem", plus te elementy kontroli rodzicielskiej na
 poziomie DNS, które pasują do tego podzbioru: wymuszone SafeSearch/tryb
@@ -168,11 +169,11 @@ blokowania na górze widoczny jest wyłącznie dla kont administratora - zobacz
 
 ## Konfiguracja
 
-Każde ustawienie można edytować z poziomu sekcji **Settings** panelu - do
-codziennego użytku nie trzeba edytować żadnego pliku. Settings jest
+Każde ustawienie można edytować z poziomu panelu, w sekcji **Settings** -
+do codziennego użytku nie trzeba edytować żadnego pliku. Settings jest
 podzielone na podzakładki tematyczne: **General** (interfejs webowy, kopia
 zapasowa konfiguracji), **DNS** (podstawowy resolver, serwery nadrzędne,
-routing per-domena, rekordy niestandardowe), **Logging** (retencja,
+routing per domena, rekordy niestandardowe), **Logging** (retencja,
 wykluczone domeny/klienci), **Threat intelligence**, **Import** (AdGuard
 Home / Pi-hole), **Blocklists** (źródła, sugerowane listy, źródła listy
 dozwolonych, harmonogram odświeżania), **Own lists** (lista dozwolonych,
@@ -180,7 +181,7 @@ lista zablokowanych, lista zablokowanych regex), **Clients** (zablokowani
 klienci, grupy klientów) oraz **Cleans** (cache odpowiedzi DNS, usunięcie
 wszystkich zalogowanych zapytań).
 
-Pod maską, aktywna konfiguracja znajduje się w `./data/config.db` (SQLite),
+Pod maską aktywna konfiguracja znajduje się w `./data/config.db` (SQLite),
 a pełna kopia jest eksportowana do `./data/config.backup.yaml` co 12 godzin
 (i raz przy każdym starcie), wyłącznie jako czytelna dla człowieka kopia
 zapasowa/materiał referencyjny:
@@ -313,8 +314,8 @@ dla `race`, wszystkie naraz:
 
 Wątek w tle sprawdza kondycję każdego skonfigurowanego serwera nadrzędnego
 co 2 minuty (niezależnie od tego, który jest faktycznie używany przez
-ruch), więc statystyki - widoczne w tabeli Settings -> Upstream DNS
-servers panelu - pozostają aktualne nawet dla serwera, którego strategia
+ruch), więc statystyki - widoczne w panelu, w tabeli Settings -> Upstream
+DNS servers - pozostają aktualne nawet dla serwera, którego strategia
 przestała wybierać, i może zostać ponownie wybrany, jeśli się poprawi. To
 sprawdza wyłącznie hosty serwerów nadrzędnych już obecne w Twojej
 konfiguracji.
@@ -322,7 +323,7 @@ konfiguracji.
 ### Wyłączanie serwera nadrzędnego bez jego usuwania
 
 Każdy skonfigurowany serwer nadrzędny ma własny przycisk Disable/Enable w
-tabeli Settings -> Upstream DNS servers panelu - pozostaje na liście (i w
+panelu, w tabeli Settings -> Upstream DNS servers - pozostaje na liście (i w
 tabeli statystyk kondycji), ale jest pomijany przy faktycznym rozwiązywaniu
 zapytań, więc nie tracisz adresu ani jego historii z pliku
 konfiguracyjnego/importu, usuwając go całkowicie. Pod maską to po prostu
@@ -384,7 +385,7 @@ sprawdzane, więc pozostaje poprawne, gdy którekolwiek z nich się zmieni.
 Celem jest uniemożliwienie przypadkowego zablokowania DNS-shield dostępu do
 własnego serwera nadrzędnego lub własnych list blokad (przypadkowe
 trafienie listy blokad na którąkolwiek z tych nazw hostów byłoby inaczej
-samo-wywołaną awarią - zablokowanie własnego źródła listy blokad jest
+awarią spowodowaną samemu sobie - zablokowanie własnego źródła listy blokad jest
 szczególnie paskudne, ponieważ po cichu zatrzymałoby wszystkie odświeżenia
 list), oraz utrzymanie tego stałego wyszukiwania w tle poza logiem
 przeznaczonym do tego, do czego faktycznie łączą się Twoje urządzenia.
@@ -398,7 +399,7 @@ też stałego zwolnienia. Host Twojego własnego, lokalnego punktu końcowego
 wzbogacania jest zwalniany niezależnie, kiedy tylko `enrichment.local_enabled`
 jest włączone i ustawiony jest adres URL.
 
-### Routing DNS per-domena i per-klient
+### Routing DNS per domena i per klient
 
 `domain_upstreams` kieruje konkretne domeny do konkretnych resolwerów,
 niezależnie od tego, który klient pyta - np. domeny wewnętrzne/firmowe,
@@ -453,7 +454,7 @@ je w jednym pliku:
 
 DNS-shield automatycznie wykrywa format każdej linii podczas pobierania
 źródła, więc możesz wskazać dowolne z trzech (lub źródło, które je
-miesza), bez konieczności ręcznego wyboru. Tabela Blocklists panelu
+miesza), bez konieczności ręcznego wyboru. Tabela Blocklists w panelu
 pokazuje wykryty format pod liczbą domen każdego źródła - np. "hosts file
 (0.0.0.0/127.0.0.1 domain)" lub "mixed formats (...)" dla źródła, które
 faktycznie łączy więcej niż jedną składnię (pojedyncza zabłąkana linia się
@@ -569,7 +570,7 @@ wyłącznie pomocą wyświetlania - nigdy nie opóźnia odpowiedzi na faktyczne
 zapytanie klienta, i nic nie jest zapisywane na dysk (tylko cache w
 pamięci, `dns.client_name_cache_seconds`).
 
-### Polityki per-klient/grupa
+### Polityki per klient/grupa
 
 `client_groups` pozwala nadpisać globalną politykę dla konkretnych
 klientów - np. bardziej restrykcyjna lista zablokowanych dla urządzeń
@@ -635,8 +636,8 @@ restrykcyjna* niż domyślna (np. dodatkowa lista treści dla dorosłych ponad
 zwykłymi listami reklam/trackerów dla grupy urządzeń dzieci). Chęć
 posiadania *lżejszej* listy dla grupy jest już pokryta przez istniejącą
 listę dozwolonych per grupa i przełącznik przepuszczania `enabled: false`
-powyżej. Zarządzaj dodatkowymi źródłami grupy z jej karty w zakładce
-Clients panelu, tuż pod jej listami dozwolonych/zablokowanych.
+powyżej. Zarządzaj dodatkowymi źródłami grupy z jej karty w panelu, w
+zakładce Clients, tuż pod jej listami dozwolonych/zablokowanych.
 
 ### Kontrola rodzicielska / SafeSearch
 
@@ -862,7 +863,7 @@ Block dodaje domenę do globalnej listy zablokowanych; Unblock cofa
 cokolwiek spowodowało zablokowanie tego konkretnego zapytania - usuwa
 ręczny wpis listy zablokowanej, jeśli to z tego powodu (lista zablokowanych
 zawsze wygrywa z listą dozwolonych - zobacz
-[Polityki per-klient/grupa](#polityki-per-klientgrupa) - więc pozostawienie
+[Polityki per klient/grupa](#polityki-per-klientgrupa) - więc pozostawienie
 nieaktualnego wpisu na liście zablokowanych inaczej po cichu by to
 udaremniło), i też dodaje domenę do globalnej listy dozwolonych, co
 nadpisuje dopasowanie z listy blokad. Hide dodaje domenę do
@@ -1015,7 +1016,7 @@ odpowiedzi `{"verdict": "safe"|"low"|"medium"|"high"|"critical", "score":
 0-100, "summary": "..."}` (`score`/`summary` opcjonalne) - wystarczająco
 mały kontrakt, by postawić przed nim cokolwiek: skrypt, wewnętrzne
 narzędzie, nawet inny, otwartoźródłowy feed, któremu już bardziej ufasz.
-Odpowiedź, w której brakuje `verdict` lub jest zniekształcone, jest
+Odpowiedź, w której brakuje `verdict` albo jest ono zniekształcone, jest
 traktowana jako nieudane wyszukiwanie, a nie zgadywana.
 
 Wynik otwiera się w **nowym oknie przeglądarki**, z kolorem tła ustawionym
@@ -1207,7 +1208,7 @@ nigdy by nie wyprodukowała:
   znaków to duża odległość, mimo że nazwa marki siedzi tam niezmieniona.
 
 Dokładne dopasowanie lub prawdziwa subdomena samej chronionej domeny
-(`mail.google.com`, `accounts.google.com`) jest jawnie nigdy nie oznaczana -
+(`mail.google.com`, `accounts.google.com`) nigdy nie jest jawnie oznaczana -
 tylko coś, co jest *blisko, ale nią nie jest*. Dopasowanie zawsze uruchamia
 alert przez ten sam pipeline co heurystyki anomalii powyżej (widoczny w
 zakładce Anomalies, zdolny do powiadomień, własna przerwa per
@@ -1251,7 +1252,7 @@ dodatkowych źródłach listy blokad grupy klientów: możesz sprawić, by
 sprawdzanie obejmowało więcej, nie po cichu usunąć jeden z wyselekcjonowanych
 domyślnych wpisów.
 
-To sprawdzanie per-zapytanie, w czasie rzeczywistym (w przeciwieństwie do
+To sprawdzanie per zapytanie, w czasie rzeczywistym (w przeciwieństwie do
 heurystyk okienkowych powyżej), ale tanie: odległość jest obliczana tylko
 względem ~50 krótkich ciągów, a wyniki są buforowane per odrębna domena,
 więc powtórne zapytanie nigdy nie powtarza porównania - cache jest
@@ -1301,8 +1302,8 @@ alerts", też domyślnie wyłączony - po prostu loguje, gdy klient odpytuje
 domenę pod jednym z tych samych, wyłącznie lokalnych TLD
 (`dns.local_tld_list`, domyślnie `local`, `lan`, `home`, `internal`,
 `corp`, `home.arpa`). To nie jest sygnał zagrożenia samo w sobie (ruch
-mDNS/homenet jest zupełnie normalny w większości sieci LAN); to
-niskoważny, informacyjny wiersz w zakładce Anomalies
+mDNS/homenet jest zupełnie normalny w większości sieci LAN); to wiersz o
+niskiej ważności, czysto informacyjny, w zakładce Anomalies
 (`dns.local_tld_cooldown_minutes` per kombinacja domena/TLD, domyślnie 30)
 dla osób chcących wglądu w to, co jest odpytywane pod tymi sufiksami -
 powiedzmy, urządzenia IoT sondujące nazwy `.local` - bez traktowania tego
@@ -1366,8 +1367,8 @@ przynajmniej jednego odbiorcę, a potem **Save email notification
 settings**. Przycisk **Send test email** pozwala zweryfikować konfigurację
 natychmiast, zamiast czekać na prawdziwą anomalię.
 `notifications.email.min_severity` (domyślnie `medium`) ogranicza, które
-anomalie faktycznie wywołują e-mail, więc zalew niskoważnych alertów nie
-zalewa też Twojej skrzynki - każda anomalia nadal pojawia się w zakładce
+anomalie faktycznie wywołują e-mail, więc zalew alertów o niskiej wadze
+nie zalewa też Twojej skrzynki - każda anomalia nadal pojawia się w zakładce
 Anomalies niezależnie od tego ustawienia, wpływa ono tylko na to, co
 wychodzi mailem. Hasło SMTP jest maskowane w ten sam sposób co klucze API
 threat-intel (tylko pierwszy/ostatni znak, np. `s******t`) i nigdy nie
@@ -1647,15 +1648,16 @@ powyżej. Ma to tutaj większe znaczenie niż dla panelu: większość klientów
 DoT na poziomie systemu operacyjnego (Android "Private DNS",
 systemd-resolved itd.) weryfikuje certyfikat względem zaufanego CA i po
 prostu odmawia samopodpisanego - nie ma opcji "kliknij przez ostrzeżenie",
-jaką daje przeglądarka - więc samopodpisany certyfikat czyni DoT w dużej
-mierze nietestowalnym-ale-obecnym, dopóki nie wskażesz na prawdziwy.
+jaką daje przeglądarka - więc z samopodpisanym certyfikatem DoT jest w
+dużej mierze nie do przetestowania, choć technicznie działa, dopóki nie
+wskażesz na prawdziwy certyfikat.
 
 Oba nasłuchy działają wyłącznie w głównym procesie, nie rozproszone po
 procesach roboczych `DNSSHIELD_DNS_WORKERS`, w przeciwieństwie do zwykłego
 UDP/TCP - sam panel webowy jest już wyłącznie jednoprocesowy, a DoH/DoT
 podążają za tą samą granicą, zamiast dodawać ładowanie certyfikatu per
-proces roboczy i interakcję z `SO_REUSEPORT` dla stosunkowo
-niskoprzepustowej ścieżki. Żaden nie jest publikowany w dostarczonym
+proces roboczy i interakcję z `SO_REUSEPORT` dla ścieżki o stosunkowo
+niskiej przepustowości. Żaden nie jest publikowany w dostarczonym
 `docker-compose.yml` domyślnie; dodaj mapowanie `- "853:853/tcp"` (lub
 jakikolwiek port ustawiłeś), gdy `dns.dot_enabled` jest włączone,
 pasujące do wzorca mapowania portów strony blokady powyżej.
@@ -1828,8 +1830,8 @@ stan włączenia), włączone dokładne wpisy dozwolone/zablokowane
 DNS-shield, która jest dla Ciebie włączana), oraz adresy IP `client` jako
 `client_groups`.
 
-**Z panelu**: prześlij `gravity.db`, to samo zachowanie
-scal-i-zastosuj-natychmiast, co import AdGuard Home powyżej.
+**Z panelu**: prześlij `gravity.db` - to samo zachowanie: scalenie i
+natychmiastowe zastosowanie, tak jak przy imporcie AdGuard Home powyżej.
 
 **Z linii poleceń**:
 
@@ -1860,7 +1862,7 @@ app/
                        listy na dysku dla offline'owych restartów, i (eksperymentalnie)
                        dopasowuje z cache w pamięci skompilowane wzorce listy zablokowanej regex
   blocklist_catalog.py  ustalona lista znanych, publicznych list blokad oferowanych jako
-                       "Suggested lists" jednym kliknięciem w sekcji Blocklists panelu
+                       "Suggested lists" jednym kliknięciem w panelu, w sekcji Blocklists
   dns_server.py        serwer DNS UDP/TCP oparty na dnslib (plus opcjonalny nasłuch DoT);
                         blokuje lokalnie, odpowiada rekordem niestandardowym, serwuje
                         zbuforowaną odpowiedź, lub przekazuje do Twoich serwerów nadrzędnych
@@ -1906,7 +1908,7 @@ app/
                         do jednego modułu)
   users.py              konta wieloużytkownikowe + role/uprawnienia: przechowywane w SQLite
                         (przez listę `users` w config.py), migruje konto webowe
-                        sprzed-wieloużytkownikowe web.username/web.password do konta admina z hashem bcrypt
+                        sprzed wprowadzenia wielu kont (web.username/web.password) do konta admina z hashem bcrypt
   sessions.py           sesje logowania w pamięci (token -> nazwa użytkownika) zasilające
                         ciasteczko sesji - nigdy niezapisywane na dysk, restart
                         wylogowuje wszystkich
