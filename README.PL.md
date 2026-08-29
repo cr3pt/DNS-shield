@@ -1816,6 +1816,24 @@ Meadow & Emerald oraz Plum & Violet / Lilac & Violet. Domyślna jest Navy &
 Azure (ciemna). Zmiana obowiązuje natychmiast, a wybór jest zapisywany w
 `web.theme`.
 
+### Język panelu (English / Polski)
+
+Panel jest dostępny w języku angielskim i polskim (z czasem tłumaczonych
+jest coraz więcej elementów interfejsu; to, co jeszcze nie zostało
+przetłumaczone, po prostu zostaje po angielsku). Domyślnie panel
+dopasowuje się do języka Twojej przeglądarki (`navigator.language`) - nie
+trzeba nic ustawiać. Żeby wymusić jeden konkretny język dla swojego konta,
+niezależnie od przeglądarki czy urządzenia, z którego się logujesz, wejdź
+w Settings -> General -> "Dashboard language" i wybierz English albo
+Polski zamiast "Automatic"; ustawienie to jest zapisywane per konto
+(`users[].language` - `en`, `pl`, albo brak wartości oznaczający tryb
+automatyczny) i obowiązuje natychmiast, bez przeładowania strony. Widok
+publiczny (bez logowania) oraz strona logowania (nie ma jeszcze konta,
+dla którego można by sprawdzić preferencję) zawsze kierują się językiem
+przeglądarki. Tłumaczenie odbywa się całkowicie po stronie przeglądarki,
+na podstawie małej tabeli wbudowanej w samą stronę - nic nie jest nigdzie
+wysyłane, żeby je przetłumaczyć.
+
 ### Wersja mobilna
 
 Z panelu da się korzystać z telefonu - sprawdzenie albo wstrzymanie

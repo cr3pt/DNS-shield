@@ -1621,6 +1621,21 @@ Slate & Cyan / Mist & Cyan, Forest & Emerald / Meadow & Emerald, and
 Plum & Violet / Lilac & Violet. Navy & Azure (dark) is the default.
 Applies instantly, stored in `web.theme`.
 
+### Dashboard language (English / Polski)
+
+The dashboard is available in English and Polish (more of the UI is
+translated over time; anything not yet translated just stays in English).
+By default it follows your browser's own language (`navigator.language`) -
+no setting needed. To pin one language for your account regardless of
+which browser or device you sign in from, go to Settings -> General ->
+"Dashboard language" and pick English or Polski instead of "Automatic";
+this is stored per-account (`users[].language` - `en`, `pl`, or unset for
+automatic) and takes effect immediately, no reload needed. The public,
+signed-out view and the login page (no account to look a preference up on
+yet) always follow the browser's language. Translation happens entirely
+client-side against a small lookup table baked into the page - nothing is
+sent anywhere to translate it.
+
 ### Mobile
 
 The dashboard is usable from a phone - checking or pausing blocking, or

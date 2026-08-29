@@ -405,30 +405,30 @@
 <main>
   <section id="pause-bar" class="pause-bar">
     <div class="row">
-      <div id="pause-status" class="muted">Blocking active</div>
+      <div id="pause-status" class="muted" data-i18n="pause.blocking-active">Blocking active</div>
       <div class="pause-controls" id="pause-controls">
         <select id="pause-duration">
-          <option value="10">10 seconds</option>
-          <option value="30">30 seconds</option>
-          <option value="60">1 minute</option>
-          <option value="120">2 minutes</option>
-          <option value="300">5 minutes</option>
-          <option value="600">10 minutes</option>
-          <option value="1800">30 minutes</option>
-          <option value="3600">60 minutes</option>
-          <option value="">Until re-enabled</option>
+          <option value="10" data-i18n="pause.dur.10s">10 seconds</option>
+          <option value="30" data-i18n="pause.dur.30s">30 seconds</option>
+          <option value="60" data-i18n="pause.dur.1m">1 minute</option>
+          <option value="120" data-i18n="pause.dur.2m">2 minutes</option>
+          <option value="300" data-i18n="pause.dur.5m">5 minutes</option>
+          <option value="600" data-i18n="pause.dur.10m">10 minutes</option>
+          <option value="1800" data-i18n="pause.dur.30m">30 minutes</option>
+          <option value="3600" data-i18n="pause.dur.60m">60 minutes</option>
+          <option value="" data-i18n="pause.dur.until">Until re-enabled</option>
         </select>
-        <button type="button" id="pause-btn" class="danger">Pause blocking</button>
-        <button type="button" id="resume-btn" class="secondary" style="display:none;">Resume blocking</button>
+        <button type="button" id="pause-btn" class="danger" data-i18n="pause.pause-btn">Pause blocking</button>
+        <button type="button" id="resume-btn" class="secondary" style="display:none;" data-i18n="pause.resume">Resume blocking</button>
       </div>
     </div>
   </section>
 
   <div class="tabs" id="tabs">
-    <button type="button" class="tab-btn" data-tab="logs">Logs</button>
-    <button type="button" class="tab-btn" data-tab="anomalies">Anomalies<span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
-    <button type="button" class="tab-btn" data-tab="stats">Stats</button>
-    <button type="button" class="tab-btn" data-tab="settings">Settings</button>
+    <button type="button" class="tab-btn" data-tab="logs" data-i18n="nav.logs">Logs</button>
+    <button type="button" class="tab-btn" data-tab="anomalies"><span data-i18n="nav.anomalies">Anomalies</span><span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
+    <button type="button" class="tab-btn" data-tab="stats" data-i18n="nav.stats">Stats</button>
+    <button type="button" class="tab-btn" data-tab="settings" data-i18n="nav.settings">Settings</button>
   </div>
 
   <div id="tab-stats" class="tab-panel">
@@ -496,21 +496,21 @@
 
   <div id="settings-subtabs">
     <div class="subtabs">
-      <button type="button" class="subtab-btn" data-subtab="general">General</button>
-      <button type="button" class="subtab-btn" data-subtab="users">Users</button>
-      <button type="button" class="subtab-btn" data-subtab="auditlog">Audit log</button>
+      <button type="button" class="subtab-btn" data-subtab="general" data-i18n="nav.subtab.general">General</button>
+      <button type="button" class="subtab-btn" data-subtab="users" data-i18n="nav.subtab.users">Users</button>
+      <button type="button" class="subtab-btn" data-subtab="auditlog" data-i18n="nav.subtab.auditlog">Audit log</button>
       <button type="button" class="subtab-btn" data-subtab="dns">DNS</button>
-      <button type="button" class="subtab-btn" data-subtab="logging">Logging</button>
-      <button type="button" class="subtab-btn" data-subtab="threat-intel">Threat intelligence</button>
-      <button type="button" class="subtab-btn" data-subtab="anomalies">Anomalies</button>
+      <button type="button" class="subtab-btn" data-subtab="logging" data-i18n="nav.subtab.logging">Logging</button>
+      <button type="button" class="subtab-btn" data-subtab="threat-intel" data-i18n="nav.subtab.threat-intel">Threat intelligence</button>
+      <button type="button" class="subtab-btn" data-subtab="anomalies" data-i18n="nav.subtab.anomalies">Anomalies</button>
     </div>
     <div class="subtabs">
-      <button type="button" class="subtab-btn" data-subtab="notifications">Notifications</button>
-      <button type="button" class="subtab-btn" data-subtab="import">Import</button>
-      <button type="button" class="subtab-btn" data-subtab="blocklists">Blocklists</button>
-      <button type="button" class="subtab-btn" data-subtab="ownlists">Own lists</button>
-      <button type="button" class="subtab-btn" data-subtab="clients">Clients</button>
-      <button type="button" class="subtab-btn" data-subtab="cleans">Cleans</button>
+      <button type="button" class="subtab-btn" data-subtab="notifications" data-i18n="nav.subtab.notifications">Notifications</button>
+      <button type="button" class="subtab-btn" data-subtab="import" data-i18n="nav.subtab.import">Import</button>
+      <button type="button" class="subtab-btn" data-subtab="blocklists" data-i18n="nav.subtab.blocklists">Blocklists</button>
+      <button type="button" class="subtab-btn" data-subtab="ownlists" data-i18n="nav.subtab.ownlists">Own lists</button>
+      <button type="button" class="subtab-btn" data-subtab="clients" data-i18n="nav.subtab.clients">Clients</button>
+      <button type="button" class="subtab-btn" data-subtab="cleans" data-i18n="nav.subtab.cleans">Cleans</button>
     </div>
   </div>
 
@@ -571,6 +571,17 @@
           <div class="field"><label>New password</label><input type="password" id="s-new-password" autocomplete="new-password"></div>
         </div>
         <button type="submit">Change password</button>
+      </form>
+
+      <h3 data-i18n="account.language.h2" style="margin-top:1.25rem;">Dashboard language</h3>
+      <p class="muted" data-i18n="account.language.hint">By default the dashboard follows your browser's language. Force a specific language for this account here, regardless of the browser.</p>
+      <form id="language-form" class="inline">
+        <select id="s-account-language">
+          <option value="" data-i18n="account.language.auto">Automatic (follow browser)</option>
+          <option value="en" data-i18n="account.language.en">English</option>
+          <option value="pl" data-i18n="account.language.pl">Polski</option>
+        </select>
+        <button type="submit" data-i18n="account.language.save">Save language</button>
       </form>
     </section>
 
@@ -1700,6 +1711,82 @@ async function api(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// --- i18n ---------------------------------------------------------------
+// Every translatable element carries data-i18n="<key>" (innerHTML) and/or
+// data-i18n-ph="<key>" (placeholder attribute). I18N_PL maps those keys to
+// Polish text; the English original is captured live from the DOM the
+// first time applyI18n() runs, so there's no separate English dictionary
+// to keep in sync. Dynamic, JS-generated strings use t(key, englishText)
+// directly instead.
+const I18N_PL = {
+  // --- top nav / tabs ---
+  "nav.logs": "Logi",
+  "nav.anomalies": "Anomalie",
+  "nav.stats": "Statystyki",
+  "nav.settings": "Ustawienia",
+  "nav.subtab.general": "Ogólne",
+  "nav.subtab.users": "Użytkownicy",
+  "nav.subtab.auditlog": "Log audytu",
+  "nav.subtab.dns": "DNS",
+  "nav.subtab.logging": "Logowanie",
+  "nav.subtab.threat-intel": "Threat intelligence",
+  "nav.subtab.anomalies": "Anomalie",
+  "nav.subtab.notifications": "Powiadomienia",
+  "nav.subtab.import": "Import",
+  "nav.subtab.blocklists": "Listy blokad",
+  "nav.subtab.ownlists": "Własne listy",
+  "nav.subtab.clients": "Klienci",
+  "nav.subtab.cleans": "Czyszczenie",
+  "auth.sign-in": "Zaloguj się",
+  "auth.sign-out": "Wyloguj się",
+  "pause.blocking-active": "Blokowanie aktywne",
+  "pause.dur.10s": "10 sekund",
+  "pause.dur.30s": "30 sekund",
+  "pause.dur.1m": "1 minuta",
+  "pause.dur.2m": "2 minuty",
+  "pause.dur.5m": "5 minut",
+  "pause.dur.10m": "10 minut",
+  "pause.dur.30m": "30 minut",
+  "pause.dur.60m": "60 minut",
+  "pause.dur.until": "Do ponownego włączenia",
+  "pause.pause-btn": "Wstrzymaj blokowanie",
+  "pause.resume": "Wznów blokowanie",
+  "pause.paused-until": "Blokowanie wstrzymane do ręcznego wznowienia",
+  "pause.paused-in": "Blokowanie wstrzymane - wznowienie za ",
+  // --- account: language switcher ---
+  "account.language.h2": "Język panelu",
+  "account.language.hint": "Domyślnie panel dopasowuje się do języka Twojej przeglądarki. Wymuś tutaj konkretny język dla tego konta, niezależnie od przeglądarki.",
+  "account.language.auto": "Automatycznie (wg przeglądarki)",
+  "account.language.en": "English",
+  "account.language.pl": "Polski",
+  "account.language.save": "Zapisz język",
+};
+
+function detectBrowserLang() {
+  const nav = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+  return nav.startsWith("pl") ? "pl" : "en";
+}
+
+function t(key, fallback) {
+  if (currentLang === "pl" && Object.prototype.hasOwnProperty.call(I18N_PL, key)) return I18N_PL[key];
+  return fallback !== undefined ? fallback : key;
+}
+
+function applyI18n(root) {
+  const scope = root || document;
+  scope.querySelectorAll("[data-i18n]").forEach((elm) => {
+    if (elm.dataset.i18nOrig === undefined) elm.dataset.i18nOrig = elm.innerHTML;
+    const key = elm.getAttribute("data-i18n");
+    elm.innerHTML = currentLang === "pl" && Object.prototype.hasOwnProperty.call(I18N_PL, key) ? I18N_PL[key] : elm.dataset.i18nOrig;
+  });
+  scope.querySelectorAll("[data-i18n-ph]").forEach((elm) => {
+    if (elm.dataset.i18nPhOrig === undefined) elm.dataset.i18nPhOrig = elm.getAttribute("placeholder") || "";
+    const key = elm.getAttribute("data-i18n-ph");
+    elm.setAttribute("placeholder", currentLang === "pl" && Object.prototype.hasOwnProperty.call(I18N_PL, key) ? I18N_PL[key] : elm.dataset.i18nPhOrig);
+  });
+  document.documentElement.lang = currentLang;
+}
+
 let clientNames = {};
 let enrichmentAvailable = false;
 
@@ -2054,15 +2141,15 @@ function renderPauseBar(pause) {
   if (active) {
     if (pause.until) {
       const remaining = Math.max(0, Math.round(pause.until - Date.now() / 1000));
-      statusEl.textContent = "Blocking paused - resumes in " + fmtShortDuration(remaining);
+      statusEl.textContent = t("pause.paused-in", "Blocking paused - resumes in ") + fmtShortDuration(remaining);
     } else {
-      statusEl.textContent = "Blocking paused until manually resumed";
+      statusEl.textContent = t("pause.paused-until", "Blocking paused until manually resumed");
     }
     durationSelect.style.display = "none";
     pauseBtn.style.display = "none";
     resumeBtn.style.display = "";
   } else {
-    statusEl.textContent = "Blocking active";
+    statusEl.textContent = t("pause.blocking-active", "Blocking active");
     durationSelect.style.display = "";
     pauseBtn.style.display = "";
     resumeBtn.style.display = "none";
@@ -4404,13 +4491,13 @@ function renderAuthStatus() {
   const el2 = document.getElementById("auth-status");
   el2.innerHTML = "";
   if (!currentUser) {
-    const link = el("a", { href: "/login", text: "Sign in" });
+    const link = el("a", { href: "/login", text: t("auth.sign-in", "Sign in") });
     link.style.color = "var(--accent)";
     el2.appendChild(link);
     return;
   }
   el2.appendChild(document.createTextNode(`${currentUser.username} (${currentUser.role}) `));
-  const logoutBtn = el("button", { type: "button", class: "secondary", text: "Sign out", style: "margin-left:0.5rem;" });
+  const logoutBtn = el("button", { type: "button", class: "secondary", text: t("auth.sign-out", "Sign out"), style: "margin-left:0.5rem;" });
   logoutBtn.onclick = async () => {
     await fetch("/api/logout", { method: "POST" });
     location.reload();
@@ -4439,6 +4526,8 @@ async function boot() {
   }
   currentUser = whoami.user;
   isAdmin = !!currentUser && currentUser.role === "admin";
+  currentLang = currentUser && currentUser.language ? currentUser.language : detectBrowserLang();
+  applyI18n();
   renderAuthStatus();
 
   if (!currentUser) {
@@ -4452,11 +4541,26 @@ async function boot() {
   setActiveTab(localStorage.getItem("dnsshield-tab"));
   setActiveSubtab(localStorage.getItem("dnsshield-settings-subtab"));
   document.getElementById("my-username").textContent = currentUser.username;
+  document.getElementById("s-account-language").value = currentUser.language || "";
   renderTotpStatus();
 
   await refreshAll();
   setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);
 }
+
+document.getElementById("language-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const language = document.getElementById("s-account-language").value;
+  const updated = await api("/api/account/language", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ language }),
+  });
+  currentUser = updated;
+  currentLang = currentUser.language ? currentUser.language : detectBrowserLang();
+  applyI18n();
+  renderAuthStatus();
+});
 
 boot();
 </script>

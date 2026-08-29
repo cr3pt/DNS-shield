@@ -46,6 +46,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "permissions": _normalized_permissions(user.get("permissions")),
         "totp_enabled": bool(user.get("totp_enabled", False)),
         "has_passkeys": bool(user.get("webauthn_credentials")),
+        "language": user.get("language") or "",
     }
 
 
@@ -252,6 +253,23 @@ class UserStore:
                         return
 
         self._config.mutate(_mutate)
+
+    def set_language(self, username: str, language: str) -> dict[str, Any]:
+        language = (language or "").strip().lower()
+        if language not in ("", "en", "pl"):
+            raise ValueError('Language must be "", "en", or "pl"')
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            for user in data.setdefault("users", []):
+                if user.get("username") == username:
+                    if language:
+                        user["language"] = language
+                    else:
+                        user.pop("language", None)
+                    return user
+            raise ValueError(f'No such user: "{username}"')
+
+        return self._config.mutate(_mutate)
 
     def has_second_factor(self, username: str) -> bool:
         user = self.get(username)

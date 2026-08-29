@@ -257,6 +257,10 @@ class ChangePasswordIn(BaseModel):
     new_password: str
 
 
+class LanguageIn(BaseModel):
+    language: str
+
+
 class ApiTokenIn(BaseModel):
     name: str
 
@@ -2017,6 +2021,14 @@ To restore into an EXISTING instance (data/config.db already exists):
             raise HTTPException(status_code=400, detail="New password is required")
         users.update(user["username"], password=body.new_password)
         return {"ok": True}
+
+    @app.post("/api/account/language")
+    def set_own_language(body: LanguageIn, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            updated = users.set_language(user["username"], body.language)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return public_user(updated)
 
     @app.post("/api/account/totp/setup")
     def start_totp_setup(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
