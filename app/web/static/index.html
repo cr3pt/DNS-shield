@@ -293,8 +293,10 @@
   .field.checkbox label { font-size: 0.85rem; color: var(--text); }
   .hint { font-size: 0.75rem; color: var(--warn); margin: 0.4rem 0; }
     .field.checkbox + .hint { margin-top: 0.15rem; }
-  .settings-group h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin: 1.25rem 0 0.6rem; }
-  .settings-group:first-child h3 { margin-top: 0; }
+  .settings-group { padding-top: 1.1rem; margin-top: 1.1rem; border-top: 1px solid var(--panel-border); }
+  .settings-group:first-child { padding-top: 0; margin-top: 0; border-top: none; }
+  .settings-group h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin: 0 0 0.6rem; }
+  .settings-group > p.hint { margin-top: 0.35rem; }
   button {
     background: var(--accent);
     color: var(--accent-text);
@@ -718,38 +720,82 @@
       <h2>DNS</h2>
       <p class="muted">Core resolver behavior - listen address, blocking mode, caching, and the client-hostname/regex-denylist toggles.</p>
       <form id="dns-settings-form">
-        <div class="field-grid">
-          <div class="field"><label>Listen address</label><input type="text" id="s-dns-listen-address"></div>
-          <div class="field"><label>Listen port</label><input type="number" id="s-dns-listen-port"></div>
-          <div class="field"><label>Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
-          <div class="field">
-            <label>Block mode</label>
-            <select id="s-dns-block-mode">
-              <option value="nxdomain">nxdomain</option>
-              <option value="null_ip">null_ip</option>
-            </select>
+
+        <div class="settings-group">
+          <h3>Listener</h3>
+          <div class="field-grid">
+            <div class="field"><label>Listen address</label><input type="text" id="s-dns-listen-address"></div>
+            <div class="field"><label>Listen port</label><input type="number" id="s-dns-listen-port"></div>
+            <div class="field"><label>Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
           </div>
-          <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
-          <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
+          <p class="hint">Listen address/port require restarting the container (docker compose restart). Everything else on this page applies immediately.</p>
+        </div>
+
+        <div class="settings-group">
+          <h3>Upstream selection strategy</h3>
+          <p class="muted" style="margin:0 0 0.6rem;">The upstream server list itself is managed below, in "Upstream DNS servers" - this only decides which one is tried first.</p>
+          <div class="field-grid">
+            <div class="field">
+              <label>Strategy</label>
+              <select id="s-dns-upstream-strategy">
+                <option value="in_order">In order (as listed below)</option>
+                <option value="fastest">Fastest (lowest average latency)</option>
+                <option value="most_stable">Most stable (fewest failures)</option>
+                <option value="race">All at once - FIFO (first response wins)</option>
+              </select>
+            </div>
+            <div class="field"><label>Averaging window (minutes)</label><input type="number" id="s-dns-upstream-stats-window"></div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Blocking behavior</h3>
+          <div class="field-grid">
+            <div class="field">
+              <label>Block mode</label>
+              <select id="s-dns-block-mode">
+                <option value="nxdomain">nxdomain</option>
+                <option value="null_ip">null_ip</option>
+              </select>
+            </div>
+            <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
+            <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
+          </div>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-block-page-enabled">
             <label for="s-dns-block-page-enabled">Serve a local "blocked" page for null_ip (HTTP only, requires restart)</label>
           </div>
-          <div class="field"><label>Block page port</label><input type="number" id="s-dns-block-page-port"></div>
+          <div class="field-grid">
+            <div class="field"><label>Block page port</label><input type="number" id="s-dns-block-page-port"></div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Content filtering</h3>
           <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
           <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-safe-search-enabled">
             <label for="s-dns-safe-search-enabled">Force SafeSearch/Restricted Mode (Google, Bing, DuckDuckGo, YouTube, Yandex) - can be overridden per client group in the Clients tab</label>
           </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>DNSSEC</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-dnssec-enabled">
             <label for="s-dns-dnssec-enabled">Request DNSSEC validation from upstream (sets the DO bit and checks the AD flag on the reply - trusts your upstream resolver's own validation, not an independent signature check)</label>
           </div>
-          <div class="field" id="s-dns-dnssec-cache-field">
-            <label>DNSSEC status cache (seconds)</label>
-            <input type="number" id="s-dns-dnssec-cache-seconds" min="1">
+          <div class="field-grid">
+            <div class="field" id="s-dns-dnssec-cache-field">
+              <label>DNSSEC status cache (seconds)</label>
+              <input type="number" id="s-dns-dnssec-cache-seconds" min="1">
+            </div>
           </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Typosquat detection</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-typosquat-enabled">
             <label for="s-dns-typosquat-enabled">Detect typosquatting (close spelling variants or an embedded brand name against the protected-domains list in Own lists -> Typosquat protection)</label>
@@ -778,25 +824,13 @@
             explaining what happened; leave the field above blank and it falls back to normal
             resolution. Either way, an alert is still raised the same as "Alert only".
           </p>
-          <div class="field checkbox">
-            <input type="checkbox" id="s-dns-dot-enabled">
-            <label for="s-dns-dot-enabled">Accept DNS-over-TLS (DoT) from clients on the port below (requires restart)</label>
-          </div>
-          <div class="field" id="s-dns-dot-port-field">
-            <label>DoT listen port</label>
-            <input type="number" id="s-dns-dot-port" min="1" max="65535" step="1">
-          </div>
-          <p class="hint">
-            Reuses the same certificate as the dashboard's HTTPS setting above (a self-signed one
-            is auto-generated if you haven't set your own). Most OS-level DoT clients (Android's
-            "Private DNS", systemd-resolved, etc.) refuse a self-signed certificate outright -
-            unlike a browser, they won't let you click through the warning - so this is mainly
-            useful once you've configured a real, CA-trusted certificate. Runs only in the main
-            process, not distributed across DNS worker processes.
-          </p>
+        </div>
+
+        <div class="settings-group">
+          <h3>DNS rebinding protection</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-rebinding-enabled">
-            <label for="s-dns-rebinding-enabled">DNS rebinding protection - alert (or block) when a public domain's answer points at a local/private address</label>
+            <label for="s-dns-rebinding-enabled">Alert (or block) when a public domain's answer points at a local/private address</label>
           </div>
           <div class="field-grid" id="s-dns-rebinding-fields">
             <div class="field">
@@ -820,6 +854,10 @@
             internal domain you intentionally route to a private IP via per-domain upstreams here
             so it isn't flagged too.
           </p>
+        </div>
+
+        <div class="settings-group">
+          <h3>Local TLD query alerts</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-local-tld-enabled">
             <label for="s-dns-local-tld-enabled">Alert when a client queries a domain under a local TLD (e.g. mDNS/homenet naming)</label>
@@ -839,29 +877,57 @@
             naming) rather than suspicious, so expect some noise if you turn it on. The same TLD
             list also decides which domains are exempt from DNS rebinding protection above.
           </p>
+        </div>
+
+        <div class="settings-group">
+          <h3>Regex denylist</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-regex-denylist-enabled">
             <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern in Own lists -> Regex denylist; CPU cost grows with the pattern list, keep it short)</label>
           </div>
-          <div class="field">
-            <label>Upstream selection strategy</label>
-            <select id="s-dns-upstream-strategy">
-              <option value="in_order">In order (as listed below)</option>
-              <option value="fastest">Fastest (lowest average latency)</option>
-              <option value="most_stable">Most stable (fewest failures)</option>
-              <option value="race">All at once - FIFO (first response wins)</option>
-            </select>
-          </div>
-          <div class="field"><label>Strategy averaging window (minutes)</label><input type="number" id="s-dns-upstream-stats-window"></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled">Answer cache enabled</label></div>
-          <div class="field"><label>Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
-          <div class="field"><label>Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
-          <div class="field"><label>Cache max TTL (seconds)</label><input type="number" id="s-dns-cache-max-ttl"></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-resolve-names"><label for="s-dns-resolve-names">Resolve client hostnames</label></div>
-          <div class="field"><label>Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
-          <div class="field"><label>Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
         </div>
-        <p class="hint">Listen address/port and block page settings require restarting the container (docker compose restart). Everything else here applies immediately.</p>
+
+        <div class="settings-group">
+          <h3>DNS-over-TLS (DoT) for clients</h3>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-dot-enabled">
+            <label for="s-dns-dot-enabled">Accept DNS-over-TLS (DoT) from clients on the port below (requires restart)</label>
+          </div>
+          <div class="field-grid" id="s-dns-dot-port-field-wrap">
+            <div class="field" id="s-dns-dot-port-field">
+              <label>DoT listen port</label>
+              <input type="number" id="s-dns-dot-port" min="1" max="65535" step="1">
+            </div>
+          </div>
+          <p class="hint">
+            Reuses the same certificate as the dashboard's HTTPS setting above (a self-signed one
+            is auto-generated if you haven't set your own). Most OS-level DoT clients (Android's
+            "Private DNS", systemd-resolved, etc.) refuse a self-signed certificate outright -
+            unlike a browser, they won't let you click through the warning - so this is mainly
+            useful once you've configured a real, CA-trusted certificate. Runs only in the main
+            process, not distributed across DNS worker processes.
+          </p>
+        </div>
+
+        <div class="settings-group">
+          <h3>DNS answer cache</h3>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled">Answer cache enabled</label></div>
+          <div class="field-grid">
+            <div class="field"><label>Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
+            <div class="field"><label>Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
+            <div class="field"><label>Cache max TTL (seconds)</label><input type="number" id="s-dns-cache-max-ttl"></div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Client hostnames (reverse DNS)</h3>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-resolve-names"><label for="s-dns-resolve-names">Resolve client hostnames</label></div>
+          <div class="field-grid">
+            <div class="field"><label>Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
+            <div class="field"><label>Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
+          </div>
+        </div>
+
         <button type="submit">Save DNS settings</button>
       </form>
     </section>
