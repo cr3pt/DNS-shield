@@ -1705,22 +1705,22 @@
   <div id="subtab-cleans" class="subtab-panel">
     <section id="cache-section" style="display:none">
       <div class="row">
-        <h2>DNS answer cache</h2>
-        <button type="button" class="secondary" id="clear-cache">Clear cache</button>
+        <h2 data-i18n="cleans.dns_cache">DNS answer cache</h2>
+        <button type="button" class="secondary" id="clear-cache" data-i18n="cleans.clear_cache">Clear cache</button>
       </div>
       <p class="muted">In-memory only, respects each answer's TTL - cleared automatically on restart.</p>
     </section>
 
     <section>
-      <h2>Query log</h2>
+      <h2 data-i18n="logs.query_log">Query log</h2>
       <p class="muted">Irreversible - wipes every row already logged, regardless of retention. Resolution/blocking is unaffected; this only clears history, not policy.</p>
-      <button type="button" class="danger" id="query-log-purge">Delete all logged queries</button>
+      <button type="button" class="danger" id="query-log-purge" data-i18n="cleans.purge_queries">Delete all logged queries</button>
     </section>
   </div>
 
   <div id="subtab-auditlog" class="subtab-panel">
     <section>
-      <h2>Audit log</h2>
+      <h2 data-i18n="nav.subtab.auditlog">Audit log</h2>
       <p class="muted">
         Every successful settings/config change made through the API, newest first - who did
         it, what endpoint they hit, and from which address. Signing in and out are logged too;
@@ -1728,10 +1728,10 @@
         same length as the query log (Settings -> Logging -> retention).
       </p>
       <table>
-        <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Client IP</th></tr></thead>
+        <thead><tr><th data-i18n="col.time">Time</th><th data-i18n="col.user">User</th><th data-i18n="col.action">Action</th><th data-i18n="auditlog.client_ip">Client IP</th></tr></thead>
         <tbody id="audit-log-rows"></tbody>
       </table>
-      <button type="button" class="secondary" id="audit-log-load-more" style="display:none;">Load more</button>
+      <button type="button" class="secondary" id="audit-log-load-more" style="display:none;" data-i18n="common.load_more">Load more</button>
     </section>
   </div>
 
@@ -2039,6 +2039,14 @@ const I18N_PL = {
   "day.sat": "Sob",
   "day.sun": "Nd",
 
+  // --- settings: cleans ---
+  "cleans.dns_cache": "Pamięć podręczna odpowiedzi DNS",
+  "cleans.clear_cache": "Wyczyść pamięć podręczną",
+  "cleans.purge_queries": "Usuń wszystkie zarejestrowane zapytania",
+
+  // --- settings: audit log ---
+  "auditlog.client_ip": "Adres IP klienta",
+
   // --- settings: blocklists ---
   "blocklists.title": "Listy blokujące",
   "blocklists.refresh_now": "Odśwież teraz",
@@ -2054,6 +2062,7 @@ const I18N_PL = {
   "col.permissions": "Uprawnienia",
   "col.who": "Kto",
   "col.action": "Akcja",
+  "col.user": "Użytkownik",
   "col.address": "Adres",
   "col.result": "Wynik",
   "common.clear": "Wyczyść",
