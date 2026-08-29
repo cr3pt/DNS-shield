@@ -144,6 +144,11 @@ class DomainIn(BaseModel):
     domain: str
 
 
+class TyposquatFpIn(BaseModel):
+    domain: str
+    protected: str
+
+
 class ValueIn(BaseModel):
     value: str
 
@@ -2119,6 +2124,37 @@ To restore into an EXISTING instance (data/config.db already exists):
             if domain in domains:
                 domains.remove(domain)
             return domains
+
+        return config_store.mutate(_mutate)
+
+    @app.get("/api/typosquat-fp")
+    def list_typosquat_fp(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> list[dict[str, str]]:
+        return config_store.get("anomaly", "typosquat_fp_pairs", default=[]) or []
+
+    @app.post("/api/typosquat-fp")
+    def add_typosquat_fp(body: TyposquatFpIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
+        domain = body.domain.strip().lower().rstrip(".")
+        protected = body.protected.strip().lower().rstrip(".")
+        if not domain or not protected:
+            raise HTTPException(status_code=400, detail="Empty domain or protected domain")
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, str]]:
+            pairs = data.setdefault("anomaly", {}).setdefault("typosquat_fp_pairs", [])
+            if not any(p.get("domain") == domain and p.get("protected") == protected for p in pairs):
+                pairs.append({"domain": domain, "protected": protected})
+            return pairs
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/typosquat-fp/{domain}/{protected}")
+    def remove_typosquat_fp(domain: str, protected: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
+        domain = domain.strip().lower().rstrip(".")
+        protected = protected.strip().lower().rstrip(".")
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, str]]:
+            pairs = data.setdefault("anomaly", {}).setdefault("typosquat_fp_pairs", [])
+            pairs[:] = [p for p in pairs if not (p.get("domain") == domain and p.get("protected") == protected)]
+            return pairs
 
         return config_store.mutate(_mutate)
 

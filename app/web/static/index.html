@@ -1335,6 +1335,17 @@
     </section>
 
     <section>
+      <h2 data-i18n="typosquatfp.title">Typosquat false positives</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="typosquatfp.hint">
+        Pairs below never trigger a typosquat alert again for that exact queried domain against
+        that exact protected domain - other domains still matched against the same protected
+        domain are unaffected. Add one with the "Mark as FP" button on a typosquat alert in the
+        Alerts tab.
+      </p>
+      <div id="typosquat-fp-pairs"></div>
+    </section>
+
+    <section>
       <h2 data-i18n="alertrules.title">Alert rules (watched domains &amp; lists)</h2>
       <p class="hint" style="color:var(--muted);">
         <span data-i18n="alertrules.hint.main_pre">Flag a query the instant it happens, rather than waiting for a statistical pattern -
@@ -2042,6 +2053,7 @@ const I18N_PL = {
   "ownlists.hint.malicious_ip_lists": "Subskrybowane listy adresów IP/CIDR (po jednym w wierszu, \"#\" dla komentarzy) - pobierane, buforowane i odświeżane według tego samego harmonogramu co Listy blokujące.",
   "ownlists.hint.typosquat": "Oznacza zapytanie jako prawdopodobny typosquat, gdy jest bliskim wariantem literowym (np. <code>paypa1.com</code>, <code>faceb00k.com</code>) lub ma osadzoną chronioną nazwę marki w dłuższej domenie (np. <code>paypal-security-check.com</code>) - nigdy dokładne dopasowanie ani prawdziwa subdomena samej chronionej domeny. Zawsze generuje alert (zakładka Alerty, z powiadomieniem jeśli skonfigurowane); Ustawienia -> DNS mają też wybór \"Po dopasowaniu\" decydujący, co dzieje się z samym zapytaniem - rozwiąż normalnie (domyślnie), przekieruj na prawdziwy adres marki lub przekieruj na wskazany przez Ciebie adres.",
   "toast.list_added": "Lista dodana",
+  "toast.marked_fp": "Oznaczono jako fałszywy alarm",
   "col.domain": "Domena",
   "col.count": "Liczba",
   "col.client": "Klient",
@@ -2096,6 +2108,17 @@ const I18N_PL = {
   "common.disable": "Wyłącz",
   "common.remove": "Usuń",
   "common.experimental": "eksperymentalne",
+  "common.enrich": "Sprawdź",
+  "common.enrich_title": "Sprawdź reputację przez skonfigurowane usługi threat-intel (tylko ręcznie)",
+  "common.enrich_title_unavailable": "Brak włączonej usługi threat-intel - skonfiguruj jedną w Ustawienia -> Threat intelligence.",
+  "common.enrich_failed": "Sprawdzenie nie powiodło się",
+  "common.copy": "Kopiuj",
+  "common.copy_title": "Kopiuj \"{value}\" do schowka",
+  "common.copied": "Skopiowano",
+  "common.block_host": "Zablokuj hosta",
+  "common.unblock_host": "Odblokuj hosta",
+  "common.block_host_title": "Zablokuj CAŁĄ komunikację tego hosta przez DNS-shield, nie tylko to jedno zapytanie",
+  "common.unblock_host_title": "Zezwól temu hostowi ponownie wykonywać zapytania DNS",
   "tag.enabled": "włączone",
   "tag.disabled": "wyłączone",
 
@@ -2227,6 +2250,35 @@ const I18N_PL = {
   "alerts.tag.anomaly": "Anomalia",
   "alerts.tag.alert_rule": "Reguła alertu",
   "alerts.tag.threat_intel": "Threat intel",
+  "alerts.acknowledge": "Potwierdź",
+  "alerts.unacknowledge": "Cofnij potwierdzenie",
+  "alerts.show_domains": "Pokaż domeny",
+  "alerts.load_domains_failed": "Nie udało się załadować domen",
+  "alerts.mark_fp": "Oznacz jako FP",
+  "alerts.mark_fp_title": "Nigdy więcej nie alarmuj dla dokładnie tej domeny wobec tej chronionej domeny",
+  "alerts.mark_fp_failed": "Nie udało się oznaczyć jako fałszywy alarm",
+  "alerts.kind.high_blocked_ratio": "Wysoki odsetek blokowanych zapytań",
+  "alerts.kind.domain_burst": "Seria losowo wyglądających domen (możliwe DGA)",
+  "alerts.kind.blocked_domain_burst": "Nietypowo dużo odrębnych zablokowanych domen",
+  "alerts.kind.dns_tunneling": "Wiele odrębnych subdomen jednej domeny (możliwy DNS tunneling)",
+  "alerts.kind.ptr_scan": "Wiele odwrotnych zapytań DNS do lokalnych/prywatnych IP (możliwe skanowanie sieci wewnętrznej)",
+  "alerts.kind.watched_domain": "Obserwowana domena: {domain}",
+  "alerts.kind.typosquat": "Możliwy typosquat: {protected}",
+  "alerts.kind.rebinding": "Możliwy DNS rebinding: {domain}",
+  "alerts.kind.local_tld": "Zapytanie o lokalny TLD: .{tld}",
+  "alerts.kind.threat_intel": "Threat intel: zła reputacja dla {target}",
+  "alerts.summary.high_blocked_ratio": "{pct}% z {total} zapytań zablokowanych w ostatnie {window} min",
+  "alerts.summary.domain_burst": "{distinct} odrębnych domen odpytanych w ostatnie {window} min, {random} ({pct}%) wygląda na losowo wygenerowane",
+  "alerts.summary.blocked_domain_burst": "{distinct} odrębnych zablokowanych domen w ostatnie {window} min",
+  "alerts.summary.dns_tunneling": "{count} odrębnych, długich/losowo wyglądających subdomen {base} odpytanych w ostatnie {window} min (śr. długość nazwy {avglen} znaków)",
+  "alerts.summary.ptr_scan": "{count} odrębnych odwrotnych zapytań DNS do lokalnych/prywatnych IP w ostatnie {window} min",
+  "alerts.summary.watched_domain": "Odpytano obserwowaną domenę \"{domain}\" (reguła: {rule})",
+  "alerts.summary.typosquat_typo": "Domena \"{domain}\" wygląda jak literówka \"{protected}\"",
+  "alerts.summary.typosquat_embedded": "Domena \"{domain}\" podszywa się pod \"{protected}\"",
+  "alerts.summary.rebinding": "Domena \"{domain}\" rozwiązała się do lokalnego/prywatnego adresu ({ip}) - możliwy DNS rebinding",
+  "alerts.summary.local_tld": "Odpytano domenę lokalnego TLD \"{domain}\" (.{tld})",
+  "alerts.summary.threat_intel": "{target} oznaczony jako {verdict} przez threat-intel",
+  "alerts.summary.threat_intel_sources": " ({sources})",
   "col.created": "Utworzono",
   "col.last_used": "Ostatnio użyte",
   "common.confirm": "Potwierdź",
@@ -2379,6 +2431,8 @@ const I18N_PL = {
   "editor.ignored_domains": "Ignorowane domeny (nigdy nielogowane)",
   "editor.ignored_clients": "Ignorowani klienci (IP lub CIDR, nigdy nielogowani)",
   "editor.anomaly_exclusions": "Domeny wykluczone z wykrywania anomalii",
+  "editor.typosquat_fp": "Pary domen wykluczone z wykrywania typosquattingu",
+  "editor.typosquat_fp_empty": "Jeszcze żadnych - użyj przycisku \"Oznacz jako FP\" na alercie typosquat w zakładce Alerty.",
   "editor.watched_domains": "Obserwowane domeny (zawsze alarmują, zablokowane czy nie)",
 
   // --- settings: threat intelligence ---
@@ -2421,6 +2475,8 @@ const I18N_PL = {
   "anom.ptr_threshold": "Próg liczby lokalnych zapytań PTR",
   "anom.save": "Zapisz ustawienia wykrywania anomalii",
   "anom.excluded": "Wykluczone z wykrywania anomalii",
+  "typosquatfp.title": "Fałszywe alarmy typosquattingu",
+  "typosquatfp.hint": "Poniższe pary nigdy więcej nie wywołają alertu typosquat dla dokładnie tej odpytywanej domeny wobec dokładnie tej chronionej domeny - inne domeny dopasowane do tej samej chronionej domeny nadal będą wykrywane. Dodaj parę przyciskiem \"Oznacz jako FP\" przy alercie typosquat w zakładce Alerty.",
 
   // --- settings: alert rules ---
   "alertrules.title": "Reguły alertów (obserwowane domeny i listy)",
@@ -2527,8 +2583,8 @@ function updateEnrichButtons() {
     if (btn.dataset.busy === "1") continue;
     btn.disabled = !enrichmentAvailable;
     btn.title = enrichmentAvailable
-      ? "Check reputation via your configured threat-intel service(s) (manual only)"
-      : "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
+      ? t("common.enrich_title", "Check reputation via your configured threat-intel service(s) (manual only)")
+      : t("common.enrich_title_unavailable", "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.");
   }
 }
 const clientLabel = (ip) => (clientNames[ip] ? `${clientNames[ip]} (${ip})` : ip);
@@ -2551,7 +2607,7 @@ function isIpAddress(value) {
 }
 
 function copyButton(text) {
-  const btn = el("button", { class: "icon-btn copy-btn", type: "button", title: "Copy \"" + text + "\" to clipboard", text: "Copy" });
+  const btn = el("button", { class: "icon-btn copy-btn", type: "button", title: t("common.copy_title", 'Copy "{value}" to clipboard').replace("{value}", text), text: t("common.copy", "Copy") });
   btn.onclick = async (e) => {
     e.stopPropagation();
     try {
@@ -2571,7 +2627,7 @@ function copyButton(text) {
       }
     }
     const original = btn.textContent;
-    btn.textContent = "Copied";
+    btn.textContent = t("common.copied", "Copied");
     btn.classList.add("copied");
     setTimeout(() => { btn.textContent = original; btn.classList.remove("copied"); }, 1200);
   };
@@ -2778,11 +2834,11 @@ function openEnrichmentWindow(result) {
 }
 
 function enrichButton(target, type) {
-  const btn = el("button", { class: "icon-btn enrich-btn", type: "button", text: "Enrich" });
+  const btn = el("button", { class: "icon-btn enrich-btn", type: "button", text: t("common.enrich", "Enrich") });
   btn.disabled = !enrichmentAvailable;
   btn.title = enrichmentAvailable
-    ? "Check reputation via your configured threat-intel service(s) (manual only)"
-    : "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
+    ? t("common.enrich_title", "Check reputation via your configured threat-intel service(s) (manual only)")
+    : t("common.enrich_title_unavailable", "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.");
   btn.onclick = async (e) => {
     e.stopPropagation();
     if (!enrichmentAvailable) return;
@@ -2798,7 +2854,7 @@ function enrichButton(target, type) {
       });
       openEnrichmentWindow(result);
     } catch (err) {
-      alert("Enrichment failed: " + err.message);
+      alert(t("common.enrich_failed", "Enrichment failed") + ": " + err.message);
     } finally {
       delete btn.dataset.busy;
       btn.disabled = !enrichmentAvailable;
@@ -2809,12 +2865,12 @@ function enrichButton(target, type) {
 }
 
 function clientBlockButtonLabel(blocked) {
-  return blocked ? "Unblock host" : "Block host";
+  return blocked ? t("common.unblock_host", "Unblock host") : t("common.block_host", "Block host");
 }
 function clientBlockButtonTitle(blocked) {
   return blocked
-    ? "Allow this host to make DNS queries again"
-    : "Block ALL communication from this host through DNS-shield, not just this one query";
+    ? t("common.unblock_host_title", "Allow this host to make DNS queries again")
+    : t("common.block_host_title", "Block ALL communication from this host through DNS-shield, not just this one query");
 }
 
 function clientBlockButton(client) {
@@ -4181,22 +4237,137 @@ function openFindDomainWindow() {
   w.document.close();
 }
 
+const ALERT_KIND_LABEL_FNS = {
+  high_blocked_ratio: () => t("alerts.kind.high_blocked_ratio", "High blocked-query ratio"),
+  domain_burst: () => t("alerts.kind.domain_burst", "Burst of random-looking domains (possible DGA)"),
+  blocked_domain_burst: () => t("alerts.kind.blocked_domain_burst", "Unusually many distinct blocked domains"),
+  dns_tunneling: () => t("alerts.kind.dns_tunneling", "Many distinct subdomains of one domain (possible DNS tunneling)"),
+  ptr_scan: () => t("alerts.kind.ptr_scan", "Many reverse-DNS lookups of local/private IPs (possible internal network scan)"),
+};
+
+function alertKindLabel(a) {
+  const kind = a.kind || "";
+  if (kind.startsWith("watched_domain:")) {
+    return t("alerts.kind.watched_domain", "Watched domain: {domain}").replace("{domain}", kind.slice("watched_domain:".length));
+  }
+  if (kind.startsWith("typosquat:")) {
+    return t("alerts.kind.typosquat", "Possible typosquat of {protected}").replace("{protected}", kind.slice("typosquat:".length));
+  }
+  if (kind.startsWith("rebinding:")) {
+    return t("alerts.kind.rebinding", "Possible DNS rebinding: {domain}").replace("{domain}", kind.slice("rebinding:".length));
+  }
+  if (kind.startsWith("local_tld:")) {
+    return t("alerts.kind.local_tld", "Local-TLD query: .{tld}").replace("{tld}", kind.slice("local_tld:".length));
+  }
+  if (kind.startsWith("threat_intel:")) {
+    return t("alerts.kind.threat_intel", "Threat intel: bad reputation for {target}").replace("{target}", kind.slice("threat_intel:".length));
+  }
+  if (ALERT_KIND_LABEL_FNS[kind]) return ALERT_KIND_LABEL_FNS[kind]();
+  return a.kind_label || kind;
+}
+
+function fmtG(n) {
+  if (n === null || n === undefined || n === "") return "";
+  const v = Number(n);
+  if (!Number.isFinite(v)) return String(n);
+  return Number.isInteger(v) ? String(v) : String(parseFloat(v.toPrecision(6)));
+}
+
+function alertSummaryText(a) {
+  const d = a.details || {};
+  const kind = a.kind || "";
+  if (kind === "high_blocked_ratio") {
+    const total = d.total_queries || 0;
+    const blocked = d.blocked_queries || 0;
+    const pct = total ? Math.round((100 * blocked) / total) : 0;
+    return t("alerts.summary.high_blocked_ratio", "{pct}% of {total} queries blocked in the last {window} min")
+      .replace("{pct}", pct).replace("{total}", total).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind === "domain_burst") {
+    return t("alerts.summary.domain_burst", "{distinct} distinct domains queried in the last {window} min, {random} ({pct}%) look randomly generated")
+      .replace("{distinct}", d.distinct_domains).replace("{window}", fmtG(d.window_minutes))
+      .replace("{random}", d.random_looking_domains).replace("{pct}", d.random_looking_percent);
+  }
+  if (kind === "blocked_domain_burst") {
+    return t("alerts.summary.blocked_domain_burst", "{distinct} distinct blocked domains hit in the last {window} min")
+      .replace("{distinct}", d.distinct_blocked_domains).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind === "dns_tunneling") {
+    const avgLen = d.avg_name_length != null ? Math.round(d.avg_name_length) : "";
+    return t("alerts.summary.dns_tunneling", "{count} distinct, long/random-looking subdomains of {base} queried in the last {window} min (avg name length {avglen} chars)")
+      .replace("{count}", d.subdomain_count).replace("{base}", d.base_domain)
+      .replace("{window}", fmtG(d.window_minutes)).replace("{avglen}", avgLen);
+  }
+  if (kind === "ptr_scan") {
+    return t("alerts.summary.ptr_scan", "{count} distinct reverse-DNS lookups of local/private IPs in the last {window} min")
+      .replace("{count}", d.ptr_scan_count).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind.startsWith("watched_domain:")) {
+    return t("alerts.summary.watched_domain", 'Queried watched domain "{domain}" (rule: {rule})')
+      .replace("{domain}", d.domain).replace("{rule}", d.alert_rule);
+  }
+  if (kind.startsWith("typosquat:")) {
+    const key = d.match_type === "embedded" ? "alerts.summary.typosquat_embedded" : "alerts.summary.typosquat_typo";
+    const fallback = d.match_type === "embedded" ? 'Domain "{domain}" impersonates "{protected}"' : 'Domain "{domain}" looks like a typo of "{protected}"';
+    return t(key, fallback).replace("{domain}", d.domain).replace("{protected}", d.protected_domain);
+  }
+  if (kind.startsWith("rebinding:")) {
+    return t("alerts.summary.rebinding", 'Domain "{domain}" resolved to a local/private address ({ip}) - possible DNS rebinding')
+      .replace("{domain}", d.domain).replace("{ip}", d.rebinding_ip);
+  }
+  if (kind.startsWith("local_tld:")) {
+    return t("alerts.summary.local_tld", 'Queried local-TLD domain "{domain}" (.{tld})')
+      .replace("{domain}", d.domain).replace("{tld}", d.tld);
+  }
+  if (kind.startsWith("threat_intel:")) {
+    let summary = t("alerts.summary.threat_intel", "{target} flagged {verdict} by threat-intel")
+      .replace("{target}", a.client).replace("{verdict}", d.verdict || "");
+    if (d.flagged_sources && d.flagged_sources.length) {
+      summary += t("alerts.summary.threat_intel_sources", " ({sources})").replace("{sources}", [...d.flagged_sources].sort().join(", "));
+    }
+    return summary;
+  }
+  return a.summary;
+}
+
 function renderAnomalyRow(a) {
-  const delBtn = el("button", { class: "danger", text: "Remove" });
+  const delBtn = el("button", { class: "danger", text: t("common.remove", "Remove") });
   delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
 
   const actions = [delBtn];
   if (a.acknowledged) {
-    const unackBtn = el("button", { class: "secondary", text: "Unacknowledge" });
+    const unackBtn = el("button", { class: "secondary", text: t("alerts.unacknowledge", "Unacknowledge") });
     unackBtn.onclick = async () => { await api(`/api/anomalies/${a.id}/unacknowledge`, { method: "POST" }); loadAnomalies(); };
     actions.unshift(unackBtn);
   } else {
-    const ackBtn = el("button", { class: "secondary", text: "Acknowledge" });
+    const ackBtn = el("button", { class: "secondary", text: t("alerts.acknowledge", "Acknowledge") });
     ackBtn.onclick = async () => { await api(`/api/anomalies/${a.id}/acknowledge`, { method: "POST" }); loadAnomalies(); };
     actions.unshift(ackBtn);
   }
 
-  const showDomainsBtn = el("button", { class: "secondary", text: "Show domains" });
+  if ((a.kind || "").startsWith("typosquat:") && a.details && a.details.domain && a.details.protected_domain) {
+    const fpBtn = el("button", { class: "secondary", text: t("alerts.mark_fp", "Mark as FP") });
+    fpBtn.title = t("alerts.mark_fp_title", "Never alert again for this exact domain against this protected domain");
+    fpBtn.onclick = async () => {
+      fpBtn.disabled = true;
+      try {
+        await api("/api/typosquat-fp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain: a.details.domain, protected: a.details.protected_domain }),
+        });
+        await api(`/api/anomalies/${a.id}`, { method: "DELETE" });
+        showToast(t("toast.marked_fp", "Marked as false positive") + `: ${a.details.domain}`);
+        loadAnomalies();
+      } catch (err) {
+        fpBtn.disabled = false;
+        alert(t("alerts.mark_fp_failed", "Failed to mark as false positive") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    actions.unshift(fpBtn);
+  }
+
+  const showDomainsBtn = el("button", { class: "secondary", text: t("alerts.show_domains", "Show domains") });
   showDomainsBtn.onclick = async () => {
     showDomainsBtn.disabled = true;
     try {
@@ -4206,7 +4377,7 @@ function renderAnomalyRow(a) {
       ]);
       openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable, excluded);
     } catch (err) {
-      alert("Failed to load domains: " + err.message);
+      alert(t("alerts.load_domains_failed", "Failed to load domains") + ": " + err.message);
     } finally {
       showDomainsBtn.disabled = false;
     }
@@ -4226,10 +4397,10 @@ function renderAnomalyRow(a) {
     el("td", { text: fmtTime(a.ts), "data-label": t("col.time", "Time") }),
     addressCell(clientLabel(a.client), clientExtra, a.client, t("col.client", "Client")),
     el("td", { "data-label": t("col.source", "Source") }, [alertSourceTag(a.source)]),
-    el("td", { text: a.kind_label, "data-label": t("col.type", "Type") }),
+    el("td", { text: alertKindLabel(a), "data-label": t("col.type", "Type") }),
     el("td", { "data-label": t("col.severity", "Severity") }, [severityTag(a.severity)]),
     el("td", { "data-label": t("col.details", "Details"), class: "alert-details-cell" }, [
-      el("div", { text: a.summary }),
+      el("div", { text: alertSummaryText(a) }),
       el("div", { style: "margin-top:0.3rem;" }, [showDomainsBtn]),
     ]),
     el("td", { "data-label": t("col.actions", "Actions") }, [el("div", { class: "row-actions" }, actions)]),
@@ -4284,6 +4455,30 @@ async function loadAnomalyExclusions() {
   const container = document.getElementById("anomaly-exclusion-domains");
   container.innerHTML = "";
   container.appendChild(editor);
+}
+
+async function loadTyposquatFpPairs() {
+  const pairs = await api("/api/typosquat-fp");
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: t("editor.typosquat_fp", "Domain pairs excluded from typosquat detection") }));
+  const tags = el("div", { class: "rule-tags" });
+  for (const p of pairs) {
+    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(`${p.domain} → ${p.protected}`)]);
+    const rm = el("button", { type: "button", text: "×" });
+    rm.onclick = async () => {
+      await api(`/api/typosquat-fp/${encodeURIComponent(p.domain)}/${encodeURIComponent(p.protected)}`, { method: "DELETE" });
+      refreshAll();
+    };
+    tag.appendChild(rm);
+    tags.appendChild(tag);
+  }
+  wrap.appendChild(tags);
+  if (!pairs.length) {
+    wrap.appendChild(el("p", { class: "muted", style: "font-size:0.8rem;margin:0.3rem 0 0;", text: t("editor.typosquat_fp_empty", "None yet - use \"Mark as FP\" on a typosquat alert in the Alerts tab.") }));
+  }
+  const container = document.getElementById("typosquat-fp-pairs");
+  container.innerHTML = "";
+  container.appendChild(wrap);
 }
 
 async function loadAlertDomains() {
@@ -4606,6 +4801,7 @@ async function refreshAll() {
   await loadDomainUpstreams();
   await loadRewrites();
   await loadAnomalyExclusions();
+  await loadTyposquatFpPairs();
   await loadAlertDomains();
   await loadAlertSources();
   await loadWebhooks();

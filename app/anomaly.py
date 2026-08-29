@@ -143,6 +143,14 @@ class AnomalyDetector:
         domain = (domain or "").lower().rstrip(".")
         return any(domain == d or domain.endswith("." + d) for d in excluded)
 
+    def _typosquat_fp_pairs(self) -> set[tuple[str, str]]:
+        pairs = self._config.get("anomaly", "typosquat_fp_pairs", default=[]) or []
+        return {
+            ((p.get("domain") or "").lower().rstrip("."), (p.get("protected") or "").lower().rstrip("."))
+            for p in pairs
+            if isinstance(p, dict)
+        }
+
     def _init_schema(self) -> None:
         conn = self._connect()
         try:
@@ -509,6 +517,7 @@ class AnomalyDetector:
         now = time.time()
         found: list[dict[str, Any]] = []
         excluded = self._excluded_domains()
+        fp_pairs = self._typosquat_fp_pairs()
 
         with self._lock:
             conn = self._connect()
@@ -529,6 +538,8 @@ class AnomalyDetector:
                     parts = (hit["typosquat_match"] or "").split("|")
                     protected = parts[0] if parts else "?"
                     match_type = parts[1] if len(parts) > 1 else "typo"
+                    if (domain.lower().rstrip("."), protected.lower().rstrip(".")) in fp_pairs:
+                        continue
                     kind = f"typosquat:{protected}"
                     last = last_fired.get((client, kind))
                     if last is not None and now - last < cooldown_seconds:
