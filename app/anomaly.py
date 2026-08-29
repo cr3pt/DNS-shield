@@ -78,6 +78,13 @@ def _is_private_ptr_target(name: str) -> bool:
     except ValueError:
         return False
 
+
+def _is_private_client(client: str) -> bool:
+    try:
+        return ipaddress.ip_address(client).is_private
+    except ValueError:
+        return False
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS anomalies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -652,6 +659,8 @@ class AnomalyDetector:
                     client = hit["client"]
                     domain = hit["domain"]
                     if self._is_excluded(domain, excluded):
+                        continue
+                    if _is_private_client(client):
                         continue
                     tld = hit["local_tld_match"]
                     kind = f"local_tld:{tld}"

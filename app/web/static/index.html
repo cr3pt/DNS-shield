@@ -997,9 +997,10 @@
             </div>
           </div>
           <p class="hint" data-i18n="dns.hint.local_tld">
-            Off by default - this traffic is usually routine (mDNS-over-unicast, homenet device
-            naming) rather than suspicious, so expect some noise if you turn it on. The same TLD
-            list also decides which domains are exempt from DNS rebinding protection above.
+            Off by default. Queries from private/LAN clients never alert (that's the routine
+            mDNS-over-unicast/homenet case) - only a local-TLD query from a public client is
+            flagged. The same TLD list also decides which domains are exempt from DNS rebinding
+            protection above.
           </p>
         </div>
 
@@ -1986,7 +1987,7 @@ const I18N_PL = {
   "dns.hint.upstream_strategy": "Sama lista serwerów nadrzędnych jest zarządzana poniżej, w sekcji \"Serwery DNS nadrzędne\" - to ustawienie decyduje tylko, który z nich jest próbowany jako pierwszy.",
   "dns.hint.typosquat_action": "\"Przekieruj na prawdziwą domenę\" pobiera rzeczywisty adres chronionej marki i zwraca go pod zapytaną nazwą - więc klient, który błędnie wpisał paypal.com jako paypa1.com, po cichu trafia na prawdziwy PayPal. \"Przekieruj na wskazany adres\" zawsze zwraca jeden wybrany przez Ciebie stały adres IP, np. lokalną stronę wyjaśniającą co się stało; pozostaw pole powyżej puste, a system wróci do normalnego rozwiązywania nazwy. W obu przypadkach alert jest generowany tak samo jak przy \"Tylko alert\".",
   "dns.hint.rebinding": "Domena zewnętrzna odpowiadająca adresem <code>10.x</code>/<code>192.168.x</code>/<code>127.x</code>/link-local/IPv6 ULA jest nietypowa - legalne publiczne strony nigdy tak nie robią, więc to klasyczny sygnał ataku DNS rebinding próbującego ominąć perymetr Twojej sieci przez przeglądarkę klienta. Domeny pod lokalnym TLD poniżej są zawsze wyłączone z tej ochrony (mają prawo odpowiadać prywatnymi adresami); dodaj tutaj każdą inną wewnętrzną domenę, którą celowo kierujesz na prywatny adres IP przez routing per-domenowy, żeby też nie była oznaczana.",
-  "dns.hint.local_tld": "Domyślnie wyłączone - ten ruch jest zwykle rutynowy (mDNS-over-unicast, nazewnictwo urządzeń domowych), a nie podejrzany, więc spodziewaj się pewnego szumu po włączeniu. Ta sama lista TLD decyduje też, które domeny są zwolnione z ochrony przed DNS rebinding powyżej.",
+  "dns.hint.local_tld": "Domyślnie wyłączone. Zapytania od klientów z sieci prywatnej/LAN nigdy nie alarmują (to rutynowy przypadek mDNS-over-unicast/nazewnictwa domowego) - flagowane jest tylko zapytanie o lokalny TLD od klienta z publicznym adresem IP. Ta sama lista TLD decyduje też, które domeny są zwolnione z ochrony przed DNS rebinding powyżej.",
   "dns.hint.dot": "Używa tego samego certyfikatu co ustawienie HTTPS panelu powyżej (samopodpisany jest generowany automatycznie, jeśli nie ustawiłeś własnego). Większość klientów DoT na poziomie systemu (np. \"Prywatny DNS\" w Androidzie, systemd-resolved) całkowicie odrzuca samopodpisany certyfikat - w przeciwieństwie do przeglądarki nie pozwolą Ci przejść przez ostrzeżenie - więc jest to głównie przydatne po skonfigurowaniu prawdziwego certyfikatu zaufanego przez CA. Działa tylko w głównym procesie, nie jest rozłożone na procesy robocze DNS.",
   "dns.hint.upstream_servers": "Po jednym w wierszu - możesz podać ich dowolnie wiele. Wszystkie służą jako rezerwa, gdy wcześniejsze zawiodą; strategia wyboru powyżej decyduje, który jest próbowany jako pierwszy. Wiersz zaczynający się od # jest wyłączony - pozostaje na liście, ale nigdy nie jest używany - tak samo jak przycisk Wyłącz w tabeli poniżej.",
   "dns.hint.per_domain_routing": "Kieruj konkretne domeny do konkretnych resolverów niezależnie od klienta (np. domeny wewnętrzne/firmowe) - ma priorytet nad wszystkim innym.",
