@@ -1221,7 +1221,7 @@
 
   <div id="subtab-anomalies" class="subtab-panel">
     <section>
-      <h2>Local anomaly detection</h2>
+      <h2 data-i18n="anom.local_detection">Local anomaly detection</h2>
       <p class="hint" style="color:var(--muted);">
         A background check over your own query log, entirely local - no cloud service, no ML,
         just simple per-client thresholds re-checked on a timer. Flags things like a client
@@ -1234,16 +1234,16 @@
       <form id="anomaly-settings-form">
         <div class="field checkbox">
           <input type="checkbox" id="s-anomaly-enabled">
-          <label for="s-anomaly-enabled">Enable local anomaly detection</label>
+          <label for="s-anomaly-enabled" data-i18n="anom.enable">Enable local anomaly detection</label>
         </div>
         <div class="field-grid">
-          <div class="field"><label>Check every (minutes)</label><input type="number" id="s-anomaly-check-interval" min="1" step="1"></div>
-          <div class="field"><label>Look-back window (minutes)</label><input type="number" id="s-anomaly-window" min="1" step="1"></div>
-          <div class="field"><label>Minimum queries before checking blocked-ratio</label><input type="number" id="s-anomaly-min-queries" min="1" step="1"></div>
-          <div class="field"><label>Blocked-ratio threshold (0-1)</label><input type="number" id="s-anomaly-blocked-ratio" min="0" max="1" step="0.05"></div>
-          <div class="field"><label>Distinct-domain burst threshold</label><input type="number" id="s-anomaly-domain-burst" min="1" step="1"></div>
-          <div class="field"><label>Distinct-blocked-domain burst threshold</label><input type="number" id="s-anomaly-blocked-domain-burst" min="1" step="1"></div>
-          <div class="field"><label>Re-alert cooldown (minutes)</label><input type="number" id="s-anomaly-cooldown" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.check_every">Check every (minutes)</label><input type="number" id="s-anomaly-check-interval" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.window">Look-back window (minutes)</label><input type="number" id="s-anomaly-window" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.min_queries">Minimum queries before checking blocked-ratio</label><input type="number" id="s-anomaly-min-queries" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.blocked_ratio">Blocked-ratio threshold (0-1)</label><input type="number" id="s-anomaly-blocked-ratio" min="0" max="1" step="0.05"></div>
+          <div class="field"><label data-i18n="anom.domain_burst">Distinct-domain burst threshold</label><input type="number" id="s-anomaly-domain-burst" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.blocked_domain_burst">Distinct-blocked-domain burst threshold</label><input type="number" id="s-anomaly-blocked-domain-burst" min="1" step="1"></div>
+          <div class="field"><label data-i18n="dns.realert_cooldown">Re-alert cooldown (minutes)</label><input type="number" id="s-anomaly-cooldown" min="1" step="1"></div>
         </div>
         <p class="hint" style="color:var(--muted);">
           A distinct-domain burst only fires if a good share of those domains also look
@@ -1253,9 +1253,9 @@
           ad/tracker vendor domains, which isn't actually suspicious.
         </p>
         <div class="field-grid">
-          <div class="field"><label>Minimum label length to score</label><input type="number" id="s-anomaly-entropy-min-length" min="1" step="1"></div>
-          <div class="field"><label>Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-entropy-min-bits" min="0" max="5" step="0.1"></div>
-          <div class="field"><label>Share of domains that must look random (0-1)</label><input type="number" id="s-anomaly-entropy-fraction" min="0" max="1" step="0.05"></div>
+          <div class="field"><label data-i18n="anom.min_label_length">Minimum label length to score</label><input type="number" id="s-anomaly-entropy-min-length" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.randomness_threshold">Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-entropy-min-bits" min="0" max="5" step="0.1"></div>
+          <div class="field"><label data-i18n="anom.random_share">Share of domains that must look random (0-1)</label><input type="number" id="s-anomaly-entropy-fraction" min="0" max="1" step="0.05"></div>
         </div>
         <p class="hint" style="color:var(--muted);">
           DNS tunneling abuses DNS as a covert data channel by encoding data into a long
@@ -1266,9 +1266,9 @@
           real site's normal handful of subdomains.
         </p>
         <div class="field-grid">
-          <div class="field"><label>Distinct-subdomain threshold</label><input type="number" id="s-anomaly-tunnel-threshold" min="1" step="1"></div>
-          <div class="field"><label>Minimum subdomain length to score</label><input type="number" id="s-anomaly-tunnel-min-length" min="1" step="1"></div>
-          <div class="field"><label>Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-tunnel-min-bits" min="0" max="5" step="0.1"></div>
+          <div class="field"><label data-i18n="anom.subdomain_threshold">Distinct-subdomain threshold</label><input type="number" id="s-anomaly-tunnel-threshold" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.min_subdomain_length">Minimum subdomain length to score</label><input type="number" id="s-anomaly-tunnel-min-length" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.randomness_threshold">Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-tunnel-min-bits" min="0" max="5" step="0.1"></div>
         </div>
         <p class="hint" style="color:var(--muted);">
           Fires when a client sends many distinct reverse-DNS (PTR) lookups for local/private IPs
@@ -1277,14 +1277,14 @@
           looks like it's enumerating what's on your network.
         </p>
         <div class="field-grid">
-          <div class="field"><label>Distinct local-IP PTR lookups threshold</label><input type="number" id="s-anomaly-ptr-scan-threshold" min="1" step="1"></div>
+          <div class="field"><label data-i18n="anom.ptr_threshold">Distinct local-IP PTR lookups threshold</label><input type="number" id="s-anomaly-ptr-scan-threshold" min="1" step="1"></div>
         </div>
-        <button type="submit">Save anomaly detection settings</button>
+        <button type="submit" data-i18n="anom.save">Save anomaly detection settings</button>
       </form>
     </section>
 
     <section>
-      <h2>Excluded from anomaly detection</h2>
+      <h2 data-i18n="anom.excluded">Excluded from anomaly detection</h2>
       <p class="hint" style="color:var(--muted);">
         Domains below (and their subdomains) never trigger a watched-domain, typosquat,
         DNS-rebinding, or local-TLD alert - handy for a known-good domain that happens to
@@ -1297,7 +1297,7 @@
     </section>
 
     <section>
-      <h2>Alert rules (watched domains &amp; lists)</h2>
+      <h2 data-i18n="alertrules.title">Alert rules (watched domains &amp; lists)</h2>
       <p class="hint" style="color:var(--muted);">
         Flag a query the instant it happens, rather than waiting for a statistical pattern -
         querying a domain below (or one from a subscribed watch list) always raises an alert,
@@ -1308,30 +1308,30 @@
       </p>
       <div id="alert-domains"></div>
 
-      <h3 style="margin-top:1rem;">Watch lists</h3>
+      <h3 style="margin-top:1rem;" data-i18n="alertrules.watch_lists">Watch lists</h3>
       <p class="muted">Subscribed lists of domains to watch, same formats/auto-detection as the Blocklists section.</p>
       <form class="inline" id="alert-source-from-blocklist-form">
         <select id="alert-source-from-blocklist" style="flex:1;min-width:12rem;">
-          <option value="">-- add a list already in Blocklists --</option>
+          <option value="" data-i18n="alertrules.add_from_blocklists">-- add a list already in Blocklists --</option>
         </select>
-        <button type="submit">Watch this list</button>
+        <button type="submit" data-i18n="alertrules.watch_this_list">Watch this list</button>
       </form>
       <p class="muted" style="margin-top:0.4rem;">Or watch a list that isn't in Blocklists at all:</p>
       <form class="inline" id="alert-source-form">
         <input type="text" id="alert-source-name" placeholder="list name" style="width:9rem;">
         <input type="text" id="alert-source-url" placeholder="https://..." style="flex:1;min-width:12rem;">
-        <button type="submit">Add list</button>
+        <button type="submit" data-i18n="alertrules.add_list">Add list</button>
       </form>
       <table>
-        <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="dns.domains">Domains</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="alert-source-rows"></tbody>
       </table>
 
       <div class="field-grid" style="margin-top:1rem;">
-        <div class="field"><label>Check interval (seconds)</label><input type="number" id="s-alert-check-interval" min="1" step="1"></div>
-        <div class="field"><label>Re-alert cooldown (minutes)</label><input type="number" id="s-alert-cooldown" min="1" step="1"></div>
+        <div class="field"><label data-i18n="alertrules.check_interval">Check interval (seconds)</label><input type="number" id="s-alert-check-interval" min="1" step="1"></div>
+        <div class="field"><label data-i18n="dns.realert_cooldown">Re-alert cooldown (minutes)</label><input type="number" id="s-alert-cooldown" min="1" step="1"></div>
       </div>
-      <button type="button" id="alert-rules-settings-save">Save alert rule settings</button>
+      <button type="button" id="alert-rules-settings-save" data-i18n="alertrules.save">Save alert rule settings</button>
     </section>
   </div>
 
@@ -2128,6 +2128,33 @@ const I18N_PL = {
   "severity.low_above": "Niska i wyższe",
   "severity.medium_above": "Średnia i wyższe",
   "severity.high_above": "Wysoka i wyższe",
+
+  // --- settings: anomalies ---
+  "anom.local_detection": "Lokalne wykrywanie anomalii",
+  "anom.enable": "Włącz lokalne wykrywanie anomalii",
+  "anom.check_every": "Sprawdzaj co (minuty)",
+  "anom.window": "Okno wsteczne (minuty)",
+  "anom.min_queries": "Min. zapytań przed sprawdzeniem odsetka blokowania",
+  "anom.blocked_ratio": "Próg odsetka blokowania (0-1)",
+  "anom.domain_burst": "Próg skoku liczby unikalnych domen",
+  "anom.blocked_domain_burst": "Próg skoku liczby unikalnych zablokowanych domen",
+  "anom.min_label_length": "Min. długość etykiety do oceny",
+  "anom.randomness_threshold": "Próg losowości (bity/znak, 0-~4,7)",
+  "anom.random_share": "Odsetek domen, które muszą wyglądać losowo (0-1)",
+  "anom.subdomain_threshold": "Próg liczby unikalnych subdomen",
+  "anom.min_subdomain_length": "Min. długość subdomeny do oceny",
+  "anom.ptr_threshold": "Próg liczby lokalnych zapytań PTR",
+  "anom.save": "Zapisz ustawienia wykrywania anomalii",
+  "anom.excluded": "Wykluczone z wykrywania anomalii",
+
+  // --- settings: alert rules ---
+  "alertrules.title": "Reguły alertów (obserwowane domeny i listy)",
+  "alertrules.watch_lists": "Listy obserwowane",
+  "alertrules.add_from_blocklists": "-- dodaj listę już obecną w Blocklists --",
+  "alertrules.watch_this_list": "Obserwuj tę listę",
+  "alertrules.add_list": "Dodaj listę",
+  "alertrules.check_interval": "Interwał sprawdzania (sekundy)",
+  "alertrules.save": "Zapisz ustawienia reguł alertów",
 
   // --- stats tab ---
   "stats.query_trend": "Trend zapytań",
