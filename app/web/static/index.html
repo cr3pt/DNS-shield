@@ -748,7 +748,7 @@
   <div id="subtab-users" class="subtab-panel">
     <section>
       <h2 data-i18n="users.title">Users</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="users.hint.title">
         Administrators see and manage everything. A "user" account is read-mostly and limited to
         whatever you grant below: which client IPs/CIDRs and/or client groups they see
         results for, whether they can see threat-intel Enrich results and detected anomalies,
@@ -780,7 +780,7 @@
           <div class="field checkbox"><input type="checkbox" id="u-can-block"><label for="u-can-block" data-i18n="users.perm.block">Can block a domain/host</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-can-whitelist"><label for="u-can-whitelist" data-i18n="users.perm.whitelist">Can whitelist a domain</label></div>
         </div>
-        <p class="hint">The role/permission fields above are ignored for Administrator accounts - an admin always sees and does everything.</p>
+        <p class="hint" data-i18n="users.hint.admin_ignores_perms">The role/permission fields above are ignored for Administrator accounts - an admin always sees and does everything.</p>
         <button type="submit" data-i18n="users.add_user">Add user</button>
       </form>
     </section>
@@ -789,7 +789,7 @@
   <div id="subtab-sso" class="subtab-panel">
     <section>
       <h2 data-i18n="sso.title">Single sign-on (OIDC)</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="sso.hint.title">
         Let people sign in through an external identity provider - Authentik, Keycloak,
         Authelia, Okta, Google Workspace, or anything else that speaks standard OpenID
         Connect - instead of (or alongside) a local DNS-shield password. The first
@@ -829,10 +829,10 @@
             </select>
           </div>
         </div>
-        <p class="hint">
-          The redirect URI to register with your identity provider is
-          <code id="sso-redirect-uri-hint"></code>. Accounts created by SSO get a random,
-          unusable local password - only the identity provider can sign them in.
+        <p class="hint" id="sso-redirect-hint-p">
+          <span data-i18n="sso.hint.redirect_uri">The redirect URI to register with your identity provider is</span>
+          <code id="sso-redirect-uri-hint"></code><span data-i18n="sso.hint.redirect_uri_tail">. Accounts created by SSO get a random,
+          unusable local password - only the identity provider can sign them in.</span>
         </p>
         <button type="submit" data-i18n="sso.save">Save SSO settings</button>
       </form>
@@ -842,7 +842,7 @@
   <div id="subtab-dns" class="subtab-panel">
     <section>
       <h2 data-i18n="nav.subtab.dns">DNS</h2>
-      <p class="muted">Core resolver behavior - listen address, blocking mode, caching, and the client-hostname/regex-denylist toggles.</p>
+      <p class="muted" data-i18n="dns.hint.overview">Core resolver behavior - listen address, blocking mode, caching, and the client-hostname/regex-denylist toggles.</p>
       <form id="dns-settings-form">
 
         <div class="settings-group">
@@ -852,12 +852,12 @@
             <div class="field"><label data-i18n="field.listen_port">Listen port</label><input type="number" id="s-dns-listen-port"></div>
             <div class="field"><label data-i18n="dns.upstream_timeout">Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
           </div>
-          <p class="hint">Listen address/port require restarting the container (docker compose restart). Everything else on this page applies immediately.</p>
+          <p class="hint" data-i18n="dns.hint.listener_restart">Listen address/port require restarting the container (docker compose restart). Everything else on this page applies immediately.</p>
         </div>
 
         <div class="settings-group">
           <h3 data-i18n="dns.upstream_strategy">Upstream selection strategy</h3>
-          <p class="muted" style="margin:0 0 0.6rem;">The upstream server list itself is managed below, in "Upstream DNS servers" - this only decides which one is tried first.</p>
+          <p class="muted" style="margin:0 0 0.6rem;" data-i18n="dns.hint.upstream_strategy">The upstream server list itself is managed below, in "Upstream DNS servers" - this only decides which one is tried first.</p>
           <div class="field-grid">
             <div class="field">
               <label data-i18n="dns.strategy">Strategy</label>
@@ -940,7 +940,7 @@
               <input type="text" id="s-dns-typosquat-redirect-ip" placeholder="e.g. 192.168.1.10 (a warning page you host)">
             </div>
           </div>
-          <p class="hint" style="color:var(--muted);">
+          <p class="hint" style="color:var(--muted);" data-i18n="dns.hint.typosquat_action">
             "Redirect to the real domain" resolves the actual protected brand's own address and
             hands it back under the name that was queried - so a client that mistyped
             paypal.com as paypa1.com quietly lands on the real PayPal instead. "Redirect to a
@@ -969,7 +969,7 @@
               <input type="text" id="s-dns-rebinding-exempt" placeholder="e.g. internal.example.com">
             </div>
           </div>
-          <p class="hint">
+          <p class="hint" data-i18n="dns.hint.rebinding">
             An external domain answering with a <code>10.x</code>/<code>192.168.x</code>/
             <code>127.x</code>/link-local/IPv6 ULA address is unusual - legitimate public sites
             never do this, so it's a classic sign of a DNS rebinding attack trying to reach past
@@ -996,7 +996,7 @@
               <input type="number" id="s-dns-local-tld-cooldown" min="1" step="1">
             </div>
           </div>
-          <p class="hint">
+          <p class="hint" data-i18n="dns.hint.local_tld">
             Off by default - this traffic is usually routine (mDNS-over-unicast, homenet device
             naming) rather than suspicious, so expect some noise if you turn it on. The same TLD
             list also decides which domains are exempt from DNS rebinding protection above.
@@ -1023,7 +1023,7 @@
               <input type="number" id="s-dns-dot-port" min="1" max="65535" step="1">
             </div>
           </div>
-          <p class="hint">
+          <p class="hint" data-i18n="dns.hint.dot">
             Reuses the same certificate as the dashboard's HTTPS setting above (a self-signed one
             is auto-generated if you haven't set your own). Most OS-level DoT clients (Android's
             "Private DNS", systemd-resolved, etc.) refuse a self-signed certificate outright -
@@ -1058,7 +1058,7 @@
 
     <section>
       <h2 data-i18n="dns.upstream_servers">Upstream DNS servers</h2>
-      <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is disabled - kept in the list but never used - same as the Disable button in the table below.</p>
+      <p class="muted" data-i18n="dns.hint.upstream_servers">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is disabled - kept in the list but never used - same as the Disable button in the table below.</p>
       <form id="upstreams-form">
         <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query&#10;# disabled for now:&#10;# 8.8.8.8:53"></textarea>
         <div style="margin-top:0.5rem;"><button type="submit" data-i18n="dns.save_upstreams">Save upstreams</button></div>
@@ -1076,7 +1076,7 @@
 
     <section>
       <h2 data-i18n="dns.per_domain_routing">Per-domain DNS routing</h2>
-      <p class="muted">Route specific domains to specific resolvers regardless of client (e.g. internal/corporate domains) - takes priority over everything else.</p>
+      <p class="muted" data-i18n="dns.hint.per_domain_routing">Route specific domains to specific resolvers regardless of client (e.g. internal/corporate domains) - takes priority over everything else.</p>
       <form class="inline" id="add-domain-upstream-form">
         <input type="text" id="du-name" placeholder="Name">
         <input type="text" id="du-domains" placeholder="domains, comma separated" required>
@@ -1091,7 +1091,7 @@
 
     <section>
       <h2 data-i18n="dns.custom_records">Custom DNS records</h2>
-      <p class="muted">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. A plain name matches itself and its subdomains; a name with a wildcard (<code>*</code> for any characters, <code>?</code> for one) matches only what the pattern actually covers - e.g. <code>*.internal.example</code> matches <code>vpn.internal.example</code> but not <code>internal.example</code> itself. A/AAAA only.</p>
+      <p class="muted" data-i18n="dns.hint.custom_records">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. A plain name matches itself and its subdomains; a name with a wildcard (<code>*</code> for any characters, <code>?</code> for one) matches only what the pattern actually covers - e.g. <code>*.internal.example</code> matches <code>vpn.internal.example</code> but not <code>internal.example</code> itself. A/AAAA only.</p>
       <form class="inline" id="add-rewrite-form">
         <input type="text" id="rw-name" placeholder="nas.home or *.internal.example" required>
         <select id="rw-type">
@@ -1969,6 +1969,27 @@ const I18N_PL = {
   "general.hint.api_tokens": "Tokeny bearer dla skryptów, zadań cron lub paneli (np. Grafana), które muszą wywoływać API DNS-shield bez sesji przeglądarki - każdy token działa jak Ty, z Twoją rolą i uprawnieniami, i działa poprzez wysłanie <code>Authorization: Bearer &lt;token&gt;</code>. <code>GET /metrics</code> oraz endpoint DoH nigdy go nie wymagają - są celowo nieuwierzytelnione (patrz wyżej) - token jest potrzebny tylko dla reszty API.",
   "general.hint.backup_desc": "Pobiera plik .zip z pełną migawką wszystkiego w konfiguracji tej instancji - listy blokujące, reguły dozwól/blokuj, grupy klientów, ustawienia DNS/panelu, niestandardowe rekordy DNS - jako zwykły plik YAML, z którego można później przywrócić (plik README.txt w archiwum wyjaśnia jak). Budowany w całości w pamięci i wysyłany prosto do przeglądarki - to nigdy nie dotyka dysku na serwerze poza tym, co już jest w config.db, i nigdy nie opuszcza Twojej sieci.",
   "general.hint.backup_security": "Plik zawiera wszelkie klucze API wywiadu zagrożeń w postaci jawnego tekstu oraz hash bcrypt hasła każdego użytkownika (tak samo jak data/config.backup.yaml już na dysku) - przechowuj ten plik tak, jak przechowywałbyś hasło, nie w miejscu publicznie dostępnym.",
+
+  // --- settings: users hints ---
+  "users.hint.title": "Administratorzy widzą i zarządzają wszystkim. Konto \"użytkownika\" służy głównie do odczytu i jest ograniczone do tego, co przyznasz poniżej: dla jakich adresów IP/CIDR i/lub grup klientów widzi wyniki, czy widzi wyniki Enrich z wywiadu zagrożeń oraz wykryte anomalie, oraz czy może samodzielnie zablokować lub dodać do listy dozwolonych domenę/hosta. Niezalogowani odwiedzający widzą tylko publiczny widok Statystyk (trend zapytań + najczęściej blokowane domeny).",
+  "users.hint.admin_ignores_perms": "Pola roli/uprawnień powyżej są ignorowane dla kont administratora - administrator zawsze widzi i robi wszystko.",
+
+  // --- settings: sso hints ---
+  "sso.hint.title": "Pozwól ludziom logować się przez zewnętrznego dostawcę tożsamości - Authentik, Keycloak, Authelia, Okta, Google Workspace lub dowolny inny obsługujący standard OpenID Connect - zamiast (lub obok) lokalnego hasła DNS-shield. Pierwsze udane logowanie danej tożsamości automatycznie tworzy jej konto DNS-shield, chyba że wyłączysz to poniżej.",
+  "sso.hint.redirect_uri": "Adres URI przekierowania do zarejestrowania u dostawcy tożsamości to",
+  "sso.hint.redirect_uri_tail": ". Konta utworzone przez SSO otrzymują losowe, bezużyteczne hasło lokalne - zalogować może je tylko dostawca tożsamości.",
+
+  // --- settings: dns hints ---
+  "dns.hint.overview": "Podstawowe zachowanie resolvera - adres nasłuchu, tryb blokowania, buforowanie oraz przełączniki nazw hostów klientów/listy blokującej regex.",
+  "dns.hint.listener_restart": "Adres/port nasłuchu wymaga ponownego uruchomienia kontenera (docker compose restart). Wszystko inne na tej stronie działa natychmiast.",
+  "dns.hint.upstream_strategy": "Sama lista serwerów nadrzędnych jest zarządzana poniżej, w sekcji \"Serwery DNS nadrzędne\" - to ustawienie decyduje tylko, który z nich jest próbowany jako pierwszy.",
+  "dns.hint.typosquat_action": "\"Przekieruj na prawdziwą domenę\" pobiera rzeczywisty adres chronionej marki i zwraca go pod zapytaną nazwą - więc klient, który błędnie wpisał paypal.com jako paypa1.com, po cichu trafia na prawdziwy PayPal. \"Przekieruj na wskazany adres\" zawsze zwraca jeden wybrany przez Ciebie stały adres IP, np. lokalną stronę wyjaśniającą co się stało; pozostaw pole powyżej puste, a system wróci do normalnego rozwiązywania nazwy. W obu przypadkach alert jest generowany tak samo jak przy \"Tylko alert\".",
+  "dns.hint.rebinding": "Domena zewnętrzna odpowiadająca adresem <code>10.x</code>/<code>192.168.x</code>/<code>127.x</code>/link-local/IPv6 ULA jest nietypowa - legalne publiczne strony nigdy tak nie robią, więc to klasyczny sygnał ataku DNS rebinding próbującego ominąć perymetr Twojej sieci przez przeglądarkę klienta. Domeny pod lokalnym TLD poniżej są zawsze wyłączone z tej ochrony (mają prawo odpowiadać prywatnymi adresami); dodaj tutaj każdą inną wewnętrzną domenę, którą celowo kierujesz na prywatny adres IP przez routing per-domenowy, żeby też nie była oznaczana.",
+  "dns.hint.local_tld": "Domyślnie wyłączone - ten ruch jest zwykle rutynowy (mDNS-over-unicast, nazewnictwo urządzeń domowych), a nie podejrzany, więc spodziewaj się pewnego szumu po włączeniu. Ta sama lista TLD decyduje też, które domeny są zwolnione z ochrony przed DNS rebinding powyżej.",
+  "dns.hint.dot": "Używa tego samego certyfikatu co ustawienie HTTPS panelu powyżej (samopodpisany jest generowany automatycznie, jeśli nie ustawiłeś własnego). Większość klientów DoT na poziomie systemu (np. \"Prywatny DNS\" w Androidzie, systemd-resolved) całkowicie odrzuca samopodpisany certyfikat - w przeciwieństwie do przeglądarki nie pozwolą Ci przejść przez ostrzeżenie - więc jest to głównie przydatne po skonfigurowaniu prawdziwego certyfikatu zaufanego przez CA. Działa tylko w głównym procesie, nie jest rozłożone na procesy robocze DNS.",
+  "dns.hint.upstream_servers": "Po jednym w wierszu - możesz podać ich dowolnie wiele. Wszystkie służą jako rezerwa, gdy wcześniejsze zawiodą; strategia wyboru powyżej decyduje, który jest próbowany jako pierwszy. Wiersz zaczynający się od # jest wyłączony - pozostaje na liście, ale nigdy nie jest używany - tak samo jak przycisk Wyłącz w tabeli poniżej.",
+  "dns.hint.per_domain_routing": "Kieruj konkretne domeny do konkretnych resolverów niezależnie od klienta (np. domeny wewnętrzne/firmowe) - ma priorytet nad wszystkim innym.",
+  "dns.hint.custom_records": "Odpowiadaj na nazwę hosta wybranym przez Ciebie adresem IP, całkowicie lokalnie - bez zapytania nadrzędnego, bez udziału list blokujących. Zwykła nazwa pasuje do siebie i swoich subdomen; nazwa z symbolem wieloznacznym (<code>*</code> dla dowolnych znaków, <code>?</code> dla jednego) pasuje tylko do tego, co faktycznie obejmuje wzorzec - np. <code>*.internal.example</code> pasuje do <code>vpn.internal.example</code>, ale nie do samego <code>internal.example</code>. Tylko A/AAAA.",
   "toast.list_added": "Lista dodana",
   "col.domain": "Domena",
   "col.count": "Liczba",
