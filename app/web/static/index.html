@@ -1470,7 +1470,7 @@
 
   <div id="subtab-import" class="subtab-panel">
     <section class="section-deny">
-      <h2>Restore from backup</h2>
+      <h2 data-i18n="import.restore_title">Restore from backup</h2>
       <p class="muted">
         Upload a .zip from Settings -> General -> Download backup. Unlike the two importers
         below, this is DNS-shield's own native config, so there's nothing to convert or merge -
@@ -1481,23 +1481,23 @@
       </p>
       <form class="inline" id="import-backup-form">
         <input type="file" id="backup-file" accept=".zip" required>
-        <button type="submit" class="danger">Restore</button>
+        <button type="submit" class="danger" data-i18n="import.restore_btn">Restore</button>
       </form>
       <div id="import-backup-result"></div>
     </section>
 
     <section>
-      <h2>Import from AdGuard Home</h2>
+      <h2 data-i18n="import.adguard_title">Import from AdGuard Home</h2>
       <p class="muted">Upload an AdGuardHome.yaml to import its filters, whitelist filters, user rules, upstreams, blocking mode, and per-client IPs/CIDRs. This replaces your current blocklists and client groups with AdGuard's, but keeps everything else (including your web login). Parental control, safe browsing, DHCP, TLS, and your AdGuard password are never imported.</p>
       <form class="inline" id="import-adguard-form">
         <input type="file" id="adguard-file" accept=".yaml,.yml" required>
-        <button type="submit">Import</button>
+        <button type="submit" data-i18n="common.import">Import</button>
       </form>
       <div id="import-adguard-result"></div>
     </section>
 
     <section>
-      <h2>Import from Pi-hole</h2>
+      <h2 data-i18n="import.pihole_title">Import from Pi-hole</h2>
       <p class="muted">
         Upload a <code>gravity.db</code> file - Pi-hole's own SQLite database, included in a
         "Teleporter" backup or copyable directly from <code>/etc/pihole/gravity.db</code> on the
@@ -1513,7 +1513,7 @@
       </p>
       <form class="inline" id="import-pihole-form">
         <input type="file" id="pihole-file" accept=".db,.sqlite,.sqlite3" required>
-        <button type="submit">Import</button>
+        <button type="submit" data-i18n="common.import">Import</button>
       </form>
       <div id="import-pihole-result"></div>
     </section>
@@ -1521,19 +1521,19 @@
 
   <div id="subtab-blocklists" class="subtab-panel">
     <section>
-      <h2>Blocklists</h2>
+      <h2 data-i18n="blocklists.title">Blocklists</h2>
       <form class="inline" id="add-blocklist-form">
-        <input type="text" id="bl-name" placeholder="Name" required>
+        <input type="text" id="bl-name" data-i18n-ph="common.name_ph" placeholder="Name" required>
         <input type="url" id="bl-url" placeholder="https://.../hosts" required>
-        <button type="submit">Add</button>
-        <button type="button" class="secondary" id="refresh-blocklists">Refresh now</button>
+        <button type="submit" data-i18n="common.add">Add</button>
+        <button type="button" class="secondary" id="refresh-blocklists" data-i18n="blocklists.refresh_now">Refresh now</button>
       </form>
       <table>
-        <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="col.domains">Domains</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="blocklist-rows"></tbody>
       </table>
 
-      <h3 style="margin-top:1.25rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);">Suggested lists</h3>
+      <h3 style="margin-top:1.25rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);" data-i18n="blocklists.suggested">Suggested lists</h3>
       <p class="muted">
         Well-known public blocklists - StevenBlack's Unified Hosts, AdGuard's own DNS filter, and
         several of <a href="https://firebog.net" target="_blank" rel="noopener">Firebog</a>'s
@@ -1543,33 +1543,33 @@
         list once you've added it, since there's nothing left here to suggest.
       </p>
       <table>
-        <thead><tr><th>Name</th><th>Category</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.category">Category</th><th></th></tr></thead>
         <tbody id="blocklist-catalog-rows"></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Allow-list sources</h2>
+      <h2 data-i18n="blocklists.allow_sources">Allow-list sources</h2>
       <p class="muted">Same format as blocklists, but any domain fetched here is never blocked - overrides the blocklists above.</p>
       <form class="inline" id="add-allow-source-form">
-        <input type="text" id="as-name" placeholder="Name" required>
+        <input type="text" id="as-name" data-i18n-ph="common.name_ph" placeholder="Name" required>
         <input type="url" id="as-url" placeholder="https://.../allowlist.txt" required>
-        <button type="submit">Add</button>
+        <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table>
-        <thead><tr><th>Name</th><th>URL</th><th>Domains</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="col.domains">Domains</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="allow-source-rows"></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Refresh schedule</h2>
+      <h2 data-i18n="blocklists.refresh_schedule">Refresh schedule</h2>
       <p class="muted">How often every enabled blocklist/allow-list source above is re-fetched in the background. "Refresh now" next to Blocklists always fetches immediately regardless of this.</p>
       <form id="blocklist-refresh-form">
         <div class="field-grid">
-          <div class="field"><label>Blocklist refresh interval (hours)</label><input type="number" id="s-refresh-interval"></div>
+          <div class="field"><label data-i18n="blocklists.refresh_interval">Blocklist refresh interval (hours)</label><input type="number" id="s-refresh-interval"></div>
         </div>
-        <button type="submit">Save</button>
+        <button type="submit" data-i18n="common.save">Save</button>
       </form>
     </section>
   </div>
@@ -1948,6 +1948,9 @@ const I18N_PL = {
   "col.source": "Źródło",
   "col.details": "Szczegóły",
   "col.actions": "Akcje",
+  "col.domains": "Domeny",
+  "col.category": "Kategoria",
+  "common.name_ph": "Nazwa",
   "nav.find_domain": "Znajdź domenę",
 
   // --- settings: notifications ---
@@ -1975,6 +1978,21 @@ const I18N_PL = {
   "notif.wh_enabled": "Włączony",
   "notif.browser_title": "Powiadomienia w przeglądarce",
   "notif.browser_enable": "Powiadamiaj mnie w tej przeglądarce o nowych anomaliach",
+
+  // --- settings: import ---
+  "import.restore_title": "Przywróć z kopii zapasowej",
+  "import.restore_btn": "Przywróć",
+  "import.adguard_title": "Import z AdGuard Home",
+  "import.pihole_title": "Import z Pi-hole",
+  "common.import": "Importuj",
+
+  // --- settings: blocklists ---
+  "blocklists.title": "Listy blokujące",
+  "blocklists.refresh_now": "Odśwież teraz",
+  "blocklists.suggested": "Sugerowane listy",
+  "blocklists.allow_sources": "Źródła list dozwolonych",
+  "blocklists.refresh_schedule": "Harmonogram odświeżania",
+  "blocklists.refresh_interval": "Interwał odświeżania list blokujących (godziny)",
   "settings.search_ph": "Znajdź ustawienie...",
   "settings.search_no_results": "Brak pasujących ustawień",
   "col.value": "Wartość",
