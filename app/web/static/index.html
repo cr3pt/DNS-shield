@@ -1073,18 +1073,18 @@
 
   <div id="subtab-logging" class="subtab-panel">
     <section>
-      <h2>Query log retention</h2>
+      <h2 data-i18n="logging.retention">Query log retention</h2>
       <p class="muted">How long entries stay in the query log before being pruned automatically, hourly. Lower this if the log is taking up more disk space than you'd like; it never affects resolution/blocking, only how far back you can browse.</p>
       <form id="logging-settings-form">
         <div class="field-grid">
-          <div class="field"><label>Query log retention (days)</label><input type="number" id="s-retention-days"></div>
+          <div class="field"><label data-i18n="logging.retention_days">Query log retention (days)</label><input type="number" id="s-retention-days"></div>
         </div>
-        <button type="submit">Save</button>
+        <button type="submit" data-i18n="common.save">Save</button>
       </form>
     </section>
 
     <section>
-      <h2>Excluded from the log</h2>
+      <h2 data-i18n="logging.excluded">Excluded from the log</h2>
       <p class="muted">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log. Handy for noisy background traffic (NTP, telemetry you've already decided to allow) that would otherwise bury what you actually want to see.</p>
       <div id="log-ignore-domains"></div>
       <div id="log-ignore-clients"></div>
@@ -1093,7 +1093,7 @@
 
   <div id="subtab-threat-intel" class="subtab-panel">
     <section>
-      <h2>Threat intelligence</h2>
+      <h2 data-i18n="nav.subtab.threat-intel">Threat intelligence</h2>
       <p class="hint" style="color:var(--muted);">
         Powers the "Enrich" button in Logs/Stats - a domain/IP reputation lookup that only
         ever runs when you click it, never automatically. A saved key's status line shows its
@@ -1105,7 +1105,7 @@
       <form id="enrichment-settings-form">
         <div class="field checkbox">
           <input type="checkbox" id="s-enrich-public-enabled">
-          <label for="s-enrich-public-enabled">Enable public lookups</label>
+          <label for="s-enrich-public-enabled" data-i18n="ti.enable_public">Enable public lookups</label>
         </div>
         <p class="hint" style="color:var(--muted);">
           Off by default. This is the one thing in DNS-shield that calls out beyond your own
@@ -1114,27 +1114,27 @@
         </p>
         <div class="field-grid">
           <div class="field">
-            <label>VirusTotal API key <span id="vt-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.vt_key">VirusTotal API key</span> <span id="vt-key-status" class="muted"></span></label>
             <input type="password" id="s-vt-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label>AbuseIPDB API key <span id="abuseipdb-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.abuseipdb_key">AbuseIPDB API key</span> <span id="abuseipdb-key-status" class="muted"></span></label>
             <input type="password" id="s-abuseipdb-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label>AlienVault OTX API key <span id="otx-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.otx_key">AlienVault OTX API key</span> <span id="otx-key-status" class="muted"></span></label>
             <input type="password" id="s-otx-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label>GreyNoise API key <span id="greynoise-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.greynoise_key">GreyNoise API key</span> <span id="greynoise-key-status" class="muted"></span></label>
             <input type="password" id="s-greynoise-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label>Shodan API key <span id="shodan-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.shodan_key">Shodan API key</span> <span id="shodan-key-status" class="muted"></span></label>
             <input type="password" id="s-shodan-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label>URLhaus (abuse.ch) Auth-Key <span id="urlhaus-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.urlhaus_key">URLhaus (abuse.ch) Auth-Key</span> <span id="urlhaus-key-status" class="muted"></span></label>
             <input type="password" id="s-urlhaus-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
@@ -1145,11 +1145,11 @@
 
         <div class="field checkbox">
           <input type="checkbox" id="s-enrich-rdap-enabled">
-          <label for="s-enrich-rdap-enabled">Domain age lookup (RDAP/WHOIS) - no key needed</label>
+          <label for="s-enrich-rdap-enabled" data-i18n="ti.rdap">Domain age lookup (RDAP/WHOIS) - no key needed</label>
         </div>
         <div class="field checkbox">
           <input type="checkbox" id="s-enrich-crtsh-enabled">
-          <label for="s-enrich-crtsh-enabled">Certificate transparency lookup (crt.sh) - no key needed</label>
+          <label for="s-enrich-crtsh-enabled" data-i18n="ti.crtsh">Certificate transparency lookup (crt.sh) - no key needed</label>
         </div>
         <p class="hint" style="color:var(--muted);">
           Both are domain-only and keyless (free public services, no account needed) - still
@@ -1161,7 +1161,7 @@
 
         <div class="field checkbox">
           <input type="checkbox" id="s-enrich-local-enabled">
-          <label for="s-enrich-local-enabled">Enable your own (local) reputation service</label>
+          <label for="s-enrich-local-enabled" data-i18n="ti.enable_local">Enable your own (local) reputation service</label>
         </div>
         <p class="hint" style="color:var(--muted);">
           Point this at infrastructure you run instead of (or alongside) the public services
@@ -1173,33 +1173,33 @@
         </p>
         <div class="field-grid">
           <div class="field">
-            <label>Local service URL</label>
+            <label data-i18n="ti.local_url">Local service URL</label>
             <input type="text" id="s-enrich-local-url" placeholder="https://reputation.internal.example/check" autocomplete="off">
           </div>
           <div class="field">
-            <label>Local service API key (optional) <span id="local-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.local_key">Local service API key (optional)</span> <span id="local-key-status" class="muted"></span></label>
             <input type="password" id="s-enrich-local-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
 
         <div class="field checkbox">
           <input type="checkbox" id="s-enrich-alert-enabled">
-          <label for="s-enrich-alert-enabled">Add an Alert when a lookup comes back with a bad reputation</label>
+          <label for="s-enrich-alert-enabled" data-i18n="ti.add_alert">Add an Alert when a lookup comes back with a bad reputation</label>
         </div>
         <div class="field-grid">
           <div class="field">
-            <label>Minimum severity to alert on</label>
+            <label data-i18n="ti.min_severity">Minimum severity to alert on</label>
             <select id="s-enrich-alert-min-severity">
-              <option value="low">Low and above</option>
-              <option value="medium">Medium and above</option>
-              <option value="high">High and above</option>
+              <option value="low" data-i18n="severity.low_above">Low and above</option>
+              <option value="medium" data-i18n="severity.medium_above">Medium and above</option>
+              <option value="high" data-i18n="severity.high_above">High and above</option>
             </select>
           </div>
         </div>
 
         <div class="field checkbox">
           <input type="checkbox" id="s-enrich-auto-enabled">
-          <label for="s-enrich-auto-enabled">Automatically enrich newly-seen domains</label>
+          <label for="s-enrich-auto-enabled" data-i18n="ti.auto_enrich">Automatically enrich newly-seen domains</label>
         </div>
         <p class="hint" style="color:var(--muted);">
           Runs Enrich once for a domain, the very first time DNS-shield ever sees it queried -
@@ -1210,11 +1210,11 @@
           service) to actually call anything.
         </p>
         <div class="field-grid">
-          <div class="field"><label>Check every (seconds)</label><input type="number" id="s-enrich-auto-interval" min="5" step="1"></div>
-          <div class="field"><label>New domains per check</label><input type="number" id="s-enrich-auto-max-per-check" min="1" step="1"></div>
+          <div class="field"><label data-i18n="ti.check_every">Check every (seconds)</label><input type="number" id="s-enrich-auto-interval" min="5" step="1"></div>
+          <div class="field"><label data-i18n="ti.new_domains_per_check">New domains per check</label><input type="number" id="s-enrich-auto-max-per-check" min="1" step="1"></div>
         </div>
 
-        <button type="submit">Save threat-intel settings</button>
+        <button type="submit" data-i18n="ti.save">Save threat-intel settings</button>
       </form>
     </section>
   </div>
@@ -2090,6 +2090,44 @@ const I18N_PL = {
   "dns.domains": "Domeny",
   "dns.upstreams": "Serwery nadrzędne",
   "dns.custom_records": "Niestandardowe rekordy DNS",
+  "common.save": "Zapisz",
+  "common.domain_ph": "domena",
+
+  // --- settings: logging ---
+  "logging.retention": "Przechowywanie logu zapytań",
+  "logging.retention_days": "Przechowywanie logu zapytań (dni)",
+  "logging.excluded": "Wykluczone z logu",
+
+  // --- rule editors (shared titles) ---
+  "editor.group_allow": "Dozwolone (nigdy nieblokowane dla tej grupy)",
+  "editor.group_deny": "Blokowane (zawsze blokowane dla tej grupy)",
+  "editor.ignored_domains": "Ignorowane domeny (nigdy nielogowane)",
+  "editor.ignored_clients": "Ignorowani klienci (IP lub CIDR, nigdy nielogowani)",
+  "editor.anomaly_exclusions": "Domeny wykluczone z wykrywania anomalii",
+  "editor.watched_domains": "Obserwowane domeny (zawsze alarmują, zablokowane czy nie)",
+
+  // --- settings: threat intelligence ---
+  "ti.enable_public": "Włącz publiczne sprawdzenia",
+  "ti.vt_key": "Klucz API VirusTotal",
+  "ti.abuseipdb_key": "Klucz API AbuseIPDB",
+  "ti.otx_key": "Klucz API AlienVault OTX",
+  "ti.greynoise_key": "Klucz API GreyNoise",
+  "ti.shodan_key": "Klucz API Shodan",
+  "ti.urlhaus_key": "Klucz Auth URLhaus (abuse.ch)",
+  "ti.rdap": "Sprawdzenie wieku domeny (RDAP/WHOIS) - klucz niepotrzebny",
+  "ti.crtsh": "Sprawdzenie transparentności certyfikatów (crt.sh) - klucz niepotrzebny",
+  "ti.enable_local": "Włącz własną (lokalną) usługę reputacji",
+  "ti.local_url": "Adres URL usługi lokalnej",
+  "ti.local_key": "Klucz API usługi lokalnej (opcjonalnie)",
+  "ti.add_alert": "Dodaj alert, gdy sprawdzenie wykaże złą reputację",
+  "ti.min_severity": "Minimalna ważność do alarmowania",
+  "ti.auto_enrich": "Automatycznie wzbogacaj nowo widziane domeny",
+  "ti.check_every": "Sprawdzaj co (sekundy)",
+  "ti.new_domains_per_check": "Nowych domen na sprawdzenie",
+  "ti.save": "Zapisz ustawienia threat-intel",
+  "severity.low_above": "Niska i wyższe",
+  "severity.medium_above": "Średnia i wyższe",
+  "severity.high_above": "Wysoka i wyższe",
 
   // --- stats tab ---
   "stats.query_trend": "Trend zapytań",
@@ -2952,8 +2990,8 @@ function buildRuleEditor(title, items, onAdd, onRemove) {
 
   const form = document.createElement("form");
   form.className = "inline";
-  const input = el("input", { type: "text", placeholder: "domain" });
-  const submit = el("button", { type: "submit", text: "Add" });
+  const input = el("input", { type: "text", placeholder: t("common.domain_ph", "domain") });
+  const submit = el("button", { type: "submit", text: t("common.add", "Add") });
   form.appendChild(input);
   form.appendChild(submit);
   form.addEventListener("submit", (e) => {
@@ -3089,13 +3127,13 @@ async function loadClientGroups() {
     const actions = el("div", { class: "inline", style: "margin: 0.5rem 0 0;" }, [toggleBtn, delBtn]);
 
     const allowEditor = buildRuleEditor(
-      "Allow (never blocked for this group)",
+      t("editor.group_allow", "Allow (never blocked for this group)"),
       g.allowlist || [],
       async (d) => { await api(`/api/client-groups/${i}/allow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
       async (d) => { await api(`/api/client-groups/${i}/allow/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
     );
     const denyEditor = buildRuleEditor(
-      "Deny (always blocked for this group)",
+      t("editor.group_deny", "Deny (always blocked for this group)"),
       g.denylist || [],
       async (d) => { await api(`/api/client-groups/${i}/deny`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
       async (d) => { await api(`/api/client-groups/${i}/deny/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
@@ -3341,7 +3379,7 @@ async function loadLogIgnore() {
   const ignore = await api("/api/log-ignore");
 
   const domainsEditor = buildRuleEditor(
-    "Ignored domains (never logged)",
+    t("editor.ignored_domains", "Ignored domains (never logged)"),
     ignore.domains || [],
     async (d) => { await api("/api/log-ignore/domains", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
     async (d) => { await api(`/api/log-ignore/domains/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
@@ -3351,7 +3389,7 @@ async function loadLogIgnore() {
   domainsEl.appendChild(domainsEditor);
 
   const clientsEditor = buildRuleEditor(
-    "Ignored clients (IP or CIDR, never logged)",
+    t("editor.ignored_clients", "Ignored clients (IP or CIDR, never logged)"),
     ignore.clients || [],
     async (v) => { await api("/api/log-ignore/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: v }) }); refreshAll(); },
     async (v) => { await api(`/api/log-ignore/clients/${encodeURIComponent(v)}`, { method: "DELETE" }); refreshAll(); }
@@ -3609,7 +3647,15 @@ function severityTag(severity) {
   });
 }
 
-function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable) {
+function isDomainExcluded(domain, excludedList) {
+  const d = (domain || "").toLowerCase().replace(/\.$/, "");
+  return (excludedList || []).some((e) => {
+    const x = (e || "").toLowerCase().replace(/\.$/, "");
+    return d === x || d.endsWith("." + x);
+  });
+}
+
+function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excludedDomains) {
   const w = window.open("", "_blank", "width=520,height=580");
   if (!w) {
     alert("Popup blocked - allow popups for this page to see the domain list.");
@@ -3618,10 +3664,13 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable) {
   const kindLabel = blockedOnly ? "blocked domains" : "domains";
   const listHtml = domains.length
     ? `<ul>${domains
-        .map(
-          (d) =>
-            `<li><code>${escapeHtml(d)}</code><span class="row-actions"><button type="button" class="enrich-domain-btn" data-domain="${escapeHtml(d)}">Enrich</button><button type="button" class="exclude-domain-btn" data-domain="${escapeHtml(d)}" title="Never flag this domain as a watched-domain/typosquat/rebinding/local-TLD alert again">Exclude</button></span></li>`
-        )
+        .map((d) => {
+          const excluded = isDomainExcluded(d, excludedDomains);
+          const excludeBtnHtml = excluded
+            ? `<button type="button" class="exclude-domain-btn" data-domain="${escapeHtml(d)}" disabled>Excluded</button>`
+            : `<button type="button" class="exclude-domain-btn" data-domain="${escapeHtml(d)}" title="Never flag this domain as a watched-domain/typosquat/rebinding/local-TLD alert again">Exclude</button>`;
+          return `<li><code>${escapeHtml(d)}</code><span class="row-actions"><button type="button" class="enrich-domain-btn" data-domain="${escapeHtml(d)}">Enrich</button>${excludeBtnHtml}</span></li>`;
+        })
         .join("")}</ul>`
     : `<p class="muted">No domains found for this window - they may have aged out of the query log's retention.</p>`;
   w.document.write(`<!doctype html>
@@ -3725,8 +3774,11 @@ function renderAnomalyRow(a) {
   showDomainsBtn.onclick = async () => {
     showDomainsBtn.disabled = true;
     try {
-      const result = await api(`/api/anomalies/${a.id}/domains`);
-      openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable);
+      const [result, excluded] = await Promise.all([
+        api(`/api/anomalies/${a.id}/domains`),
+        api("/api/anomaly-exclusions").catch(() => []),
+      ]);
+      openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable, excluded);
     } catch (err) {
       alert("Failed to load domains: " + err.message);
     } finally {
@@ -3788,7 +3840,7 @@ async function loadAnomalies() {
 async function loadAnomalyExclusions() {
   const domains = await api("/api/anomaly-exclusions");
   const editor = buildRuleEditor(
-    "Domains excluded from anomaly detection",
+    t("editor.anomaly_exclusions", "Domains excluded from anomaly detection"),
     domains,
     async (d) => { await api("/api/anomaly-exclusions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
     async (d) => { await api(`/api/anomaly-exclusions/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
@@ -3801,7 +3853,7 @@ async function loadAnomalyExclusions() {
 async function loadAlertDomains() {
   const domains = await api("/api/alert-rules/domains");
   const editor = buildRuleEditor(
-    "Watched domains (always alert, whether or not blocked)",
+    t("editor.watched_domains", "Watched domains (always alert, whether or not blocked)"),
     domains,
     async (d) => { await api("/api/alert-rules/domains", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
     async (d) => { await api(`/api/alert-rules/domains/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
