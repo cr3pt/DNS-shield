@@ -1424,7 +1424,7 @@
 
     <section>
       <h2 data-i18n="notif.webhook_title">Webhook notifications</h2>
-      <p class="hint" style="color:var(--muted);">
+      <p class="hint" style="color:var(--muted);" data-i18n="notif.hint.webhook">
         Posts a short summary of new anomalies straight to Discord, Slack, or a Telegram bot -
         no third party in between, DNS-shield sends the HTTP request itself to whichever
         webhook URL or bot token you provide. Add as many as you like, each with its own
@@ -1455,7 +1455,7 @@
 
     <section>
       <h2 data-i18n="notif.browser_title">Browser notifications</h2>
-      <p class="hint" style="color:var(--muted);">
+      <p class="hint" style="color:var(--muted);" data-i18n="notif.hint.browser">
         A native browser popup (via your browser's own Notification permission - nothing sent
         anywhere) when a new anomaly appears, as long as this dashboard tab is open somewhere.
         No server component: your browser polls the dashboard itself and decides locally
@@ -1472,7 +1472,7 @@
   <div id="subtab-import" class="subtab-panel">
     <section class="section-deny">
       <h2 data-i18n="import.restore_title">Restore from backup</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="import.hint.restore">
         Upload a .zip from Settings -> General -> Download backup. Unlike the two importers
         below, this is DNS-shield's own native config, so there's nothing to convert or merge -
         it <strong>replaces your entire current configuration outright</strong> with exactly
@@ -1489,7 +1489,7 @@
 
     <section>
       <h2 data-i18n="import.adguard_title">Import from AdGuard Home</h2>
-      <p class="muted">Upload an AdGuardHome.yaml to import its filters, whitelist filters, user rules, upstreams, blocking mode, and per-client IPs/CIDRs. This replaces your current blocklists and client groups with AdGuard's, but keeps everything else (including your web login). Parental control, safe browsing, DHCP, TLS, and your AdGuard password are never imported.</p>
+      <p class="muted" data-i18n="import.hint.adguard">Upload an AdGuardHome.yaml to import its filters, whitelist filters, user rules, upstreams, blocking mode, and per-client IPs/CIDRs. This replaces your current blocklists and client groups with AdGuard's, but keeps everything else (including your web login). Parental control, safe browsing, DHCP, TLS, and your AdGuard password are never imported.</p>
       <form class="inline" id="import-adguard-form">
         <input type="file" id="adguard-file" accept=".yaml,.yml" required>
         <button type="submit" data-i18n="common.import">Import</button>
@@ -1499,14 +1499,14 @@
 
     <section>
       <h2 data-i18n="import.pihole_title">Import from Pi-hole</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="import.hint.pihole1">
         Upload a <code>gravity.db</code> file - Pi-hole's own SQLite database, included in a
         "Teleporter" backup or copyable directly from <code>/etc/pihole/gravity.db</code> on the
         Pi-hole host. Imports blocklist (and, on newer gravity.db versions, allow-list) subscription
         URLs, enabled allow/deny domains, enabled regex-deny patterns (mapped to DNS-shield's own
         experimental regex denylist, which gets turned on for you), and client IPs as client groups.
       </p>
-      <p class="muted">
+      <p class="muted" data-i18n="import.hint.pihole2">
         Not in gravity.db, so not imported this way: upstream DNS servers, listen address/port,
         blocking mode (these live in Pi-hole's setupVars.conf/pihole.toml, a different file), regex
         ALLOW entries (no DNS-shield equivalent), per-client group list assignments, and your web
@@ -2019,6 +2019,14 @@ const I18N_PL = {
 
   // --- settings: notifications hints ---
   "notif.hint.email": "Wysyła e-mail bezpośrednio na serwer SMTP, który skonfigurujesz poniżej, gdy zostaną wykryte nowe anomalie - to nie usługa chmurowa firm trzecich, to dokładnie to, co robi każdy klient pocztowy: Twój własny serwer pocztowy lub Twoje własne konto u dowolnego dostawcy. Domyślnie wyłączone; nic nigdy nie jest wysyłane, dopóki nie włączysz tego tutaj i nie ustawisz co najmniej jednego odbiorcy.",
+  "notif.hint.webhook": "Wysyła krótkie podsumowanie nowych anomalii bezpośrednio na Discord, Slack lub bota Telegram - bez pośrednika, DNS-shield sam wysyła żądanie HTTP pod dowolny podany przez Ciebie adres URL webhooka lub token bota. Dodaj ich dowolnie wiele, każdy z własną minimalną ważnością.",
+  "notif.hint.browser": "Natywne powiadomienie przeglądarki (przez własne uprawnienie Notification przeglądarki - nic nigdzie nie jest wysyłane), gdy pojawi się nowa anomalia, dopóki ta karta panelu jest gdzieś otwarta. Bez komponentu serwerowego: Twoja przeglądarka sama odpytuje panel i lokalnie decyduje, czy pokazać powiadomienie, osobno dla każdej przeglądarki/urządzenia, na którym to włączysz.",
+
+  // --- settings: import hints ---
+  "import.hint.restore": "Prześlij plik .zip z Ustawienia -> Ogólne -> Pobierz kopię zapasową. W przeciwieństwie do dwóch importerów poniżej, to natywna konfiguracja samego DNS-shield, więc nie ma nic do konwertowania ani scalania - <strong>całkowicie zastępuje Twoją bieżącą konfigurację</strong> dokładnie tym, co było w tej kopii zapasowej: listy blokujące, reguły dozwól/blokuj, grupy klientów, ustawienia DNS/panelu, niestandardowe rekordy DNS oraz Twoje logowanie do panelu. Nieodwracalne, chyba że wcześniej zrobiłeś też kopię zapasową konfiguracji, którą właśnie nadpiszesz.",
+  "import.hint.adguard": "Prześlij plik AdGuardHome.yaml, aby zaimportować jego filtry, filtry dozwolonych, reguły użytkownika, serwery nadrzędne, tryb blokowania oraz adresy IP/CIDR per klient. Zastępuje to Twoje obecne listy blokujące i grupy klientów tymi z AdGuard, ale zachowuje wszystko inne (w tym Twoje logowanie do panelu). Kontrola rodzicielska, bezpieczne przeglądanie, DHCP, TLS oraz hasło do AdGuard nigdy nie są importowane.",
+  "import.hint.pihole1": "Prześlij plik <code>gravity.db</code> - własną bazę SQLite Pi-hole, zawartą w kopii zapasowej \"Teleporter\" lub skopiowaną bezpośrednio z <code>/etc/pihole/gravity.db</code> na hoście Pi-hole. Importuje adresy URL subskrypcji list blokujących (i, w nowszych wersjach gravity.db, list dozwolonych), włączone domeny dozwól/blokuj, włączone wzorce regex-deny (mapowane na własną eksperymentalną listę blokującą regex DNS-shield, która zostaje dla Ciebie włączona) oraz adresy IP klientów jako grupy klientów.",
+  "import.hint.pihole2": "Nie ma tego w gravity.db, więc nie jest importowane w ten sposób: serwery DNS nadrzędne, adres/port nasłuchu, tryb blokowania (znajdują się w setupVars.conf/pihole.toml Pi-hole, innym pliku), wpisy regex ALLOW (brak odpowiednika w DNS-shield), przypisania list do grup klientów oraz Twoje logowanie do panelu. Wynik importu dokładnie pokazuje, co zostało przeniesione, a co nie.",
   "toast.list_added": "Lista dodana",
   "col.domain": "Domena",
   "col.count": "Liczba",
