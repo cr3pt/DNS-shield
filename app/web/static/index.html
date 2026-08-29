@@ -577,7 +577,7 @@
   <div id="subtab-general" class="subtab-panel">
     <section>
       <h2 data-i18n="general.web_ui">Web UI</h2>
-      <p class="muted">The dashboard you're looking at right now - its own listen address/port, login, and look.</p>
+      <p class="muted" data-i18n="general.hint.web_ui">The dashboard you're looking at right now - its own listen address/port, login, and look.</p>
       <form id="web-settings-form">
         <div class="field-grid">
           <div class="field"><label data-i18n="field.listen_address">Listen address</label><input type="text" id="s-web-listen-address"></div>
@@ -604,7 +604,7 @@
           <div class="field"><label data-i18n="general.cert_path">Certificate file path (optional)</label><input type="text" id="s-web-https-cert-path" placeholder="leave blank to auto-generate a self-signed one"></div>
           <div class="field"><label data-i18n="general.key_path">Key file path (optional)</label><input type="text" id="s-web-https-key-path" placeholder="leave blank to auto-generate a self-signed one"></div>
         </div>
-        <p class="hint">
+        <p class="hint" data-i18n="general.hint.https">
           With no certificate/key path set, DNS-shield generates and reuses its own self-signed
           certificate (stored in the data volume) - your browser will show a security warning
           the first time since it isn't from a trusted authority, but the connection is still
@@ -616,15 +616,15 @@
           <div class="field"><label data-i18n="general.max_failed_logins">Max failed logins before lockout</label><input type="number" id="s-web-login-max-attempts" min="1" step="1"></div>
           <div class="field"><label data-i18n="general.lockout_duration">Lockout duration (minutes)</label><input type="number" id="s-web-login-lockout" min="1" step="1"></div>
         </div>
-        <p class="hint">Locks out further login attempts from an IP after this many failures in a row, for this many minutes - takes effect immediately, no restart needed.</p>
-        <p class="hint">Listen address/port changes require restarting the container.</p>
+        <p class="hint" data-i18n="general.hint.lockout">Locks out further login attempts from an IP after this many failures in a row, for this many minutes - takes effect immediately, no restart needed.</p>
+        <p class="hint" data-i18n="general.hint.listen_restart">Listen address/port changes require restarting the container.</p>
         <button type="submit" data-i18n="general.save_web_settings">Save web settings</button>
       </form>
     </section>
 
     <section>
       <h2 data-i18n="general.your_account">Your account</h2>
-      <p class="muted">Change the password for the account you're signed in with (<span id="my-username">-</span>).</p>
+      <p class="muted"><span data-i18n="general.hint.change_password">Change the password for the account you're signed in with</span> (<span id="my-username">-</span>).</p>
       <form id="password-form">
         <div class="field-grid">
           <div class="field"><label data-i18n="general.current_password">Current password</label><input type="password" id="s-current-password" autocomplete="current-password"></div>
@@ -654,7 +654,7 @@
       </div>
 
       <div id="totp-setup-view" style="display:none;">
-        <p class="hint">
+        <p class="hint" data-i18n="general.hint.totp_scan">
           Scan this with your authenticator app (Google Authenticator, Authy, 1Password, etc.),
           or enter the key manually, then type the 6-digit code it shows to confirm.
         </p>
@@ -669,7 +669,7 @@
       </div>
 
       <div id="totp-backup-codes-view" style="display:none;">
-        <p class="hint" style="color:var(--danger);">
+        <p class="hint" style="color:var(--danger);" data-i18n="general.hint.totp_backup_codes">
           <strong>Save these backup codes now - each works once if you lose access to your
           authenticator app, and they won't be shown again.</strong>
         </p>
@@ -689,7 +689,7 @@
 
     <section>
       <h2 data-i18n="general.passkeys">Passkeys</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="general.hint.passkeys">
         A hardware security key, or your device's own built-in authenticator (Touch ID, Windows
         Hello, a phone's fingerprint/face unlock), used as a second factor in place of typing a
         TOTP code - registering one here satisfies the same "second step" that two-factor
@@ -709,7 +709,7 @@
 
     <section>
       <h2 data-i18n="general.api_tokens">API tokens</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="general.hint.api_tokens">
         Bearer tokens for scripts, cron jobs, or dashboards (e.g. Grafana) that need to call
         DNS-shield's API without a browser session - each token acts as you, with your own role
         and permissions, and works by sending <code>Authorization: Bearer &lt;token&gt;</code>.
@@ -729,14 +729,14 @@
 
     <section>
       <h2 data-i18n="general.backup">Backup</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="general.hint.backup_desc">
         Downloads a .zip with a full snapshot of everything in this instance's config -
         blocklists, allow/deny rules, client groups, DNS/web settings, custom DNS records - as
         a plain YAML file you can restore from later (a README.txt in the zip explains how).
         Built entirely in memory and sent straight to your browser - this never touches disk on
         the server beyond what's already in config.db, and never leaves your own network.
       </p>
-      <p class="hint">
+      <p class="hint" data-i18n="general.hint.backup_security">
         The file includes any threat-intel API keys in plain text and every user's bcrypt
         password hash (same as data/config.backup.yaml already on disk) - store the download
         like you would a password, not somewhere public.
@@ -1924,6 +1924,27 @@ async function withSpinner(button, fn) {
   }
 }
 
+// Like withSpinner, but only switches the button to its spinner/loading state if the
+// operation is still running after delayMs - avoids a flicker on the common case where a
+// settings save completes almost instantly, while still giving feedback on a slow one.
+async function withDelayedSpinner(button, fn, delayMs = 1000) {
+  if (!button) return fn();
+  const original = button.innerHTML;
+  let spinnerShown = false;
+  button.disabled = true;
+  const timer = setTimeout(() => {
+    spinnerShown = true;
+    button.innerHTML = `<span class="spinner"></span>${t("common.saving", "Saving...")}`;
+  }, delayMs);
+  try {
+    return await fn();
+  } finally {
+    clearTimeout(timer);
+    button.disabled = false;
+    if (spinnerShown) button.innerHTML = original;
+  }
+}
+
 // --- i18n ---------------------------------------------------------------
 // Every translatable element carries data-i18n="<key>" (innerHTML) and/or
 // data-i18n-ph="<key>" (placeholder attribute). I18N_PL maps those keys to
@@ -1934,6 +1955,20 @@ async function withSpinner(button, fn) {
 const I18N_PL = {
   // --- common ---
   "common.adding": "Dodawanie...",
+  "common.saving": "Zapisywanie...",
+
+  // --- settings: general hints ---
+  "general.hint.web_ui": "Panel, który właśnie oglądasz - jego własny adres/port nasłuchu, logowanie i wygląd.",
+  "general.hint.https": "Jeśli nie ustawisz ścieżki do certyfikatu/klucza, DNS-shield wygeneruje i będzie ponownie używać własnego, samopodpisanego certyfikatu (przechowywanego w woluminie danych) - przeglądarka pokaże ostrzeżenie bezpieczeństwa przy pierwszym połączeniu, bo certyfikat nie pochodzi od zaufanego urzędu, ale połączenie i tak jest szyfrowane. Podaj własne ścieżki do pliku certyfikatu/klucza, jeśli masz prawdziwy (np. z klienta ACME reverse proxy, zamontowany do kontenera). W obu przypadkach wymaga ponownego uruchomienia kontenera.",
+  "general.hint.lockout": "Blokuje dalsze próby logowania z danego adresu IP po tylu nieudanych próbach z rzędu, na tyle minut - działa natychmiast, bez potrzeby restartu.",
+  "general.hint.listen_restart": "Zmiana adresu/portu nasłuchu wymaga ponownego uruchomienia kontenera.",
+  "general.hint.change_password": "Zmień hasło dla konta, na które jesteś zalogowany(-a)",
+  "general.hint.totp_scan": "Zeskanuj kod aplikacją uwierzytelniającą (Google Authenticator, Authy, 1Password itp.) lub wpisz klucz ręcznie, a następnie podaj wyświetlony 6-cyfrowy kod, aby potwierdzić.",
+  "general.hint.totp_backup_codes": "<strong>Zapisz teraz te kody zapasowe - każdy działa jednorazowo, jeśli stracisz dostęp do aplikacji uwierzytelniającej, i nie zostaną ponownie wyświetlone.</strong>",
+  "general.hint.passkeys": "Sprzętowy klucz bezpieczeństwa albo wbudowany uwierzytelniacz urządzenia (Touch ID, Windows Hello, odcisk palca/rozpoznawanie twarzy w telefonie), używany jako drugi składnik zamiast wpisywania kodu TOTP - zarejestrowanie go tutaj spełnia ten sam wymóg \"drugiego kroku\", co uwierzytelnianie dwuskładnikowe powyżej, bez konieczności włączania TOTP. Wymaga, aby panel był dostępny pod prawdziwą nazwą hosta lub <code>localhost</code> - większość przeglądarek odrzuca goły adres IP w sieci LAN (np. <code>192.168.1.50</code>) jako stronę polegającą WebAuthn, więc skonfiguruj lokalny DNS lub wpis w pliku hosts wskazujący nazwę na ten host, jeśli tak zwykle się z nim łączysz.",
+  "general.hint.api_tokens": "Tokeny bearer dla skryptów, zadań cron lub paneli (np. Grafana), które muszą wywoływać API DNS-shield bez sesji przeglądarki - każdy token działa jak Ty, z Twoją rolą i uprawnieniami, i działa poprzez wysłanie <code>Authorization: Bearer &lt;token&gt;</code>. <code>GET /metrics</code> oraz endpoint DoH nigdy go nie wymagają - są celowo nieuwierzytelnione (patrz wyżej) - token jest potrzebny tylko dla reszty API.",
+  "general.hint.backup_desc": "Pobiera plik .zip z pełną migawką wszystkiego w konfiguracji tej instancji - listy blokujące, reguły dozwól/blokuj, grupy klientów, ustawienia DNS/panelu, niestandardowe rekordy DNS - jako zwykły plik YAML, z którego można później przywrócić (plik README.txt w archiwum wyjaśnia jak). Budowany w całości w pamięci i wysyłany prosto do przeglądarki - to nigdy nie dotyka dysku na serwerze poza tym, co już jest w config.db, i nigdy nie opuszcza Twojej sieci.",
+  "general.hint.backup_security": "Plik zawiera wszelkie klucze API wywiadu zagrożeń w postaci jawnego tekstu oraz hash bcrypt hasła każdego użytkownika (tak samo jak data/config.backup.yaml już na dysku) - przechowuj ten plik tak, jak przechowywałbyś hasło, nie w miejscu publicznie dostępnym.",
   "toast.list_added": "Lista dodana",
   "col.domain": "Domena",
   "col.count": "Liczba",
@@ -3327,7 +3362,9 @@ async function loadClientGroups() {
     upstreamsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const upstreams = upstreamsInput.value.split(",").map((s) => s.trim()).filter(Boolean);
-      await api(`/api/client-groups/${i}/upstreams`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upstreams }) });
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${i}/upstreams`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upstreams }) });
+      });
       refreshAll();
     });
 
@@ -3364,7 +3401,9 @@ async function loadClientGroups() {
     safeSearchForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const value = safeSearchSelect.value === "" ? null : safeSearchSelect.value === "on";
-      await api(`/api/client-groups/${i}/safe-search`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ safe_search: value }) });
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${i}/safe-search`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ safe_search: value }) });
+      });
       refreshAll();
     });
 
@@ -3407,7 +3446,9 @@ async function loadClientGroups() {
       const enabled = document.getElementById(`sched-enabled-${i}`).checked;
       const days = dayBoxes.map((b, idx) => (b.checked ? idx : null)).filter((d) => d !== null);
       const windows = days.length && startInput.value && endInput.value ? [{ days, start: startInput.value, end: endInput.value }] : [];
-      await api(`/api/client-groups/${i}/schedule`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled, timezone: "", windows }) });
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${i}/schedule`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled, timezone: "", windows }) });
+      });
       refreshAll();
     });
 
@@ -4252,26 +4293,28 @@ document.getElementById("anomaly-clear-all").addEventListener("click", async () 
 
 document.getElementById("anomaly-settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await api("/api/settings/anomaly", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      enabled: document.getElementById("s-anomaly-enabled").checked,
-      check_interval_minutes: floatField("s-anomaly-check-interval"),
-      window_minutes: floatField("s-anomaly-window"),
-      min_queries: intField("s-anomaly-min-queries"),
-      blocked_ratio_threshold: floatField("s-anomaly-blocked-ratio"),
-      domain_burst_threshold: intField("s-anomaly-domain-burst"),
-      domain_burst_min_label_length: intField("s-anomaly-entropy-min-length"),
-      domain_burst_min_entropy: floatField("s-anomaly-entropy-min-bits"),
-      domain_burst_entropy_fraction: floatField("s-anomaly-entropy-fraction"),
-      blocked_domain_burst_threshold: intField("s-anomaly-blocked-domain-burst"),
-      dns_tunneling_threshold: intField("s-anomaly-tunnel-threshold"),
-      ptr_scan_threshold: intField("s-anomaly-ptr-scan-threshold"),
-      dns_tunneling_min_label_length: intField("s-anomaly-tunnel-min-length"),
-      dns_tunneling_min_entropy: floatField("s-anomaly-tunnel-min-bits"),
-      cooldown_minutes: floatField("s-anomaly-cooldown"),
-    }),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/anomaly", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: document.getElementById("s-anomaly-enabled").checked,
+        check_interval_minutes: floatField("s-anomaly-check-interval"),
+        window_minutes: floatField("s-anomaly-window"),
+        min_queries: intField("s-anomaly-min-queries"),
+        blocked_ratio_threshold: floatField("s-anomaly-blocked-ratio"),
+        domain_burst_threshold: intField("s-anomaly-domain-burst"),
+        domain_burst_min_label_length: intField("s-anomaly-entropy-min-length"),
+        domain_burst_min_entropy: floatField("s-anomaly-entropy-min-bits"),
+        domain_burst_entropy_fraction: floatField("s-anomaly-entropy-fraction"),
+        blocked_domain_burst_threshold: intField("s-anomaly-blocked-domain-burst"),
+        dns_tunneling_threshold: intField("s-anomaly-tunnel-threshold"),
+        ptr_scan_threshold: intField("s-anomaly-ptr-scan-threshold"),
+        dns_tunneling_min_label_length: intField("s-anomaly-tunnel-min-length"),
+        dns_tunneling_min_entropy: floatField("s-anomaly-tunnel-min-bits"),
+        cooldown_minutes: floatField("s-anomaly-cooldown"),
+      }),
+    });
   });
   refreshAll();
 });
@@ -4309,14 +4352,16 @@ document.getElementById("alert-source-from-blocklist-form").addEventListener("su
   showToast(t("toast.list_added", "List added") + `: ${name}`);
 });
 
-document.getElementById("alert-rules-settings-save").addEventListener("click", async () => {
-  await api("/api/settings/alert-rules", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      check_interval_seconds: floatField("s-alert-check-interval"),
-      cooldown_minutes: floatField("s-alert-cooldown"),
-    }),
+document.getElementById("alert-rules-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/alert-rules", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        check_interval_seconds: floatField("s-alert-check-interval"),
+        cooldown_minutes: floatField("s-alert-cooldown"),
+      }),
+    });
   });
   refreshAll();
 });
@@ -4336,10 +4381,12 @@ document.getElementById("notifications-email-form").addEventListener("submit", a
   };
   if (password) body.smtp_password = password;
   document.getElementById("notif-test-email-result").textContent = "";
-  await api("/api/settings/notifications/email", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/notifications/email", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   });
   refreshAll();
 });
@@ -4358,10 +4405,12 @@ document.getElementById("sso-settings-form").addEventListener("submit", async (e
     default_role: document.getElementById("s-sso-default-role").value,
   };
   if (secret) body.client_secret = secret;
-  await api("/api/settings/sso", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/sso", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   });
   refreshAll();
 });
@@ -4480,47 +4529,49 @@ async function refreshAll() {
 
 document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await api("/api/settings/dns", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      listen_address: document.getElementById("s-dns-listen-address").value.trim(),
-      listen_port: intField("s-dns-listen-port"),
-      upstream_timeout_seconds: floatField("s-dns-upstream-timeout"),
-      block_mode: document.getElementById("s-dns-block-mode").value,
-      blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
-      blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
-      block_page_enabled: document.getElementById("s-dns-block-page-enabled").checked,
-      block_page_port: intField("s-dns-block-page-port"),
-      block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
-      block_non_latin: document.getElementById("s-dns-block-non-latin").checked,
-      safe_search_enabled: document.getElementById("s-dns-safe-search-enabled").checked,
-      dnssec_enabled: document.getElementById("s-dns-dnssec-enabled").checked,
-      dnssec_cache_seconds: Number(document.getElementById("s-dns-dnssec-cache-seconds").value) || 3600,
-      typosquat_enabled: document.getElementById("s-dns-typosquat-enabled").checked,
-      typosquat_max_distance: intField("s-dns-typosquat-max-distance"),
-      typosquat_cooldown_minutes: floatField("s-dns-typosquat-cooldown"),
-      typosquat_action: document.getElementById("s-dns-typosquat-action").value,
-      typosquat_redirect_ip: document.getElementById("s-dns-typosquat-redirect-ip").value.trim(),
-      dot_enabled: document.getElementById("s-dns-dot-enabled").checked,
-      dot_port: intField("s-dns-dot-port"),
-      rebinding_protection_enabled: document.getElementById("s-dns-rebinding-enabled").checked,
-      rebinding_action: document.getElementById("s-dns-rebinding-action").value,
-      rebinding_exempt_domains: document.getElementById("s-dns-rebinding-exempt").value.split(",").map((s) => s.trim()).filter(Boolean),
-      local_tld_alert_enabled: document.getElementById("s-dns-local-tld-enabled").checked,
-      local_tld_list: document.getElementById("s-dns-local-tld-list").value.split(",").map((s) => s.trim()).filter(Boolean),
-      local_tld_cooldown_minutes: floatField("s-dns-local-tld-cooldown"),
-      regex_denylist_enabled: document.getElementById("s-dns-regex-denylist-enabled").checked,
-      upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
-      upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),
-      cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
-      cache_max_entries: intField("s-dns-cache-max-entries"),
-      cache_min_ttl_seconds: intField("s-dns-cache-min-ttl"),
-      cache_max_ttl_seconds: intField("s-dns-cache-max-ttl"),
-      resolve_client_names: document.getElementById("s-dns-resolve-names").checked,
-      client_name_resolver: document.getElementById("s-dns-name-resolver").value.trim(),
-      client_name_cache_seconds: intField("s-dns-name-cache-seconds"),
-    }),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/dns", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        listen_address: document.getElementById("s-dns-listen-address").value.trim(),
+        listen_port: intField("s-dns-listen-port"),
+        upstream_timeout_seconds: floatField("s-dns-upstream-timeout"),
+        block_mode: document.getElementById("s-dns-block-mode").value,
+        blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
+        blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
+        block_page_enabled: document.getElementById("s-dns-block-page-enabled").checked,
+        block_page_port: intField("s-dns-block-page-port"),
+        block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
+        block_non_latin: document.getElementById("s-dns-block-non-latin").checked,
+        safe_search_enabled: document.getElementById("s-dns-safe-search-enabled").checked,
+        dnssec_enabled: document.getElementById("s-dns-dnssec-enabled").checked,
+        dnssec_cache_seconds: Number(document.getElementById("s-dns-dnssec-cache-seconds").value) || 3600,
+        typosquat_enabled: document.getElementById("s-dns-typosquat-enabled").checked,
+        typosquat_max_distance: intField("s-dns-typosquat-max-distance"),
+        typosquat_cooldown_minutes: floatField("s-dns-typosquat-cooldown"),
+        typosquat_action: document.getElementById("s-dns-typosquat-action").value,
+        typosquat_redirect_ip: document.getElementById("s-dns-typosquat-redirect-ip").value.trim(),
+        dot_enabled: document.getElementById("s-dns-dot-enabled").checked,
+        dot_port: intField("s-dns-dot-port"),
+        rebinding_protection_enabled: document.getElementById("s-dns-rebinding-enabled").checked,
+        rebinding_action: document.getElementById("s-dns-rebinding-action").value,
+        rebinding_exempt_domains: document.getElementById("s-dns-rebinding-exempt").value.split(",").map((s) => s.trim()).filter(Boolean),
+        local_tld_alert_enabled: document.getElementById("s-dns-local-tld-enabled").checked,
+        local_tld_list: document.getElementById("s-dns-local-tld-list").value.split(",").map((s) => s.trim()).filter(Boolean),
+        local_tld_cooldown_minutes: floatField("s-dns-local-tld-cooldown"),
+        regex_denylist_enabled: document.getElementById("s-dns-regex-denylist-enabled").checked,
+        upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
+        upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),
+        cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
+        cache_max_entries: intField("s-dns-cache-max-entries"),
+        cache_min_ttl_seconds: intField("s-dns-cache-min-ttl"),
+        cache_max_ttl_seconds: intField("s-dns-cache-max-ttl"),
+        resolve_client_names: document.getElementById("s-dns-resolve-names").checked,
+        client_name_resolver: document.getElementById("s-dns-name-resolver").value.trim(),
+        client_name_cache_seconds: intField("s-dns-name-cache-seconds"),
+      }),
+    });
   });
   refreshAll();
 });
@@ -4528,10 +4579,12 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
 document.getElementById("upstreams-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const upstreams = document.getElementById("s-upstreams").value.split("\n").map((s) => s.trim()).filter(Boolean);
-  await api("/api/settings/upstreams", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ upstreams }),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/upstreams", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ upstreams }),
+    });
   });
   refreshAll();
 });
@@ -4550,10 +4603,12 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
     login_lockout_minutes: floatField("s-web-login-lockout"),
   };
   document.documentElement.setAttribute("data-theme", theme);
-  await api("/api/settings/web", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/web", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   });
   refreshAll();
 });
@@ -4564,10 +4619,12 @@ document.getElementById("password-form").addEventListener("submit", async (e) =>
   const new_password = document.getElementById("s-new-password").value;
   if (!new_password) return;
   try {
-    await api("/api/account/password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ current_password, new_password }),
+    await withDelayedSpinner(e.submitter, async () => {
+      await api("/api/account/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password, new_password }),
+      });
     });
     document.getElementById("s-current-password").value = "";
     document.getElementById("s-new-password").value = "";
@@ -4879,20 +4936,24 @@ document.getElementById("user-create-form").addEventListener("submit", async (e)
 
 document.getElementById("logging-settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await api("/api/settings/logging", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ retention_days: floatField("s-retention-days") }),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/logging", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ retention_days: floatField("s-retention-days") }),
+    });
   });
   refreshAll();
 });
 
 document.getElementById("blocklist-refresh-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await api("/api/settings/blocklists", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_interval_hours: floatField("s-refresh-interval") }),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/blocklists", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_interval_hours: floatField("s-refresh-interval") }),
+    });
   });
   refreshAll();
 });
@@ -4925,10 +4986,12 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
   if (shodan) body.shodan_api_key = shodan;
   if (urlhaus) body.urlhaus_api_key = urlhaus;
   if (localKey) body.local_api_key = localKey;
-  await api("/api/settings/enrichment", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/enrichment", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   });
   refreshAll();
 });
@@ -5512,10 +5575,12 @@ async function boot() {
 document.getElementById("language-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const language = document.getElementById("s-account-language").value;
-  const updated = await api("/api/account/language", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ language }),
+  const updated = await withDelayedSpinner(e.submitter, async () => {
+    return await api("/api/account/language", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language }),
+    });
   });
   currentUser = updated;
   currentLang = currentUser.language ? currentUser.language : detectBrowserLang();
