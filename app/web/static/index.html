@@ -1577,27 +1577,27 @@
   <div id="subtab-ownlists" class="subtab-panel">
     <div class="two-col">
       <section class="section-allow">
-        <h2>Allowlist (never blocked)</h2>
+        <h2 data-i18n="ownlists.allowlist">Allowlist (never blocked)</h2>
         <p class="muted">Always resolved normally, even if a blocklist matches - takes priority over the blocklists, but a denylist entry still wins over this.</p>
         <form class="inline" id="add-allow-form">
           <input type="text" id="allow-domain" placeholder="example.com" required>
-          <button type="submit">Add</button>
+          <button type="submit" data-i18n="common.add">Add</button>
         </form>
         <table><tbody id="allow-rows"></tbody></table>
       </section>
       <section class="section-deny">
-        <h2>Denylist (always blocked)</h2>
+        <h2 data-i18n="ownlists.denylist">Denylist (always blocked)</h2>
         <p class="muted">Always blocked, even if not on any blocklist - and even if the same domain is also on the allowlist above.</p>
         <form class="inline" id="add-deny-form">
           <input type="text" id="deny-domain" placeholder="tracker.example.com" required>
-          <button type="submit">Add</button>
+          <button type="submit" data-i18n="common.add">Add</button>
         </form>
         <table><tbody id="deny-rows"></tbody></table>
       </section>
     </div>
 
     <section>
-      <h2>Regex denylist <span class="tag" style="background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)">experimental</span></h2>
+      <h2><span data-i18n="ownlists.regex_denylist">Regex denylist</span> <span class="tag" style="background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)" data-i18n="common.experimental">experimental</span></h2>
       <p class="muted">
         Blocks any query name matching one of these Python regular expressions - e.g.
         <code>^ads?[0-9]*\.</code> catches ad/ad1/ads2 subdomains across every domain at once,
@@ -1609,13 +1609,13 @@
       </p>
       <form class="inline" id="add-deny-regex-form">
         <input type="text" id="deny-regex" placeholder="^ads?[0-9]*\.example\.com$" required style="min-width:280px">
-        <button type="submit">Add</button>
+        <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table><tbody id="deny-regex-rows"></tbody></table>
     </section>
 
     <section>
-      <h2>Blocked destination IPs</h2>
+      <h2 data-i18n="ownlists.blocked_ips">Blocked destination IPs</h2>
       <p class="muted">
         Blocks a query the moment its answer resolves to one of these IPs/CIDRs, or one from a
         subscribed list below - even for a domain on the allowlist above. Catches a trusted
@@ -1624,25 +1624,25 @@
       </p>
       <form class="inline" id="add-deny-answer-ip-form">
         <input type="text" id="deny-answer-ip" placeholder="203.0.113.5 or 203.0.113.0/24" required>
-        <button type="submit">Add</button>
+        <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table><tbody id="deny-answer-ip-rows"></tbody></table>
 
-      <h3 style="margin-top:1rem;">Malicious-IP lists</h3>
+      <h3 style="margin-top:1rem;" data-i18n="ownlists.malicious_ip_lists">Malicious-IP lists</h3>
       <p class="muted">Subscribed lists of IPs/CIDRs (one per line, "#" for comments) - fetched, cached, and refreshed on the same schedule as Blocklists.</p>
       <form class="inline" id="add-answer-ip-source-form">
-        <input type="text" id="answer-ip-source-name" placeholder="list name" style="width:9rem;">
+        <input type="text" id="answer-ip-source-name" data-i18n-ph="ownlists.list_name_ph" placeholder="list name" style="width:9rem;">
         <input type="text" id="answer-ip-source-url" placeholder="https://..." style="flex:1;min-width:12rem;">
-        <button type="submit">Add list</button>
+        <button type="submit" data-i18n="ownlists.add_list">Add list</button>
       </form>
       <table>
-        <thead><tr><th>Name</th><th>URL</th><th>Entries</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="ownlists.entries">Entries</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="answer-ip-source-rows"></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Typosquat protection</h2>
+      <h2 data-i18n="ownlists.typosquat_title">Typosquat protection</h2>
       <p class="muted">
         Flags a query as a probable typosquat when it's a close spelling variant (e.g.
         <code>paypa1.com</code>, <code>faceb00k.com</code>) or has a protected brand name
@@ -1653,12 +1653,12 @@
         redirect to the real brand's own address, or redirect to an address you specify.
       </p>
       <p class="muted" style="font-size:0.8rem;">
-        Built-in protected domains (<span id="typosquat-default-count">0</span>):
+        <span data-i18n="ownlists.builtin_protected">Built-in protected domains</span> (<span id="typosquat-default-count">0</span>):
         <span id="typosquat-default-list" style="font-family:monospace;"></span>
       </p>
       <form class="inline" id="add-typosquat-form">
         <input type="text" id="typosquat-domain" placeholder="your-own-domain.com" required>
-        <button type="submit">Add</button>
+        <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table><tbody id="typosquat-extra-rows"></tbody></table>
     </section>
@@ -1666,7 +1666,7 @@
 
   <div id="subtab-clients" class="subtab-panel">
     <section>
-      <h2>Blocked clients (no communication allowed)</h2>
+      <h2 data-i18n="clients.blocked_title">Blocked clients (no communication allowed)</h2>
       <p class="muted">
         Every query from these IPs/CIDRs is blocked, for every domain - stronger than a domain
         denylist entry, and takes priority over client groups below. Usually populated via the
@@ -1678,25 +1678,25 @@
       </p>
       <form class="inline" id="add-blocked-client-form">
         <input type="text" id="blocked-client-value" placeholder="192.168.1.50, mac:AA:BB:CC:DD:EE:FF, or host:kids-tablet" required>
-        <button type="submit">Block</button>
+        <button type="submit" data-i18n="clients.block_btn">Block</button>
       </form>
       <table><tbody id="blocked-client-rows"></tbody></table>
     </section>
 
     <section>
-      <h2>Client groups</h2>
+      <h2 data-i18n="clients.groups_title">Client groups</h2>
       <p class="muted">
         Per-client overrides. First matching group wins; unmatched clients get the global policy
         above. Match patterns accept an IP/CIDR, <code>mac:AA:BB:CC:DD:EE:FF</code>, or
         <code>host:name</code> (wildcards like <code>host:*.kids</code> match a hostname suffix).
       </p>
       <form class="inline" id="add-group-form">
-        <input type="text" id="group-name" placeholder="Name (e.g. Kids)" required>
-        <input type="text" id="group-match" placeholder="IPs/CIDRs, mac:.., host:.. - comma separated" required style="min-width:260px">
+        <input type="text" id="group-name" data-i18n-ph="clients.group_name_ph" placeholder="Name (e.g. Kids)" required>
+        <input type="text" id="group-match" data-i18n-ph="clients.group_match_ph" placeholder="IPs/CIDRs, mac:.., host:.. - comma separated" required style="min-width:260px">
         <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.85rem">
-          <input type="checkbox" id="group-enabled" checked> Filter this group
+          <input type="checkbox" id="group-enabled" checked> <span data-i18n="clients.filter_this_group">Filter this group</span>
         </label>
-        <button type="submit">Add group</button>
+        <button type="submit" data-i18n="clients.add_group">Add group</button>
       </form>
       <div id="group-list"></div>
     </section>
@@ -1985,6 +1985,59 @@ const I18N_PL = {
   "import.adguard_title": "Import z AdGuard Home",
   "import.pihole_title": "Import z Pi-hole",
   "common.import": "Importuj",
+  "common.enable": "Włącz",
+  "common.disable": "Wyłącz",
+  "common.remove": "Usuń",
+  "common.experimental": "eksperymentalne",
+  "tag.enabled": "włączone",
+  "tag.disabled": "wyłączone",
+
+  // --- settings: own lists ---
+  "ownlists.allowlist": "Lista dozwolonych (nigdy nie blokowane)",
+  "ownlists.denylist": "Lista blokowanych (zawsze blokowane)",
+  "ownlists.regex_denylist": "Lista blokowanych (regex)",
+  "ownlists.blocked_ips": "Blokowane adresy IP docelowe",
+  "ownlists.malicious_ip_lists": "Listy złośliwych adresów IP",
+  "ownlists.list_name_ph": "nazwa listy",
+  "ownlists.add_list": "Dodaj listę",
+  "ownlists.entries": "Wpisy",
+  "ownlists.typosquat_title": "Ochrona przed typosquattingiem",
+  "ownlists.builtin_protected": "Wbudowane chronione domeny",
+
+  // --- settings: clients ---
+  "clients.blocked_title": "Zablokowani klienci (brak komunikacji)",
+  "clients.block_btn": "Zablokuj",
+  "clients.groups_title": "Grupy klientów",
+  "clients.group_name_ph": "Nazwa (np. Dzieci)",
+  "clients.group_match_ph": "IP/CIDR, mac:.., host:.. - oddzielone przecinkami",
+  "clients.filter_this_group": "Filtruj tę grupę",
+  "clients.add_group": "Dodaj grupę",
+
+  // --- client groups (JS-rendered) ---
+  "groups.disable_filtering": "Wyłącz filtrowanie",
+  "groups.enable_filtering": "Włącz filtrowanie",
+  "groups.delete_group": "Usuń grupę",
+  "groups.filtering_on": "filtrowanie włączone",
+  "groups.filtering_off": "filtrowanie wyłączone",
+  "groups.upstreams_override": "Nadpisanie serwerów nadrzędnych (puste = użyj globalnych)",
+  "groups.save_upstreams": "Zapisz serwery nadrzędne",
+  "groups.safesearch_override": "Nadpisanie SafeSearch",
+  "groups.ss_inherit": "Dziedzicz ustawienie globalne",
+  "groups.ss_always_on": "Zawsze włączone dla tej grupy",
+  "groups.ss_always_off": "Zawsze wyłączone dla tej grupy",
+  "groups.bedtime_schedule": "Harmonogram godziny snu",
+  "groups.from": "Od",
+  "groups.to": "do",
+  "groups.extra_blocklist_title": "Dodatkowe listy blokujące dla tej grupy (uzupełniają globalną listę)",
+  "groups.extra_domains_count": "{n} dodatkowa(-e/-ych) domena(-y/-) zablokowana(-e) dla tej grupy poza globalną listą blokującą.",
+  "groups.add_suggested": "Dodaj sugerowaną",
+  "day.mon": "Pon",
+  "day.tue": "Wt",
+  "day.wed": "Śr",
+  "day.thu": "Czw",
+  "day.fri": "Pt",
+  "day.sat": "Sob",
+  "day.sun": "Nd",
 
   // --- settings: blocklists ---
   "blocklists.title": "Listy blokujące",
@@ -3123,20 +3176,20 @@ function buildRuleEditor(title, items, onAdd, onRemove) {
 
 function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDomains, catalog) {
   const wrap = el("div", { class: "rule-editor" });
-  wrap.appendChild(el("div", { class: "title", text: "Extra blocklist sources for this group (adds to the global blocklist)" }));
-  wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: `${totalDomains} extra domain(s) blocked for this group beyond the global blocklist.` }));
+  wrap.appendChild(el("div", { class: "title", text: t("groups.extra_blocklist_title", "Extra blocklist sources for this group (adds to the global blocklist)") }));
+  wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: t("groups.extra_domains_count", "{n} extra domain(s) blocked for this group beyond the global blocklist.").replace("{n}", totalDomains) }));
 
   if (sources.length) {
     const table = el("table", {});
     const thead = el("thead", {}, [el("tr", {}, [
-      el("th", { text: "Name" }), el("th", { text: "URL" }), el("th", { text: "Domains" }), el("th", { text: "Status" }), el("th", {}),
+      el("th", { text: t("col.name", "Name") }), el("th", { text: t("col.url", "URL") }), el("th", { text: t("col.domains", "Domains") }), el("th", { text: t("col.status", "Status") }), el("th", {}),
     ])]);
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
     sources.forEach((s, si) => {
-      const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? "Disable" : "Enable" });
+      const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? t("common.disable", "Disable") : t("common.enable", "Enable") });
       toggleBtn.onclick = async () => { await api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}/toggle`, { method: "POST" }); refreshAll(); };
-      const delBtn = el("button", { class: "danger", text: "Remove" });
+      const delBtn = el("button", { class: "danger", text: t("common.remove", "Remove") });
       delBtn.onclick = async () => { await api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}`, { method: "DELETE" }); refreshAll(); };
       const domainsCell = el("td", {}, [document.createTextNode((counts[s.name] ?? "-").toString())]);
       if (formats[s.name]) {
@@ -3146,7 +3199,7 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
         el("td", { text: s.name }),
         el("td", { text: s.url, class: "url-cell" }),
         domainsCell,
-        el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? "enabled" : "disabled" })]),
+        el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? t("tag.enabled", "enabled") : t("tag.disabled", "disabled") })]),
         el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
       ]));
     });
@@ -3161,7 +3214,7 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
   const urlInput = el("input", { type: "text", placeholder: "https://...", style: "flex:1;min-width:12rem;" });
   addForm.appendChild(nameInput);
   addForm.appendChild(urlInput);
-  addForm.appendChild(el("button", { type: "submit", text: "Add list" }));
+  addForm.appendChild(el("button", { type: "submit", text: t("ownlists.add_list", "Add list") }));
   addForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = nameInput.value.trim();
@@ -3196,7 +3249,7 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
       select.appendChild(opt);
     }
     suggestForm.appendChild(select);
-    suggestForm.appendChild(el("button", { type: "submit", class: "secondary", text: "Add suggested" }));
+    suggestForm.appendChild(el("button", { type: "submit", class: "secondary", text: t("groups.add_suggested", "Add suggested") }));
     suggestForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const entry = suggestions.find((c) => c.url === select.value);
@@ -3225,9 +3278,9 @@ async function loadClientGroups() {
   container.innerHTML = "";
 
   groups.forEach((g, i) => {
-    const toggleBtn = el("button", { class: "secondary", text: g.enabled ? "Disable filtering" : "Enable filtering" });
+    const toggleBtn = el("button", { class: "secondary", text: g.enabled ? t("groups.disable_filtering", "Disable filtering") : t("groups.enable_filtering", "Enable filtering") });
     toggleBtn.onclick = async () => { await api(`/api/client-groups/${i}/toggle`, { method: "POST" }); refreshAll(); };
-    const delBtn = el("button", { class: "danger", text: "Delete group" });
+    const delBtn = el("button", { class: "danger", text: t("groups.delete_group", "Delete group") });
     delBtn.onclick = async () => { await api(`/api/client-groups/${i}`, { method: "DELETE" }); refreshAll(); };
 
     const header = el("div", { class: "row" }, [
@@ -3237,7 +3290,7 @@ async function loadClientGroups() {
       ]),
       el("span", {
         class: "tag " + (g.enabled ? "allowed" : "blocked"),
-        text: g.enabled ? "filtering on" : "filtering off",
+        text: g.enabled ? t("groups.filtering_on", "filtering on") : t("groups.filtering_off", "filtering off"),
       }),
     ]);
 
@@ -3258,10 +3311,10 @@ async function loadClientGroups() {
 
     const upstreamsForm = document.createElement("form");
     upstreamsForm.className = "rule-editor";
-    upstreamsForm.appendChild(el("div", { class: "title", text: "Upstreams override (blank = use global upstreams)" }));
+    upstreamsForm.appendChild(el("div", { class: "title", text: t("groups.upstreams_override", "Upstreams override (blank = use global upstreams)") }));
     const upstreamsInput = el("input", { type: "text", placeholder: "e.g. 9.9.9.9:53, dot://1.1.1.1", value: (g.upstreams || []).join(", "), style: "width:100%; margin-bottom:0.4rem;" });
     upstreamsForm.appendChild(upstreamsInput);
-    upstreamsForm.appendChild(el("button", { type: "submit", text: "Save upstreams" }));
+    upstreamsForm.appendChild(el("button", { type: "submit", text: t("groups.save_upstreams", "Save upstreams") }));
     upstreamsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const upstreams = upstreamsInput.value.split(",").map((s) => s.trim()).filter(Boolean);
@@ -3280,13 +3333,13 @@ async function loadClientGroups() {
 
     const safeSearchForm = document.createElement("form");
     safeSearchForm.className = "rule-editor";
-    safeSearchForm.appendChild(el("div", { class: "title", text: "SafeSearch override" }));
+    safeSearchForm.appendChild(el("div", { class: "title", text: t("groups.safesearch_override", "SafeSearch override") }));
     safeSearchForm.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: "Forces SafeSearch/Restricted Mode on Google, Bing, DuckDuckGo, YouTube, and Yandex for this group's clients." }));
     const safeSearchSelect = document.createElement("select");
     const ssOptions = [
-      ["", "Inherit global setting"],
-      ["on", "Always on for this group"],
-      ["off", "Always off for this group"],
+      ["", t("groups.ss_inherit", "Inherit global setting")],
+      ["on", t("groups.ss_always_on", "Always on for this group")],
+      ["off", t("groups.ss_always_off", "Always off for this group")],
     ];
     for (const [value, label] of ssOptions) {
       const opt = document.createElement("option");
@@ -3298,7 +3351,7 @@ async function loadClientGroups() {
       safeSearchSelect.appendChild(opt);
     }
     safeSearchForm.appendChild(safeSearchSelect);
-    safeSearchForm.appendChild(el("button", { type: "submit", text: "Save" }));
+    safeSearchForm.appendChild(el("button", { type: "submit", text: t("common.save", "Save") }));
     safeSearchForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const value = safeSearchSelect.value === "" ? null : safeSearchSelect.value === "on";
@@ -3309,14 +3362,17 @@ async function loadClientGroups() {
     const existingWindow = (g.schedule && g.schedule.windows && g.schedule.windows[0]) || null;
     const scheduleForm = document.createElement("form");
     scheduleForm.className = "rule-editor";
-    scheduleForm.appendChild(el("div", { class: "title", text: "Bedtime schedule" }));
+    scheduleForm.appendChild(el("div", { class: "title", text: t("groups.bedtime_schedule", "Bedtime schedule") }));
     scheduleForm.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: "Blocks every query from this group's clients during the window below - stronger than deny/allow lists, same as Blocked clients but time-limited. Disable the checkbox to turn it off without losing the saved window. Uses the container's local time (set TZ in docker-compose.yml if it isn't already your timezone)." }));
     const scheduleEnabled = el("label", { style: "display:flex;align-items:center;gap:0.35rem;font-size:0.85rem;margin-bottom:0.4rem;" }, [
       Object.assign(document.createElement("input"), { type: "checkbox", id: `sched-enabled-${i}`, checked: !!(g.schedule && g.schedule.enabled) }),
-      document.createTextNode("Enable"),
+      document.createTextNode(t("common.enable", "Enable")),
     ]);
     scheduleForm.appendChild(scheduleEnabled);
-    const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const dayLabels = [
+      t("day.mon", "Mon"), t("day.tue", "Tue"), t("day.wed", "Wed"), t("day.thu", "Thu"),
+      t("day.fri", "Fri"), t("day.sat", "Sat"), t("day.sun", "Sun"),
+    ];
     const dayBoxes = [];
     const daysRow = el("div", { class: "inline", style: "flex-wrap:wrap;margin-bottom:0.4rem;" });
     const selectedDays = new Set(existingWindow ? existingWindow.days : [0, 1, 2, 3, 4, 5, 6]);
@@ -3331,11 +3387,11 @@ async function loadClientGroups() {
     const timeRow = el("div", { class: "inline" });
     const startInput = Object.assign(document.createElement("input"), { type: "time", value: existingWindow ? existingWindow.start : "22:00" });
     const endInput = Object.assign(document.createElement("input"), { type: "time", value: existingWindow ? existingWindow.end : "07:00" });
-    timeRow.appendChild(document.createTextNode("From"));
+    timeRow.appendChild(document.createTextNode(t("groups.from", "From")));
     timeRow.appendChild(startInput);
-    timeRow.appendChild(document.createTextNode("to"));
+    timeRow.appendChild(document.createTextNode(t("groups.to", "to")));
     timeRow.appendChild(endInput);
-    timeRow.appendChild(el("button", { type: "submit", text: "Save" }));
+    timeRow.appendChild(el("button", { type: "submit", text: t("common.save", "Save") }));
     scheduleForm.appendChild(timeRow);
     scheduleForm.addEventListener("submit", async (e) => {
       e.preventDefault();
