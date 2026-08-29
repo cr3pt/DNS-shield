@@ -1374,7 +1374,7 @@
 
   <div id="subtab-notifications" class="subtab-panel">
     <section>
-      <h2>Email notifications</h2>
+      <h2 data-i18n="notif.email_title">Email notifications</h2>
       <p class="hint" style="color:var(--muted);">
         Sends an email straight to the SMTP server <em>you</em> configure below when new
         anomalies are detected - not a third-party cloud service, this is exactly what any
@@ -1384,45 +1384,45 @@
       <form id="notifications-email-form">
         <div class="field checkbox">
           <input type="checkbox" id="s-notif-email-enabled">
-          <label for="s-notif-email-enabled">Enable email notifications</label>
+          <label for="s-notif-email-enabled" data-i18n="notif.enable_email">Enable email notifications</label>
         </div>
         <div class="field-grid">
-          <div class="field"><label>SMTP host</label><input type="text" id="s-notif-smtp-host" placeholder="smtp.example.com" autocomplete="off"></div>
-          <div class="field"><label>SMTP port</label><input type="number" id="s-notif-smtp-port" min="1" step="1" placeholder="587"></div>
+          <div class="field"><label data-i18n="notif.smtp_host">SMTP host</label><input type="text" id="s-notif-smtp-host" placeholder="smtp.example.com" autocomplete="off"></div>
+          <div class="field"><label data-i18n="notif.smtp_port">SMTP port</label><input type="number" id="s-notif-smtp-port" min="1" step="1" placeholder="587"></div>
           <div class="field">
-            <label>Security</label>
+            <label data-i18n="notif.security">Security</label>
             <select id="s-notif-smtp-security">
               <option value="starttls">STARTTLS</option>
               <option value="ssl">SSL/TLS</option>
-              <option value="none">None</option>
+              <option value="none" data-i18n="notif.security_none">None</option>
             </select>
           </div>
-          <div class="field"><label>SMTP username (optional)</label><input type="text" id="s-notif-smtp-username" autocomplete="off"></div>
+          <div class="field"><label data-i18n="notif.smtp_username">SMTP username (optional)</label><input type="text" id="s-notif-smtp-username" autocomplete="off"></div>
           <div class="field">
-            <label>SMTP password <span id="notif-smtp-password-status" class="muted"></span></label>
+            <label><span data-i18n="notif.smtp_password">SMTP password</span> <span id="notif-smtp-password-status" class="muted"></span></label>
             <input type="password" id="s-notif-smtp-password" placeholder="leave blank to keep current" autocomplete="off">
           </div>
-          <div class="field"><label>From address</label><input type="text" id="s-notif-from-address" placeholder="dns-shield@example.com" autocomplete="off"></div>
-          <div class="field"><label>To address(es), comma separated</label><input type="text" id="s-notif-to-addresses" placeholder="you@example.com" autocomplete="off"></div>
+          <div class="field"><label data-i18n="notif.from_address">From address</label><input type="text" id="s-notif-from-address" placeholder="dns-shield@example.com" autocomplete="off"></div>
+          <div class="field"><label data-i18n="notif.to_addresses">To address(es), comma separated</label><input type="text" id="s-notif-to-addresses" placeholder="you@example.com" autocomplete="off"></div>
           <div class="field">
-            <label>Minimum severity to email</label>
+            <label data-i18n="notif.min_severity">Minimum severity to email</label>
             <select id="s-notif-min-severity">
-              <option value="low">Low and above</option>
-              <option value="medium">Medium and above</option>
-              <option value="high">High only</option>
+              <option value="low" data-i18n="severity.low_above">Low and above</option>
+              <option value="medium" data-i18n="severity.medium_above">Medium and above</option>
+              <option value="high" data-i18n="notif.severity_high_only">High only</option>
             </select>
           </div>
         </div>
         <div class="inline">
-          <button type="submit">Save email notification settings</button>
-          <button type="button" class="secondary" id="notif-send-test-email">Send test email</button>
+          <button type="submit" data-i18n="notif.save_email">Save email notification settings</button>
+          <button type="button" class="secondary" id="notif-send-test-email" data-i18n="notif.send_test_email">Send test email</button>
         </div>
         <p class="muted" id="notif-test-email-result"></p>
       </form>
     </section>
 
     <section>
-      <h2>Webhook notifications</h2>
+      <h2 data-i18n="notif.webhook_title">Webhook notifications</h2>
       <p class="hint" style="color:var(--muted);">
         Posts a short summary of new anomalies straight to Discord, Slack, or a Telegram bot -
         no third party in between, DNS-shield sends the HTTP request itself to whichever
@@ -1430,30 +1430,30 @@
         minimum severity.
       </p>
       <form class="inline" id="add-webhook-form">
-        <input type="text" id="wh-name" placeholder="Name (optional)">
+        <input type="text" id="wh-name" data-i18n-ph="notif.wh_name_ph" placeholder="Name (optional)">
         <select id="wh-type">
           <option value="discord">Discord</option>
           <option value="slack">Slack</option>
           <option value="telegram">Telegram</option>
         </select>
-        <input type="text" id="wh-url" placeholder="Webhook URL (Discord/Slack)">
-        <input type="text" id="wh-telegram-token" placeholder="Bot token (Telegram)" style="display:none;">
-        <input type="text" id="wh-telegram-chat-id" placeholder="Chat ID (Telegram)" style="display:none;">
+        <input type="text" id="wh-url" data-i18n-ph="notif.wh_url_ph" placeholder="Webhook URL (Discord/Slack)">
+        <input type="text" id="wh-telegram-token" data-i18n-ph="notif.wh_token_ph" placeholder="Bot token (Telegram)" style="display:none;">
+        <input type="text" id="wh-telegram-chat-id" data-i18n-ph="notif.wh_chatid_ph" placeholder="Chat ID (Telegram)" style="display:none;">
         <select id="wh-min-severity">
-          <option value="low">Low and above</option>
-          <option value="medium" selected>Medium and above</option>
-          <option value="high">High only</option>
+          <option value="low" data-i18n="severity.low_above">Low and above</option>
+          <option value="medium" selected data-i18n="severity.medium_above">Medium and above</option>
+          <option value="high" data-i18n="notif.severity_high_only">High only</option>
         </select>
-        <button type="submit">Add</button>
+        <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Target</th><th>Min severity</th><th>Enabled</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.type">Type</th><th data-i18n="notif.wh_target">Target</th><th data-i18n="notif.wh_min_severity">Min severity</th><th data-i18n="notif.wh_enabled">Enabled</th><th></th></tr></thead>
         <tbody id="webhook-rows"></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Browser notifications</h2>
+      <h2 data-i18n="notif.browser_title">Browser notifications</h2>
       <p class="hint" style="color:var(--muted);">
         A native browser popup (via your browser's own Notification permission - nothing sent
         anywhere) when a new anomaly appears, as long as this dashboard tab is open somewhere.
@@ -1462,7 +1462,7 @@
       </p>
       <div class="field checkbox">
         <input type="checkbox" id="s-notif-browser-enabled">
-        <label for="s-notif-browser-enabled">Notify me in this browser when new anomalies are detected</label>
+        <label for="s-notif-browser-enabled" data-i18n="notif.browser_enable">Notify me in this browser when new anomalies are detected</label>
       </div>
       <p class="muted" id="notif-browser-status"></p>
     </section>
@@ -1949,6 +1949,32 @@ const I18N_PL = {
   "col.details": "Szczegóły",
   "col.actions": "Akcje",
   "nav.find_domain": "Znajdź domenę",
+
+  // --- settings: notifications ---
+  "notif.email_title": "Powiadomienia e-mail",
+  "notif.enable_email": "Włącz powiadomienia e-mail",
+  "notif.smtp_host": "Host SMTP",
+  "notif.smtp_port": "Port SMTP",
+  "notif.security": "Zabezpieczenie",
+  "notif.security_none": "Brak",
+  "notif.smtp_username": "Nazwa użytkownika SMTP (opcjonalnie)",
+  "notif.smtp_password": "Hasło SMTP",
+  "notif.from_address": "Adres nadawcy",
+  "notif.to_addresses": "Adres(y) odbiorcy, oddzielone przecinkami",
+  "notif.min_severity": "Minimalna ważność do wysłania e-mailem",
+  "notif.severity_high_only": "Tylko wysoka",
+  "notif.save_email": "Zapisz ustawienia powiadomień e-mail",
+  "notif.send_test_email": "Wyślij e-mail testowy",
+  "notif.webhook_title": "Powiadomienia webhook",
+  "notif.wh_name_ph": "Nazwa (opcjonalnie)",
+  "notif.wh_url_ph": "Adres URL webhooka (Discord/Slack)",
+  "notif.wh_token_ph": "Token bota (Telegram)",
+  "notif.wh_chatid_ph": "ID czatu (Telegram)",
+  "notif.wh_target": "Cel",
+  "notif.wh_min_severity": "Min. ważność",
+  "notif.wh_enabled": "Włączony",
+  "notif.browser_title": "Powiadomienia w przeglądarce",
+  "notif.browser_enable": "Powiadamiaj mnie w tej przeglądarce o nowych anomaliach",
   "settings.search_ph": "Znajdź ustawienie...",
   "settings.search_no_results": "Brak pasujących ustawień",
   "col.value": "Wartość",
