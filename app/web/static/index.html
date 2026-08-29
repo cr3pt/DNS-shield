@@ -512,7 +512,7 @@
   <div class="two-col">
     <section>
       <h2 data-i18n="stats.top_queried">Top queried domains</h2>
-      <p class="muted">All queries, blocked and allowed.</p>
+      <p class="muted" data-i18n="stats.hint.top_queried">All queries, blocked and allowed.</p>
       <table class="card-table">
         <thead><tr><th data-i18n="col.domain">Domain</th><th data-i18n="col.count">Count</th><th></th></tr></thead>
         <tbody id="top-domains-rows"></tbody>
@@ -537,7 +537,7 @@
     </section>
     <section>
       <h2 data-i18n="stats.blocked_by">Blocked by</h2>
-      <p class="muted">Which blocklist/rule is responsible for the most blocks.</p>
+      <p class="muted" data-i18n="stats.hint.blocked_by">Which blocklist/rule is responsible for the most blocks.</p>
       <table>
         <thead><tr><th data-i18n="col.reason">Reason</th><th data-i18n="col.count">Count</th></tr></thead>
         <tbody id="block-reason-rows"></tbody>
@@ -1805,7 +1805,7 @@
         <button type="button" class="danger" id="anomaly-clear-all" data-i18n="common.clear_all">Clear all</button>
       </div>
     </div>
-    <p class="muted">
+    <p class="muted" data-i18n="alerts.hint.overview">
       Everything DNS-shield flags lands here: local anomaly detection, alert-rule (watched
       domain/list) hits, and threat-intel lookups that came back with a bad-enough reputation -
       configure each of those in Settings -> Anomalies / Threat intelligence. "Check now" runs
@@ -2161,6 +2161,13 @@ const I18N_PL = {
   // --- settings: cleans hints ---
   "cleans.hint.dns_cache": "Tylko w pamięci, respektuje TTL każdej odpowiedzi - czyszczona automatycznie przy restarcie.",
   "cleans.hint.query_log": "Nieodwracalne - usuwa każdy już zapisany wiersz, niezależnie od retencji. Nie wpływa to na rozwiązywanie nazw/blokowanie; czyści tylko historię, nie politykę.",
+
+  // --- alerts tab hints ---
+  "alerts.hint.overview": "Tutaj trafia wszystko, co oznaczy DNS-shield: lokalne wykrywanie anomalii, trafienia reguł alertów (obserwowana domena/lista) oraz sprawdzenia wywiadu zagrożeń, które wypadły wystarczająco źle - skonfiguruj każde z nich w Ustawienia -> Anomalie / Threat intelligence. \"Sprawdź teraz\" uruchamia heurystyki anomalii dla bieżącego okna; \"Przeanalizuj ponownie\" zamiast tego cofa się w wybrany zakres historyczny, sprawdzając go tak, jakby detektor działał przez cały ten czas - przydatne po zmianie progów lub po prostu do audytu historii, dla której nie miałeś wtedy włączonego wykrywania. Zakresy 7 dni lub dłuższe skanują dużo danych i mogą trochę potrwać; nie wysyła żadnych powiadomień o tym, co znajdzie (to retrospektywny audyt, nie zdarzenie na żywo).",
+
+  // --- stats tab hints ---
+  "stats.hint.top_queried": "Wszystkie zapytania, blokowane i dozwolone.",
+  "stats.hint.blocked_by": "Która lista blokująca/reguła odpowiada za najwięcej blokad.",
 
   // --- settings: blocklists ---
   "blocklists.title": "Listy blokujące",
