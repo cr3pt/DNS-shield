@@ -1668,7 +1668,7 @@
   <div id="subtab-clients" class="subtab-panel">
     <section>
       <h2 data-i18n="clients.blocked_title">Blocked clients (no communication allowed)</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="clients.hint.blocked">
         Every query from these IPs/CIDRs is blocked, for every domain - stronger than a domain
         denylist entry, and takes priority over client groups below. Usually populated via the
         "Block host" button next to a client's address in Logs, Stats, or the Enrich popup;
@@ -1686,7 +1686,7 @@
 
     <section>
       <h2 data-i18n="clients.groups_title">Client groups</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="clients.hint.groups">
         Per-client overrides. First matching group wins; unmatched clients get the global policy
         above. Match patterns accept an IP/CIDR, <code>mac:AA:BB:CC:DD:EE:FF</code>, or
         <code>host:name</code> (wildcards like <code>host:*.kids</code> match a hostname suffix).
@@ -1709,12 +1709,12 @@
         <h2 data-i18n="cleans.dns_cache">DNS answer cache</h2>
         <button type="button" class="secondary" id="clear-cache" data-i18n="cleans.clear_cache">Clear cache</button>
       </div>
-      <p class="muted">In-memory only, respects each answer's TTL - cleared automatically on restart.</p>
+      <p class="muted" data-i18n="cleans.hint.dns_cache">In-memory only, respects each answer's TTL - cleared automatically on restart.</p>
     </section>
 
     <section>
       <h2 data-i18n="logs.query_log">Query log</h2>
-      <p class="muted">Irreversible - wipes every row already logged, regardless of retention. Resolution/blocking is unaffected; this only clears history, not policy.</p>
+      <p class="muted" data-i18n="cleans.hint.query_log">Irreversible - wipes every row already logged, regardless of retention. Resolution/blocking is unaffected; this only clears history, not policy.</p>
       <button type="button" class="danger" id="query-log-purge" data-i18n="cleans.purge_queries">Delete all logged queries</button>
     </section>
   </div>
@@ -1722,7 +1722,7 @@
   <div id="subtab-auditlog" class="subtab-panel">
     <section>
       <h2 data-i18n="nav.subtab.auditlog">Audit log</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="auditlog.hint">
         Every successful settings/config change made through the API, newest first - who did
         it, what endpoint they hit, and from which address. Signing in and out are logged too;
         routine reads (loading a page, polling stats) are not. Read-only here; retained the
@@ -2152,6 +2152,15 @@ const I18N_PL = {
 
   // --- settings: audit log ---
   "auditlog.client_ip": "Adres IP klienta",
+  "auditlog.hint": "Każda udana zmiana ustawień/konfiguracji dokonana przez API, od najnowszej - kto ją wykonał, jaki endpoint wywołał i z jakiego adresu. Logowanie i wylogowanie są też rejestrowane; rutynowe odczyty (ładowanie strony, odpytywanie statystyk) nie są. Tutaj tylko do odczytu; przechowywane tak samo długo jak dziennik zapytań (Ustawienia -> Logowanie -> retencja).",
+
+  // --- settings: clients hints ---
+  "clients.hint.blocked": "Każde zapytanie z tych adresów IP/CIDR jest blokowane, dla każdej domeny - silniejsze niż wpis na liście blokowanych domen i ma priorytet nad grupami klientów poniżej. Zwykle wypełniane przyciskiem \"Zablokuj hosta\" obok adresu klienta w Logach, Statystykach lub wyskakującym okienku Enrich; możesz też dodać ręcznie tutaj. Akceptuje też <code>mac:AA:BB:CC:DD:EE:FF</code> (dopasowywane do tabeli ARP routera - wypełniane prawdziwymi wpisami LAN tylko gdy DNS-shield działa w trybie sieci hosta) oraz <code>host:name</code> (dopasowywane do rozwiązanej nazwy hosta klienta, wymaga włączonego rozwiązywania nazw klientów w ustawieniach DNS).",
+  "clients.hint.groups": "Nadpisania per klient. Wygrywa pierwsza pasująca grupa; niepasujący klienci otrzymują globalną politykę powyżej. Wzorce dopasowania akceptują IP/CIDR, <code>mac:AA:BB:CC:DD:EE:FF</code> lub <code>host:name</code> (symbole wieloznaczne jak <code>host:*.kids</code> dopasowują sufiks nazwy hosta).",
+
+  // --- settings: cleans hints ---
+  "cleans.hint.dns_cache": "Tylko w pamięci, respektuje TTL każdej odpowiedzi - czyszczona automatycznie przy restarcie.",
+  "cleans.hint.query_log": "Nieodwracalne - usuwa każdy już zapisany wiersz, niezależnie od retencji. Nie wpływa to na rozwiązywanie nazw/blokowanie; czyści tylko historię, nie politykę.",
 
   // --- settings: blocklists ---
   "blocklists.title": "Listy blokujące",
