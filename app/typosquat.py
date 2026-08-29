@@ -141,7 +141,12 @@ def find_typosquat_match(
                 return (protected, "embedded", 0)
 
         distance = _levenshtein(candidate_label, protected_label)
-        if 0 < distance <= max_distance and (best is None or distance < best[2]):
+        # A fuzzy match that's almost as long as either label isn't a meaningful "close
+        # spelling" anymore - it just means one of the labels is short (e.g. "x" from
+        # x.com, or "wp" from wp.pl), so nearly every short candidate/protected pairing
+        # ends up within max_distance of each other by pure chance.
+        shortest = min(len(protected_label), len(candidate_label))
+        if 0 < distance <= max_distance and distance < shortest and (best is None or distance < best[2]):
             best = (protected, "typo", distance)
 
     return best
