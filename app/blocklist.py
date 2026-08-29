@@ -25,6 +25,8 @@ _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-
 
 DEFAULT_LOCAL_TLDS = ("local", "lan", "home", "internal", "corp", "home.arpa")
 
+_FETCH_CACHE_TTL_SECONDS = 60.0
+
 
 def is_non_latin_domain(domain: str) -> bool:
     if "xn--" in domain:
@@ -193,6 +195,16 @@ class BlocklistManager:
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+
+        # Short-lived per-URL fetch cache: every settings change that touches blocklists
+        # (add/remove/toggle a domain, source, or alert rule) calls refresh(), which used to
+        # re-download every single subscribed list from the network on every call, even when
+        # nothing about that list had changed since the last refresh a few seconds earlier.
+        # Skipping a re-fetch within this window keeps refresh() fast for the common case of
+        # editing one small setting, while still being far shorter than any sane
+        # refresh_interval_hours so scheduled background refreshes are unaffected.
+        self._fetch_cache: dict[tuple[str, Any], tuple[float, set[str], dict[str, int], set[str]]] = {}
+        self._fetch_cache_lock = threading.Lock()
 
         self._regex_lock = threading.Lock()
         self._regex_cache_key: tuple[str, ...] | None = None
@@ -489,6 +501,13 @@ class BlocklistManager:
         return self._cache_dir / f"{safe}.cache"
 
     def _fetch_one(self, name: str, url: str, parser=parse_list) -> tuple[set[str], dict[str, int], set[str]]:
+        cache_key = (url, parser)
+        now = time.time()
+        with self._fetch_cache_lock:
+            cached = self._fetch_cache.get(cache_key)
+            if cached is not None and now - cached[0] < _FETCH_CACHE_TTL_SECONDS:
+                return cached[1], cached[2], cached[3]
+
         cache_path = self._cache_path(name)
         try:
             resp = requests.get(url, timeout=15)
@@ -500,8 +519,14 @@ class BlocklistManager:
             if cache_path.exists():
                 text = cache_path.read_text(encoding="utf-8")
             else:
-                return set(), {}, set()
-        return parser(text)
+                result = (set(), {}, set())
+                with self._fetch_cache_lock:
+                    self._fetch_cache[cache_key] = (now, *result)
+                return result
+        result = parser(text)
+        with self._fetch_cache_lock:
+            self._fetch_cache[cache_key] = (now, *result)
+        return result
 
     def _fetch_sources(
         self, sources: Iterable[dict], parser=parse_list, describer=describe_format
