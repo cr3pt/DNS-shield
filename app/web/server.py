@@ -335,6 +335,8 @@ class EnrichmentSettingsIn(BaseModel):
     local_enabled: bool | None = None
     local_url: str | None = None
     local_api_key: str | None = None
+    alert_enabled: bool | None = None
+    alert_min_severity: str | None = None
 
 
 class EnrichIn(BaseModel):
@@ -1635,6 +1637,8 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "local_url": snap.get("enrichment", {}).get("local_url", "") or "",
                 "local_api_key_set": bool(snap.get("enrichment", {}).get("local_api_key")),
                 "local_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("local_api_key")),
+                "alert_enabled": bool(snap.get("enrichment", {}).get("alert_enabled", True)),
+                "alert_min_severity": snap.get("enrichment", {}).get("alert_min_severity", "medium") or "medium",
             },
             "sso": _sso_settings_public(snap.get("sso", {})),
             "anomaly": _anomaly_settings(snap.get("anomaly", {})),
@@ -1768,6 +1772,8 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "local_url": enr.get("local_url", "") or "",
                 "local_api_key_set": bool(enr.get("local_api_key")),
                 "local_api_key_preview": _masked_key_preview(enr.get("local_api_key")),
+                "alert_enabled": bool(enr.get("alert_enabled", True)),
+                "alert_min_severity": enr.get("alert_min_severity", "medium") or "medium",
             }
 
         return config_store.mutate(_mutate)
@@ -2073,6 +2079,30 @@ To restore into an EXISTING instance (data/config.db already exists):
             anomaly.clear()
         return {"ok": True}
 
+    _VERDICT_RANK = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+    def _maybe_alert_on_verdict(result: dict[str, Any]) -> None:
+        if anomaly is None:
+            return
+        enr_cfg = config_store.get("enrichment", default={}) or {}
+        if not bool(enr_cfg.get("alert_enabled", True)):
+            return
+        threshold = _VERDICT_RANK.get(enr_cfg.get("alert_min_severity", "medium") or "medium", 2)
+        verdict = result.get("overall_verdict", "unknown")
+        if _VERDICT_RANK.get(verdict, -1) < threshold:
+            return
+        flagged = [
+            name for name, src in result.get("sources", {}).items()
+            if src and src.get("ok") and src.get("verdict") not in (None, "safe")
+        ]
+        summary = f'{result["target"]} flagged {verdict} by threat-intel' + (
+            f" ({', '.join(sorted(flagged))})" if flagged else ""
+        )
+        anomaly.record_threat_intel_alert(
+            result["target"], result["type"], verdict, summary,
+            {"overall_score": result.get("overall_score"), "flagged_sources": flagged},
+        )
+
     @app.post("/api/enrich")
     def enrich_target(body: EnrichIn, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> dict[str, Any]:
         target = body.target.strip()
@@ -2091,6 +2121,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         if target_type == "ip":
             blocked_clients = config_store.get("blocked_clients", default=[]) or []
             result["client_blocked"] = any(ip_matches(result["target"], p) for p in blocked_clients)
+        _maybe_alert_on_verdict(result)
         return result
 
     @app.get("/api/enrich/history")

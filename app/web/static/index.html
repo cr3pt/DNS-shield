@@ -177,6 +177,9 @@
   .tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; }
   .tag.blocked { background: rgba(255,93,117,0.15); color: var(--danger); }
   .tag.allowed { background: rgba(77,159,255,0.15); color: var(--accent); }
+  .tag-anomaly { background: rgba(77,159,255,0.15); color: var(--accent); border: 1px solid rgba(77,159,255,0.35); }
+  .tag-alert_rule { background: rgba(167,139,250,0.15); color: #a78bfa; border: 1px solid rgba(167,139,250,0.35); }
+  .tag-threat_intel { background: rgba(45,212,191,0.15); color: #2dd4bf; border: 1px solid rgba(45,212,191,0.35); }
   .info-icon {
     display: inline-flex;
     align-items: center;
@@ -426,7 +429,7 @@
 
   <div class="tabs" id="tabs">
     <button type="button" class="tab-btn" data-tab="logs" data-i18n="nav.logs">Logs</button>
-    <button type="button" class="tab-btn" data-tab="anomalies"><span data-i18n="nav.anomalies">Anomalies</span><span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
+    <button type="button" class="tab-btn" data-tab="anomalies"><span data-i18n="nav.anomalies">Alerts</span><span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
     <button type="button" class="tab-btn" data-tab="stats" data-i18n="nav.stats">Stats</button>
     <button type="button" class="tab-btn" data-tab="settings" data-i18n="nav.settings">Settings</button>
   </div>
@@ -1076,7 +1079,9 @@
         Powers the "Enrich" button in Logs/Stats - a domain/IP reputation lookup that only
         ever runs when you click it, never automatically. A saved key's status line shows its
         first and last character (e.g. <code>a***********f</code>) so you can tell which key
-        is saved without it ever being sent back to your browser in full.
+        is saved without it ever being sent back to your browser in full. A lookup that comes
+        back bad enough can add an entry to the Alerts tab (see below) - the lookup itself is
+        still only ever triggered by you clicking Enrich somewhere in the dashboard.
       </p>
       <form id="enrichment-settings-form">
         <div class="field checkbox">
@@ -1155,6 +1160,21 @@
           <div class="field">
             <label>Local service API key (optional) <span id="local-key-status" class="muted"></span></label>
             <input type="password" id="s-enrich-local-key" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-alert-enabled">
+          <label for="s-enrich-alert-enabled">Add an Alert when a lookup comes back with a bad reputation</label>
+        </div>
+        <div class="field-grid">
+          <div class="field">
+            <label>Minimum severity to alert on</label>
+            <select id="s-enrich-alert-min-severity">
+              <option value="low">Low and above</option>
+              <option value="medium">Medium and above</option>
+              <option value="high">High and above</option>
+            </select>
           </div>
         </div>
 
@@ -1679,7 +1699,7 @@
   <div id="tab-anomalies" class="tab-panel">
   <section>
     <div class="row">
-      <h2>Detected anomalies</h2>
+      <h2>Alerts</h2>
       <div class="inline" style="align-items:center;">
         <div class="field checkbox" style="margin:0;">
           <input type="checkbox" id="anomaly-show-acknowledged">
@@ -1699,20 +1719,37 @@
       </div>
     </div>
     <p class="muted">
-      Local anomaly detection and alert-rule hits both land here - configure thresholds and
-      watched domains/lists in Settings -> Anomalies. "Check now" runs the heuristics against
-      the live window; "Reanalyse" instead walks back over the selected historical range,
-      re-checking it as if the detector had been running the whole time - useful after
-      changing thresholds, or just to audit history you didn't have detection on for. Ranges
-      of 7 days or longer scan a lot of data and can take a while; it doesn't send any
-      notifications for what it finds (this is a retroactive audit, not a live event).
+      Everything DNS-shield flags lands here: local anomaly detection, alert-rule (watched
+      domain/list) hits, and threat-intel lookups that came back with a bad-enough reputation -
+      configure each of those in Settings -> Anomalies / Threat intelligence. "Check now" runs
+      the anomaly heuristics against the live window; "Reanalyse" instead walks back over the
+      selected historical range, re-checking it as if the detector had been running the whole
+      time - useful after changing thresholds, or just to audit history you didn't have
+      detection on for. Ranges of 7 days or longer scan a lot of data and can take a while; it
+      doesn't send any notifications for what it finds (this is a retroactive audit, not a live
+      event).
     </p>
+    <div class="inline" id="alert-source-filters" style="align-items:center; margin-bottom:0.6rem;">
+      <span class="muted" style="font-size:0.85rem;">Show:</span>
+      <div class="field checkbox" style="margin:0;">
+        <input type="checkbox" id="alert-filter-anomaly" checked>
+        <label for="alert-filter-anomaly">Anomalies</label>
+      </div>
+      <div class="field checkbox" style="margin:0;">
+        <input type="checkbox" id="alert-filter-alert_rule" checked>
+        <label for="alert-filter-alert_rule">Alert rules</label>
+      </div>
+      <div class="field checkbox" style="margin:0;">
+        <input type="checkbox" id="alert-filter-threat_intel" checked>
+        <label for="alert-filter-threat_intel">Threat intelligence</label>
+      </div>
+    </div>
     <p class="muted" id="reanalyze-status"></p>
     <table>
-      <thead><tr><th>Time</th><th>Client</th><th>Type</th><th>Severity</th><th>Details</th><th></th></tr></thead>
+      <thead><tr><th>Time</th><th>Client</th><th>Source</th><th>Type</th><th>Severity</th><th>Details</th><th></th></tr></thead>
       <tbody id="anomaly-rows"></tbody>
     </table>
-    <p class="muted" id="anomaly-empty" style="display:none;">No anomalies detected.</p>
+    <p class="muted" id="anomaly-empty" style="display:none;">No alerts.</p>
   </section>
   </div>
 </main>
@@ -1775,7 +1812,7 @@ async function api(path, options = {}) {
 const I18N_PL = {
   // --- top nav / tabs ---
   "nav.logs": "Logi",
-  "nav.anomalies": "Anomalie",
+  "nav.anomalies": "Alerty",
   "nav.stats": "Statystyki",
   "nav.settings": "Ustawienia",
   "nav.subtab.general": "Ogólne",
@@ -2928,6 +2965,8 @@ async function loadSettings() {
   document.getElementById("s-enrich-crtsh-enabled").checked = !!enr.crtsh_enabled;
   document.getElementById("s-enrich-local-enabled").checked = !!enr.local_enabled;
   document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
+  document.getElementById("s-enrich-alert-enabled").checked = enr.alert_enabled !== false;
+  document.getElementById("s-enrich-alert-min-severity").value = enr.alert_min_severity ?? "medium";
 
   const publicReady = !!enr.public_enabled && (
     enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set ||
@@ -3366,6 +3405,7 @@ function renderAnomalyRow(a) {
   return el("tr", {}, [
     el("td", { text: fmtTime(a.ts) }),
     addressCell(clientLabel(a.client), isIpAddress(a.client) ? [enrichButton(a.client, "ip"), clientBlockButton(a.client)] : [], a.client, "Client"),
+    el("td", {}, [alertSourceTag(a.source)]),
     el("td", { text: a.kind_label }),
     el("td", {}, [severityTag(a.severity)]),
     el("td", {}, [
@@ -3376,15 +3416,28 @@ function renderAnomalyRow(a) {
   ]);
 }
 
+const ALERT_SOURCE_LABELS = { anomaly: "Anomaly", alert_rule: "Alert rule", threat_intel: "Threat intel" };
+function alertSourceTag(source) {
+  return el("span", { class: "tag tag-" + (source || "anomaly"), text: ALERT_SOURCE_LABELS[source] || source || "Anomaly" });
+}
+
+const ALERT_SOURCES = ["anomaly", "alert_rule", "threat_intel"];
+
+function activeAlertSourceFilters() {
+  return ALERT_SOURCES.filter((s) => document.getElementById("alert-filter-" + s).checked);
+}
+
 async function loadAnomalies() {
   const showAcknowledged = document.getElementById("anomaly-show-acknowledged").checked;
   const anomalies = await api(`/api/anomalies?include_acknowledged=${showAcknowledged}`);
+  const activeSources = new Set(activeAlertSourceFilters());
+  const filtered = anomalies.filter((a) => activeSources.has(a.source || "anomaly"));
   const rows = document.getElementById("anomaly-rows");
   rows.innerHTML = "";
-  for (const a of anomalies) {
+  for (const a of filtered) {
     rows.appendChild(renderAnomalyRow(a));
   }
-  document.getElementById("anomaly-empty").style.display = anomalies.length ? "none" : "block";
+  document.getElementById("anomaly-empty").style.display = filtered.length ? "none" : "block";
 
   const countInfo = await api("/api/anomalies/count");
   const badge = document.getElementById("anomaly-count-badge");
@@ -3434,6 +3487,21 @@ async function loadAlertSourcePicker() {
 }
 
 document.getElementById("anomaly-show-acknowledged").addEventListener("change", loadAnomalies);
+
+(() => {
+  let saved;
+  try {
+    saved = JSON.parse(localStorage.getItem("dnsshield-alert-source-filters") || "null");
+  } catch { saved = null; }
+  for (const s of ALERT_SOURCES) {
+    const cb = document.getElementById("alert-filter-" + s);
+    if (saved && Array.isArray(saved)) cb.checked = saved.includes(s);
+    cb.addEventListener("change", () => {
+      try { localStorage.setItem("dnsshield-alert-source-filters", JSON.stringify(activeAlertSourceFilters())); } catch {}
+      loadAnomalies();
+    });
+  }
+})();
 
 document.getElementById("anomaly-check-now").addEventListener("click", async () => {
   await api("/api/anomalies/check-now", { method: "POST" });
@@ -4122,6 +4190,8 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
     crtsh_enabled: document.getElementById("s-enrich-crtsh-enabled").checked,
     local_enabled: document.getElementById("s-enrich-local-enabled").checked,
     local_url: document.getElementById("s-enrich-local-url").value.trim(),
+    alert_enabled: document.getElementById("s-enrich-alert-enabled").checked,
+    alert_min_severity: document.getElementById("s-enrich-alert-min-severity").value,
   };
   const vt = document.getElementById("s-vt-key").value.trim();
   const abuse = document.getElementById("s-abuseipdb-key").value.trim();

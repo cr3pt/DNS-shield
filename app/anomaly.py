@@ -102,6 +102,8 @@ KIND_LABELS = {
     "ptr_scan": "Many reverse-DNS lookups of local/private IPs (possible internal network scan)",
 }
 
+_THREAT_INTEL_SEVERITY_MAP = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
+
 
 class AnomalyDetector:
     def __init__(self, config_store, stats, db_path: Path, on_new_anomalies=None):
@@ -429,6 +431,49 @@ class AnomalyDetector:
                     logger.exception("on_new_anomalies callback failed")
         return found
 
+    def record_threat_intel_alert(
+        self, target: str, target_type: str, verdict: str, summary: str, details: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Called from the Enrich endpoint when a lookup comes back with a bad-enough
+        verdict, so it shows up in the same Alerts list as anomaly/alert-rule hits
+        instead of only ever being visible in the one-off popup that triggered it."""
+        severity = _THREAT_INTEL_SEVERITY_MAP.get(verdict)
+        if severity is None:
+            return None
+        cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
+        cooldown_seconds = max(cooldown_minutes, 1.0) * 60
+        kind = f"threat_intel:{target}"
+        now = time.time()
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT MAX(ts) AS last_ts FROM anomalies WHERE client = ? AND kind = ?", (target, kind)
+                ).fetchone()
+                if row is not None and row["last_ts"] is not None and now - row["last_ts"] < cooldown_seconds:
+                    return None
+                details = dict(details)
+                details["target_type"] = target_type
+                details["verdict"] = verdict
+                conn.execute(
+                    "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 0)",
+                    (now, target, kind, severity, summary, json.dumps(details)),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        result = {"ts": now, "client": target, "kind": kind, "severity": severity, "summary": summary}
+        if self._on_new_anomalies is not None:
+            try:
+                self._on_new_anomalies([result])
+            except Exception:
+                logger.exception("on_new_anomalies callback failed")
+        return result
+
     def check_typosquat_hits(self) -> list[dict[str, Any]]:
         if not self._config.get("dns", "typosquat_enabled", default=False):
             return []
@@ -627,7 +672,17 @@ class AnomalyDetector:
             return f"Possible DNS rebinding: {kind.split(':', 1)[1]}"
         if kind.startswith("local_tld:"):
             return f"Local-TLD query: .{kind.split(':', 1)[1]}"
+        if kind.startswith("threat_intel:"):
+            return f"Threat intel: bad reputation for {kind.split(':', 1)[1]}"
         return KIND_LABELS.get(kind, kind)
+
+    @staticmethod
+    def _kind_source(kind: str) -> str:
+        if kind.startswith("watched_domain:"):
+            return "alert_rule"
+        if kind.startswith("threat_intel:"):
+            return "threat_intel"
+        return "anomaly"
 
     @classmethod
     def _row_to_dict(cls, row: sqlite3.Row) -> dict[str, Any]:
@@ -637,6 +692,7 @@ class AnomalyDetector:
             "client": row["client"],
             "kind": row["kind"],
             "kind_label": cls._kind_label(row["kind"]),
+            "source": cls._kind_source(row["kind"]),
             "severity": row["severity"],
             "summary": row["summary"],
             "details": json.loads(row["details_json"]),

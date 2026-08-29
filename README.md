@@ -1000,6 +1000,30 @@ otherwise silently keep it blocked. Not offered for IP targets - DNS-
 shield's allow/denylist match query *names*, not IP literals, so there's
 no equivalent "allowlist this IP" action to offer.
 
+A lookup that comes back medium-or-worse (configurable, Settings ->
+Threat intelligence -> "Add an Alert when a lookup comes back with a bad
+reputation") also adds an entry to the **Alerts** tab, same place local
+anomaly detection and alert-rule hits land - see the next section. This
+still only ever happens because you clicked Enrich somewhere; nothing
+about the lookup itself becomes automatic. Repeat lookups on the same bad
+indicator respect the same re-alert cooldown as everything else in
+Alerts (Settings -> Anomalies -> "Re-alert cooldown"), so clicking Enrich
+on a domain you already know is bad ten times in a row doesn't create ten
+identical entries.
+
+### Alerts tab, and local anomaly detection
+
+Everything DNS-shield flags on its own - a local anomaly-detection hit, a
+watched domain/list match ([Alert rules](#alert-rules-watched-domains-and-lists)
+below), or a bad-reputation threat-intel lookup (previous section) - lands
+in one place: the **Alerts** tab. Three checkboxes above the table
+("Anomalies" / "Alert rules" / "Threat intelligence", all on by default,
+remembered per browser) filter the list down to just the source you care
+about, and a **Source** column tags each row the same way. This is
+purely a display grouping - all three still write to the same underlying
+alert store, share the same acknowledge/delete/clear actions, and the
+unacknowledged-count badge on the tab counts across all of them together.
+
 ### Local anomaly detection
 
 Settings -> Anomalies configures an optional background check over your
@@ -1137,7 +1161,7 @@ An exact match or a real subdomain of the protected domain itself
 (`mail.google.com`, `accounts.google.com`) is explicitly never flagged -
 only something that's *close but not actually it*. A match always raises
 an alert through the same pipeline as the anomaly heuristics above
-(visible in the Anomalies tab, notification-capable, its own per-client/domain
+(visible in the Alerts tab, notification-capable, its own per-client/domain
 cooldown - `dns.typosquat_cooldown_minutes`, default 30); `dns.typosquat_action`
 (also Settings -> DNS) separately controls what happens to the *answer*:
 
@@ -1209,7 +1233,7 @@ resolve to private addresses: domains under the same local-TLD list used by
 rebinding), and anything you list yourself under
 `dns.rebinding_exempt_domains` (and its subdomains) for your own internal
 services that are supposed to resolve locally. A hit also lands in the
-Anomalies tab as its own `high`-severity row (same cooldown/notification
+Alerts tab as its own `high`-severity row (same cooldown/notification
 pipeline as every other anomaly here, via `anomaly.cooldown_minutes`), so
 `"alert"` mode still gets you paged even though the DNS answer itself goes
 through untouched.
@@ -1221,7 +1245,7 @@ also off by default - simply logs when a client queries a domain under one
 of those same local-only TLDs (`dns.local_tld_list`, defaults to `local`,
 `lan`, `home`, `internal`, `corp`, `home.arpa`). This isn't a threat
 signal by itself (mDNS/homenet traffic is completely normal on most LANs);
-it's a low-severity, informational row in the Anomalies tab
+it's a low-severity, informational row in the Alerts tab
 (`dns.local_tld_cooldown_minutes` per domain/TLD combination, default 30)
 for people who want visibility into what's being queried under those
 suffixes - IoT devices probing `.local` names, say - without treating it as
@@ -1243,7 +1267,7 @@ as the Suggested-lists catalog); there's also a plain name/URL form right
 below it for watching a list that isn't in Blocklists at all. Querying
 anything on either list raises an alert - **whether or
 not the query is actually blocked** - and shows up as a "high"-severity
-row in the same top-level Anomalies tab, going through the exact same
+row in the same top-level Alerts tab, going through the exact same
 Acknowledge/Remove/Clear-all controls and the same email/browser
 notification pipeline described above. No separate on/off switch: an
 empty domains/sources list simply never matches anything, the same as
@@ -1282,7 +1306,7 @@ the configuration immediately rather than waiting for a real anomaly.
 `notifications.email.min_severity` (default `medium`) limits which
 anomalies actually trigger an email, so a flood of low-severity alerts
 doesn't flood your inbox too - every anomaly still shows up in the
-Anomalies tab regardless of this setting, it only affects what emails
+Alerts tab regardless of this setting, it only affects what emails
 out. The SMTP password is masked the same way as the threat-intel API
 keys (first/last character only, e.g. `s******t`) and never round-trips
 to your browser in full once saved.
@@ -1350,7 +1374,7 @@ whatever an admin grants them:
   all until an admin grants some.
 - **Can see threat-intel results** - without this, Enrich buttons are
   disabled and `/api/enrich` is refused.
-- **Can see detected anomalies** - without this, the Anomalies tab is
+- **Can see detected anomalies** - without this, the Alerts tab is
   hidden and its endpoints are refused.
 - **Can block a domain/host** - without this, "Block host" and adding to
   the global denylist are refused (per-group denylist editing and every

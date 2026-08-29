@@ -111,6 +111,10 @@ enrichment:
   local_enabled: false
   local_url: ""
   local_api_key: ""
+  # Add an entry to the Alerts tab whenever an Enrich lookup (from anywhere
+  # in the dashboard) comes back at or above this severity.
+  alert_enabled: true
+  alert_min_severity: "medium"  # low | medium | high
 
 anomaly:
   enabled: false

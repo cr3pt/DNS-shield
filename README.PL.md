@@ -157,8 +157,9 @@ przetestować.
 ustawieniach DHCP routera (albo osobno na każdym urządzeniu).
 
 Po zalogowaniu panel ma cztery zakładki (zapamiętywane między
-przeładowaniami strony): **Logs** - przeglądarka logu zapytań; **Anomalies** -
-wszystko, co oznaczył lokalny detektor anomalii albo Twoje reguły alertów;
+przeładowaniami strony): **Logs** - przeglądarka logu zapytań; **Alerts** -
+wszystko, co oznaczył lokalny detektor anomalii, Twoje reguły alertów albo
+wyszukiwanie threat-intel ze złą reputacją;
 **Stats** - karty z podsumowaniem, najczęściej blokowane domeny,
 najczęściej odpytywane domeny w ogóle, najbardziej aktywni klienci, podział
 według typu zapytania oraz zestawienie "blocked by" (która lista blokad
@@ -1127,6 +1128,33 @@ lista dozwolonych i zablokowanych w DNS-shield dopasowuje *nazwy* zapytań,
 nie literały adresów IP, więc nie ma tu równoważnej akcji "dodaj ten adres
 IP do listy dozwolonych" do zaoferowania.
 
+Sprawdzenie, które wróci z wynikiem co najmniej średnim (konfigurowalne,
+Settings -> Threat intelligence -> "Add an Alert when a lookup comes back
+with a bad reputation"), dodaje też wpis do zakładki **Alerts** - tam
+samo, gdzie lądują trafienia lokalnego wykrywania anomalii i reguł
+alertów - zobacz kolejną sekcję. To wciąż dzieje się wyłącznie dlatego,
+że kliknięto Enrich gdzieś w panelu; samo sprawdzenie w żaden sposób nie
+staje się automatyczne. Powtórne sprawdzenie tego samego złego wskaźnika
+respektuje ten sam cooldown ponownego alarmowania, co reszta Alerts
+(Settings -> Anomalies -> "Re-alert cooldown"), więc kliknięcie Enrich
+dziesięć razy z rzędu na domenie, o której już wiadomo, że jest zła, nie
+tworzy dziesięciu identycznych wpisów.
+
+### Zakładka Alerts i lokalne wykrywanie anomalii
+
+Wszystko, co DNS-shield oznacza samodzielnie - trafienie lokalnego
+wykrywania anomalii, dopasowanie obserwowanej domeny/listy
+([Reguły alertów](#reguły-alertów-obserwowane-domeny-i-listy) niżej) albo
+sprawdzenie threat-intel ze złą reputacją (poprzednia sekcja) - ląduje w
+jednym miejscu: zakładce **Alerts**. Trzy pola wyboru nad tabelą
+("Anomalies" / "Alert rules" / "Threat intelligence", domyślnie
+wszystkie zaznaczone, zapamiętywane per przeglądarka) filtrują listę do
+interesującego Cię źródła, a kolumna **Source** oznacza tak samo każdy
+wiersz. To czysto wizualne grupowanie - wszystkie trzy źródła nadal
+zapisują się do tego samego magazynu alertów, dzielą te same akcje
+potwierdzenia/usunięcia/wyczyszczenia, a licznik nieoznaczonych na
+zakładce liczy je razem.
+
 ### Lokalne wykrywanie anomalii
 
 Settings -> Anomalies konfiguruje opcjonalne sprawdzanie w tle Twojego
@@ -1203,7 +1231,7 @@ klienta, który w tym oknie coś odpytał:
   przy podwojeniu progu.
 
 Każda oznaczona anomalia jest zapisywana lokalnie w `data/anomalies.db` i
-pokazywana w osobnej, głównej zakładce **Anomalies** (między Logs a Stats,
+pokazywana w osobnej, głównej zakładce **Alerts** (między Logs a Stats,
 z odznaką pokazującą liczbę nieprzyjętych do wiadomości), wraz z klientem,
 tym, co ją wywołało, czytelnym dla człowieka podsumowaniem oraz - używając
 tych samych przycisków, co log zapytań, Stats i okno wyników Enrich -
@@ -1277,7 +1305,7 @@ Dokładne dopasowanie albo prawdziwa subdomena samej chronionej domeny
 (`mail.google.com`, `accounts.google.com`) nigdy nie jest przy tym
 oznaczana - tylko coś, co jest *blisko, ale tym nie jest*. Dopasowanie
 zawsze uruchamia alert przez ten sam mechanizm, co heurystyki anomalii
-opisane wyżej (widoczny w zakładce Anomalies, zdolny wysyłać powiadomienia,
+opisane wyżej (widoczny w zakładce Alerts, zdolny wysyłać powiadomienia,
 z własną przerwą dla danej pary klient/domena -
 `dns.typosquat_cooldown_minutes`, domyślnie 30 minut); to, co dzieje się z
 samą *odpowiedzią*, kontroluje osobno `dns.typosquat_action` (też Settings
@@ -1359,7 +1387,7 @@ TLD, z jakiej korzystają
 nazwą hosta w sieci LAN to nie jest rebinding), oraz wszystko, co sam
 wpiszesz pod `dns.rebinding_exempt_domains` (wraz z subdomenami) dla
 własnych usług wewnętrznych, które mają się rozwiązywać lokalnie.
-Trafienie ląduje też w zakładce Anomalies jako osobny wiersz o ważności
+Trafienie ląduje też w zakładce Alerts jako osobny wiersz o ważności
 `high` (ten sam mechanizm przerwy i powiadomień, co przy każdej innej
 anomalii tutaj, przez `anomaly.cooldown_minutes`), więc tryb `"alert"`
 nadal Cię o tym powiadomi, mimo że sama odpowiedź DNS przechodzi bez
@@ -1373,7 +1401,7 @@ klient odpytuje domenę pod jednym z tych samych, wyłącznie lokalnych TLD
 (`dns.local_tld_list`, domyślnie `local`, `lan`, `home`, `internal`,
 `corp`, `home.arpa`). Sam w sobie nie jest to sygnał zagrożenia (ruch
 mDNS i homenet jest w większości sieci LAN czymś zupełnie normalnym) -
-to niskoważny, czysto informacyjny wiersz w zakładce Anomalies
+to niskoważny, czysto informacyjny wiersz w zakładce Alerts
 (`dns.local_tld_cooldown_minutes` osobno dla każdej pary domena/TLD,
 domyślnie 30 minut), dla osób, które chcą widzieć, co jest odpytywane pod
 tymi sufiksami - powiedzmy, urządzenia IoT sondujące nazwy `.local` - bez
@@ -1400,7 +1428,7 @@ też zwykły formularz nazwa/URL, do obserwowania listy, której w
 Blocklists w ogóle nie ma. Odpytanie czegokolwiek z którejkolwiek z tych
 list uruchamia alert - **niezależnie od tego, czy zapytanie zostało
 faktycznie zablokowane** - i pojawia się jako wiersz o ważności "high" w
-tej samej, głównej zakładce Anomalies, przechodząc przez dokładnie te
+tej samej, głównej zakładce Alerts, przechodząc przez dokładnie te
 same kontrolki Acknowledge/Remove/Clear-all i ten sam mechanizm
 powiadomień e-mail/przeglądarki, opisany wyżej. Nie ma tu osobnego
 przełącznika on/off: pusta lista domen albo źródeł po prostu niczego nie
@@ -1442,7 +1470,7 @@ od razu sprawdzić konfigurację, zamiast czekać na prawdziwą anomalię.
 `notifications.email.min_severity` (domyślnie `medium`) ogranicza, które
 anomalie faktycznie wysyłają e-mail, więc zalew mało istotnych alertów nie
 zaleje też Twojej skrzynki - niezależnie od tego ustawienia każda anomalia
-i tak trafia do zakładki Anomalies, ono decyduje wyłącznie o tym, co
+i tak trafia do zakładki Alerts, ono decyduje wyłącznie o tym, co
 wychodzi mailem. Hasło do SMTP jest maskowane tak samo, jak klucze API
 threat-intel (widoczny jest tylko pierwszy i ostatni znak, np. `s******t`)
 i po zapisaniu nigdy nie wraca w pełnej postaci do przeglądarki.
@@ -1514,7 +1542,7 @@ głównie do odczytu, ograniczony do tego, na co pozwoli administrator:
   administrator czegoś mu nie przyzna.
 - **Can see threat-intel results** - bez tego przyciski Enrich są
   wyłączone, a `/api/enrich` odmawia dostępu.
-- **Can see detected anomalies** - bez tego zakładka Anomalies jest
+- **Can see detected anomalies** - bez tego zakładka Alerts jest
   ukryta, a jej punkty końcowe odmawiają dostępu.
 - **Can block a domain/host** - bez tego "Block host" i dodawanie do
   globalnej listy zablokowanych są niedostępne (edycja listy zablokowanej
