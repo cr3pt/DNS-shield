@@ -1155,6 +1155,22 @@ zapisują się do tego samego magazynu alertów, dzielą te same akcje
 potwierdzenia/usunięcia/wyczyszczenia, a licznik nieoznaczonych na
 zakładce liczy je razem.
 
+Wiersz alertu dotyczący konkretnej domeny (obserwowana domena, dopasowanie
+typosquatu, trafienie rebindingu, zapytanie o lokalny TLD) można wyłączyć
+na stałe wprost z alertu: "Show domains" otwiera okno z listą domen za
+nim stojących, każda z własnym przyciskiem **Enrich** do sprawdzenia
+reputacji, a teraz też z przyciskiem **Exclude** tuż obok - jedno
+kliknięcie dodaje tę domenę (i jej subdomeny) do Settings -> Anomalies ->
+"Excluded from anomaly detection", więc już nigdy nie wywoła alertu
+watched-domain/typosquat/rebinding/local-TLD. Nie dotyka to sprawdzeń
+wolumetrycznych (skoki liczby zapytań, wysoki odsetek blokowanych, DNS
+tunneling, skanowanie PTR) - te oznaczają ogólne zachowanie klienta w
+wielu domenach naraz, nie jedną konkretną domenę, więc wykluczenie jednej
+domeny nie miałoby tam sensu; jeśli któreś z nich jest zbyt czułe dla
+Twojej sieci, zamiast tego popraw progi wyżej. Tę samą listę można też
+edytować bezpośrednio w Settings, bez czekania, aż domena najpierw
+wywoła alert.
+
 ### Lokalne wykrywanie anomalii
 
 Settings -> Anomalies konfiguruje opcjonalne sprawdzanie w tle Twojego

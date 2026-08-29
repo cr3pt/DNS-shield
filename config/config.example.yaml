@@ -132,6 +132,11 @@ anomaly:
   dns_tunneling_min_entropy: 3.0
   ptr_scan_threshold: 15
   cooldown_minutes: 60
+  # Domains (and their subdomains) that never raise a watched-domain,
+  # typosquat, rebinding, or local-TLD alert. Doesn't affect the
+  # volumetric checks above. Editable from the Alerts tab's "Show
+  # domains" popup (Exclude button) or Settings -> Anomalies directly.
+  excluded_domains: []
 
 alert_rules:
   check_interval_seconds: 15

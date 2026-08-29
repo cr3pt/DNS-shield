@@ -1248,6 +1248,19 @@
     </section>
 
     <section>
+      <h2>Excluded from anomaly detection</h2>
+      <p class="hint" style="color:var(--muted);">
+        Domains below (and their subdomains) never trigger a watched-domain, typosquat,
+        DNS-rebinding, or local-TLD alert - handy for a known-good domain that happens to
+        look suspicious to one of those checks. Doesn't affect the volumetric checks above
+        (query bursts, blocked ratio, DNS tunneling, PTR scanning), which flag a client's
+        overall behavior rather than any one domain. The quickest way to add one is the
+        "Exclude" button next to a domain in an alert's "Show domains" popup.
+      </p>
+      <div id="anomaly-exclusion-domains"></div>
+    </section>
+
+    <section>
       <h2>Alert rules (watched domains &amp; lists)</h2>
       <p class="hint" style="color:var(--muted);">
         Flag a query the instant it happens, rather than waiting for a statistical pattern -
@@ -3308,7 +3321,7 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable) {
     ? `<ul>${domains
         .map(
           (d) =>
-            `<li><code>${escapeHtml(d)}</code><button type="button" class="enrich-domain-btn" data-domain="${escapeHtml(d)}">Enrich</button></li>`
+            `<li><code>${escapeHtml(d)}</code><span class="row-actions"><button type="button" class="enrich-domain-btn" data-domain="${escapeHtml(d)}">Enrich</button><button type="button" class="exclude-domain-btn" data-domain="${escapeHtml(d)}" title="Never flag this domain as a watched-domain/typosquat/rebinding/local-TLD alert again">Exclude</button></span></li>`
         )
         .join("")}</ul>`
     : `<p class="muted">No domains found for this window - they may have aged out of the query log's retention.</p>`;
@@ -3322,6 +3335,7 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable) {
   li { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); }
   li code { word-break:break-all; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; }
+  .row-actions { display:flex; gap:0.4rem; flex-shrink:0; }
   button { padding:0.35rem 0.8rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.8rem; white-space:nowrap; }
   button:disabled { opacity:0.5; cursor:not-allowed; }
   #copy-domains-btn { margin-top:1rem; }
@@ -3366,6 +3380,25 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable) {
         } finally {
           ebtn.disabled = false;
           ebtn.textContent = original;
+        }
+      };
+    });
+
+    document.querySelectorAll(".exclude-domain-btn").forEach((xbtn) => {
+      xbtn.onclick = async () => {
+        const domain = xbtn.dataset.domain;
+        xbtn.disabled = true;
+        try {
+          await window.opener.api("/api/anomaly-exclusions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ domain }),
+          });
+          xbtn.textContent = "Excluded";
+          if (window.opener.refreshAll) window.opener.refreshAll();
+        } catch (err) {
+          xbtn.disabled = false;
+          alert("Failed to exclude domain: " + (err && err.message ? err.message : err));
         }
       };
     });
@@ -3447,6 +3480,19 @@ async function loadAnomalies() {
   } else {
     badge.style.display = "none";
   }
+}
+
+async function loadAnomalyExclusions() {
+  const domains = await api("/api/anomaly-exclusions");
+  const editor = buildRuleEditor(
+    "Domains excluded from anomaly detection",
+    domains,
+    async (d) => { await api("/api/anomaly-exclusions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+    async (d) => { await api(`/api/anomaly-exclusions/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const container = document.getElementById("anomaly-exclusion-domains");
+  container.innerHTML = "";
+  container.appendChild(editor);
 }
 
 async function loadAlertDomains() {
@@ -3754,6 +3800,7 @@ async function refreshAll() {
   await loadUpstreamHealth();
   await loadDomainUpstreams();
   await loadRewrites();
+  await loadAnomalyExclusions();
   await loadAlertDomains();
   await loadAlertSources();
   await loadWebhooks();

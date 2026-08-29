@@ -2079,6 +2079,36 @@ To restore into an EXISTING instance (data/config.db already exists):
             anomaly.clear()
         return {"ok": True}
 
+    @app.get("/api/anomaly-exclusions")
+    def list_anomaly_exclusions(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> list[str]:
+        return config_store.get("anomaly", "excluded_domains", default=[]) or []
+
+    @app.post("/api/anomaly-exclusions")
+    def add_anomaly_exclusion(body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        domain = body.domain.strip().lower().rstrip(".")
+        if not domain:
+            raise HTTPException(status_code=400, detail="Empty domain")
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            domains = data.setdefault("anomaly", {}).setdefault("excluded_domains", [])
+            if domain not in domains:
+                domains.append(domain)
+            return domains
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/anomaly-exclusions/{domain}")
+    def remove_anomaly_exclusion(domain: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        domain = domain.strip().lower().rstrip(".")
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            domains = data.setdefault("anomaly", {}).setdefault("excluded_domains", [])
+            if domain in domains:
+                domains.remove(domain)
+            return domains
+
+        return config_store.mutate(_mutate)
+
     _VERDICT_RANK = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
     def _maybe_alert_on_verdict(result: dict[str, Any]) -> None:

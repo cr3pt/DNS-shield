@@ -1024,6 +1024,21 @@ purely a display grouping - all three still write to the same underlying
 alert store, share the same acknowledge/delete/clear actions, and the
 unacknowledged-count badge on the tab counts across all of them together.
 
+A domain-specific alert row (a watched domain, a typosquat match, a
+rebinding hit, a local-TLD query) can be shut off for good from the
+alert itself: "Show domains" opens a popup listing the domains behind
+it, each with its own **Enrich** button for a reputation check, and now
+an **Exclude** button right next to it - one click adds that domain (and
+its subdomains) to Settings -> Anomalies -> "Excluded from anomaly
+detection", so it never raises a watched-domain/typosquat/rebinding/
+local-TLD alert again. It doesn't touch the volumetric checks (query
+bursts, blocked ratio, DNS tunneling, PTR scanning) - those flag a
+client's overall behavior across many domains, not any one domain, so
+there's no single-domain exclusion that would make sense there; use the
+threshold settings above instead if one of those is too sensitive for
+your network. The same list is editable directly in Settings if you'd
+rather add a domain without waiting for it to alert first.
+
 ### Local anomaly detection
 
 Settings -> Anomalies configures an optional background check over your

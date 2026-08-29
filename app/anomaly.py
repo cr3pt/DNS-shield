@@ -128,6 +128,14 @@ class AnomalyDetector:
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
+    def _excluded_domains(self) -> list[str]:
+        return [d.lower().rstrip(".") for d in (self._config.get("anomaly", "excluded_domains", default=[]) or [])]
+
+    @staticmethod
+    def _is_excluded(domain: str, excluded: list[str]) -> bool:
+        domain = (domain or "").lower().rstrip(".")
+        return any(domain == d or domain.endswith("." + d) for d in excluded)
+
     def _init_schema(self) -> None:
         conn = self._connect()
         try:
@@ -386,6 +394,8 @@ class AnomalyDetector:
         now = time.time()
         found: list[dict[str, Any]] = []
 
+        excluded = self._excluded_domains()
+
         with self._lock:
             conn = self._connect()
             try:
@@ -400,6 +410,8 @@ class AnomalyDetector:
                 for hit in hits:
                     client = hit["client"]
                     domain = hit["domain"]
+                    if self._is_excluded(domain, excluded):
+                        continue
                     kind = f"watched_domain:{domain}"
                     last = last_fired.get((client, kind))
                     if last is not None and now - last < cooldown_seconds:
@@ -489,6 +501,7 @@ class AnomalyDetector:
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
         now = time.time()
         found: list[dict[str, Any]] = []
+        excluded = self._excluded_domains()
 
         with self._lock:
             conn = self._connect()
@@ -504,6 +517,8 @@ class AnomalyDetector:
                 for hit in hits:
                     client = hit["client"]
                     domain = hit["domain"]
+                    if self._is_excluded(domain, excluded):
+                        continue
                     parts = (hit["typosquat_match"] or "").split("|")
                     protected = parts[0] if parts else "?"
                     match_type = parts[1] if len(parts) > 1 else "typo"
@@ -557,6 +572,7 @@ class AnomalyDetector:
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
         now = time.time()
         found: list[dict[str, Any]] = []
+        excluded = self._excluded_domains()
 
         with self._lock:
             conn = self._connect()
@@ -572,6 +588,8 @@ class AnomalyDetector:
                 for hit in hits:
                     client = hit["client"]
                     domain = hit["domain"]
+                    if self._is_excluded(domain, excluded):
+                        continue
                     ip = hit["rebinding_ip"]
                     kind = f"rebinding:{domain}"
                     last = last_fired.get((client, kind))
@@ -617,6 +635,7 @@ class AnomalyDetector:
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
         now = time.time()
         found: list[dict[str, Any]] = []
+        excluded = self._excluded_domains()
 
         with self._lock:
             conn = self._connect()
@@ -632,6 +651,8 @@ class AnomalyDetector:
                 for hit in hits:
                     client = hit["client"]
                     domain = hit["domain"]
+                    if self._is_excluded(domain, excluded):
+                        continue
                     tld = hit["local_tld_match"]
                     kind = f"local_tld:{tld}"
                     last = last_fired.get((client, kind))
