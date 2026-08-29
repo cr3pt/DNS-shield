@@ -1111,7 +1111,7 @@
   <div id="subtab-logging" class="subtab-panel">
     <section>
       <h2 data-i18n="logging.retention">Query log retention</h2>
-      <p class="muted">How long entries stay in the query log before being pruned automatically, hourly. Lower this if the log is taking up more disk space than you'd like; it never affects resolution/blocking, only how far back you can browse.</p>
+      <p class="muted" data-i18n="logging.hint.retention">How long entries stay in the query log before being pruned automatically, hourly. Lower this if the log is taking up more disk space than you'd like; it never affects resolution/blocking, only how far back you can browse.</p>
       <form id="logging-settings-form">
         <div class="field-grid">
           <div class="field"><label data-i18n="logging.retention_days">Query log retention (days)</label><input type="number" id="s-retention-days"></div>
@@ -1122,7 +1122,7 @@
 
     <section>
       <h2 data-i18n="logging.excluded">Excluded from the log</h2>
-      <p class="muted">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log. Handy for noisy background traffic (NTP, telemetry you've already decided to allow) that would otherwise bury what you actually want to see.</p>
+      <p class="muted" data-i18n="logging.hint.excluded">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log. Handy for noisy background traffic (NTP, telemetry you've already decided to allow) that would otherwise bury what you actually want to see.</p>
       <div id="log-ignore-domains"></div>
       <div id="log-ignore-clients"></div>
     </section>
@@ -1131,7 +1131,7 @@
   <div id="subtab-threat-intel" class="subtab-panel">
     <section>
       <h2 data-i18n="nav.subtab.threat-intel">Threat intelligence</h2>
-      <p class="hint" style="color:var(--muted);">
+      <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.overview">
         Powers the "Enrich" button in Logs/Stats - a domain/IP reputation lookup that only
         ever runs when you click it, never automatically. A saved key's status line shows its
         first and last character (e.g. <code>a***********f</code>) so you can tell which key
@@ -1144,7 +1144,7 @@
           <input type="checkbox" id="s-enrich-public-enabled">
           <label for="s-enrich-public-enabled" data-i18n="ti.enable_public">Enable public lookups</label>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.enable_public">
           Off by default. This is the one thing in DNS-shield that calls out beyond your own
           network - saving an API key below does <strong>not</strong> turn it on by itself, and
           Enrich will report every service below as disabled until this box is checked too.
@@ -1175,7 +1175,7 @@
             <input type="password" id="s-urlhaus-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.key_blank">
           Leave a key blank to skip that service. AbuseIPDB, GreyNoise, and Shodan only support IP
           lookups; they're skipped for domains regardless.
         </p>
@@ -1188,7 +1188,7 @@
           <input type="checkbox" id="s-enrich-crtsh-enabled">
           <label for="s-enrich-crtsh-enabled" data-i18n="ti.crtsh">Certificate transparency lookup (crt.sh) - no key needed</label>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.rdap_crtsh">
           Both are domain-only and keyless (free public services, no account needed) - still
           gated behind "Enable public lookups" above since they're still third-party calls.
           Domain age flags a domain registered very recently, a common phishing/typosquat
@@ -1200,7 +1200,7 @@
           <input type="checkbox" id="s-enrich-local-enabled">
           <label for="s-enrich-local-enabled" data-i18n="ti.enable_local">Enable your own (local) reputation service</label>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.local_service">
           Point this at infrastructure you run instead of (or alongside) the public services
           above - not subject to the switch above, since it's not a third-party call. DNS-shield
           POSTs <code>{"target": "&lt;domain-or-ip&gt;", "type": "domain"|"ip"}</code> as JSON to
@@ -1238,7 +1238,7 @@
           <input type="checkbox" id="s-enrich-auto-enabled">
           <label for="s-enrich-auto-enabled" data-i18n="ti.auto_enrich">Automatically enrich newly-seen domains</label>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.auto_enrich">
           Runs Enrich once for a domain, the very first time DNS-shield ever sees it queried -
           never on repeat queries, and never more than the check limit below per run, so a
           burst of new domains (a device coming online, a phone restoring apps) can't blow
@@ -1990,6 +1990,18 @@ const I18N_PL = {
   "dns.hint.upstream_servers": "Po jednym w wierszu - możesz podać ich dowolnie wiele. Wszystkie służą jako rezerwa, gdy wcześniejsze zawiodą; strategia wyboru powyżej decyduje, który jest próbowany jako pierwszy. Wiersz zaczynający się od # jest wyłączony - pozostaje na liście, ale nigdy nie jest używany - tak samo jak przycisk Wyłącz w tabeli poniżej.",
   "dns.hint.per_domain_routing": "Kieruj konkretne domeny do konkretnych resolverów niezależnie od klienta (np. domeny wewnętrzne/firmowe) - ma priorytet nad wszystkim innym.",
   "dns.hint.custom_records": "Odpowiadaj na nazwę hosta wybranym przez Ciebie adresem IP, całkowicie lokalnie - bez zapytania nadrzędnego, bez udziału list blokujących. Zwykła nazwa pasuje do siebie i swoich subdomen; nazwa z symbolem wieloznacznym (<code>*</code> dla dowolnych znaków, <code>?</code> dla jednego) pasuje tylko do tego, co faktycznie obejmuje wzorzec - np. <code>*.internal.example</code> pasuje do <code>vpn.internal.example</code>, ale nie do samego <code>internal.example</code>. Tylko A/AAAA.",
+
+  // --- settings: logging hints ---
+  "logging.hint.retention": "Jak długo wpisy pozostają w dzienniku zapytań, zanim zostaną automatycznie usunięte, co godzinę. Zmniejsz tę wartość, jeśli dziennik zajmuje więcej miejsca na dysku niż byś chciał; nigdy nie wpływa to na rozwiązywanie nazw/blokowanie, tylko na to, jak daleko wstecz można przeglądać.",
+  "logging.hint.excluded": "Domeny/klienci poniżej są rozwiązywane i blokowane całkowicie normalnie - po prostu nigdy nie są zapisywane w dzienniku zapytań. Przydatne dla hałaśliwego ruchu w tle (NTP, telemetria, którą już zdecydowałeś się dopuścić), który inaczej zagrzebałby to, co faktycznie chcesz widzieć.",
+
+  // --- settings: threat intel hints ---
+  "ti.hint.overview": "Napędza przycisk \"Enrich\" w Logach/Statystykach - sprawdzenie reputacji domeny/IP, które uruchamia się wyłącznie po kliknięciu, nigdy automatycznie. Linia statusu zapisanego klucza pokazuje jego pierwszy i ostatni znak (np. <code>a***********f</code>), więc możesz rozpoznać, który klucz jest zapisany, bez wysyłania go w pełni z powrotem do przeglądarki. Sprawdzenie, które wypadnie wystarczająco źle, może dodać wpis w zakładce Alerty (patrz niżej) - samo sprawdzenie jest zawsze uruchamiane wyłącznie przez kliknięcie Enrich gdzieś w panelu.",
+  "ti.hint.enable_public": "Domyślnie wyłączone. To jedyna rzecz w DNS-shield, która łączy się poza Twoją własną siecią - zapisanie klucza API poniżej <strong>nie</strong> włącza tego samo z siebie, a Enrich będzie zgłaszał każdą usługę poniżej jako wyłączoną, dopóki to pole też nie zostanie zaznaczone.",
+  "ti.hint.key_blank": "Pozostaw klucz pusty, aby pominąć daną usługę. AbuseIPDB, GreyNoise i Shodan obsługują tylko sprawdzanie adresów IP; dla domen są pomijane niezależnie od ustawień.",
+  "ti.hint.rdap_crtsh": "Obie usługi działają tylko dla domen i nie wymagają klucza (darmowe usługi publiczne, bez konta) - nadal jednak wymagają włączenia \"Włącz publiczne sprawdzenia\" powyżej, bo to wciąż wywołania do zewnętrznych usług. Wiek domeny oznacza domenę zarejestrowaną bardzo niedawno, częsty sygnał phishingu/typosquattingu; crt.sh po prostu informuje, ile certyfikatów i odrębnych nazw subdomen jest zarejestrowanych dla danej domeny, dla Twojej własnej wiedzy.",
+  "ti.hint.local_service": "Wskaż tutaj infrastrukturę, którą sam prowadzisz, zamiast (lub obok) usług publicznych powyżej - nie podlega przełącznikowi powyżej, bo to nie jest wywołanie do zewnętrznej usługi. DNS-shield wysyła POST-em <code>{\"target\": \"&lt;domena-lub-ip&gt;\", \"type\": \"domain\"|\"ip\"}</code> jako JSON pod adres URL poniżej i oczekuje w odpowiedzi <code>{\"verdict\": \"safe\"|\"low\"|\"medium\"|\"high\"|\"critical\", \"score\": 0-100, \"summary\": \"...\"}</code> (score/summary opcjonalne).",
+  "ti.hint.auto_enrich": "Uruchamia Enrich raz dla domeny, przy pierwszym zapytaniu jakie DNS-shield kiedykolwiek dla niej zobaczy - nigdy przy powtórnych zapytaniach i nigdy więcej niż limit sprawdzeń poniżej na jedno uruchomienie, więc nagły napływ nowych domen (urządzenie łączące się po raz pierwszy, telefon przywracający aplikacje) nie wyczerpie od razu darmowego limitu API; zamiast tego nadrabia zaległości w kolejnych kilku sprawdzeniach. Potrzebuje włączonego \"Włącz publiczne sprawdzenia\" powyżej (lub lokalnej usługi reputacji), żeby cokolwiek faktycznie wywołać.",
   "toast.list_added": "Lista dodana",
   "col.domain": "Domena",
   "col.count": "Liczba",
