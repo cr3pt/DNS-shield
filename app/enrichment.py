@@ -34,21 +34,39 @@ def _severity_max(a: str, b: str) -> str:
 
 
 def _http_error_message(exc: requests.HTTPError) -> str:
-    status = exc.response.status_code if exc.response is not None else None
+    resp = exc.response
+    status = resp.status_code if resp is not None else None
     if status in (401, 403):
         return "rejected - check the API key in Settings"
     if status == 404:
         return "no data on record for this indicator yet"
     if status == 429:
-        return "rate limited - try again later"
+        retry_after = resp.headers.get("Retry-After") if resp is not None else None
+        return f"rate limited - try again in {retry_after}s" if retry_after else "rate limited - try again later"
+    if status is not None and 500 <= status < 600:
+        return f"service error (HTTP {status}) - try again later"
     return f"HTTP {status}" if status else str(exc)
 
 
 def _network_error_message(exc: Exception) -> str:
+    # Order matters: requests.exceptions.SSLError subclasses ConnectionError, so it
+    # must be checked first or it'd always be reported as a plain network error.
     if isinstance(exc, requests.Timeout):
         return "timed out - the service didn't respond in time"
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "TLS/certificate error - couldn't verify the service's identity"
     if isinstance(exc, requests.ConnectionError):
         return "network error - couldn't reach the service (check connectivity/DNS)"
+    if isinstance(exc, requests.exceptions.TooManyRedirects):
+        return "too many redirects - the service's response looked wrong"
+    if isinstance(exc, ValueError):
+        # resp.json() raises a ValueError subclass (json.JSONDecodeError, or
+        # requests' own JSONDecodeError on newer versions) when the body isn't JSON.
+        return "the service returned an invalid (non-JSON) response"
+    if isinstance(exc, (KeyError, TypeError, IndexError, AttributeError)):
+        # The response was valid JSON but not shaped the way this integration
+        # expects - most often the service changed its API.
+        return "the service returned an unexpected response format"
     return str(exc)
 
 

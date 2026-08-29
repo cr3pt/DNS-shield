@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import re
 import secrets
 import sqlite3
@@ -36,6 +37,8 @@ from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
 from app.users import UserStore, public_user
+
+logger = logging.getLogger("dnsshield.web")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -2133,7 +2136,11 @@ To restore into an EXISTING instance (data/config.db already exists):
         if not target:
             raise HTTPException(status_code=400, detail="Empty target")
 
-        result = run_enrichment(target, target_type, config_store)
+        try:
+            result = run_enrichment(target, target_type, config_store)
+        except Exception as exc:
+            logger.exception("enrichment lookup failed for %s", target)
+            raise HTTPException(status_code=502, detail=f"Enrichment failed: {exc}") from exc
         history: list[dict[str, Any]] = []
         if enrichment_store is not None:
             enrichment_store.record(
