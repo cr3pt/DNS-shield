@@ -462,6 +462,14 @@ already picked up. The same catalog is also offered per client group, in
 the Clients tab (see [Parental control](#parental-control--safesearch)
 above).
 
+Adding a source anywhere in the dashboard - here, Allow sources, a client
+group's own extra lists, or a watch list under Alert rules - fetches and
+re-parses *every* configured list before responding, not just the new
+one, so it can take a few seconds on a slow connection or with a lot of
+lists already added. The Add button shows a spinner and stays disabled
+for that wait, and a small toast confirms once it's done - both replace
+what used to be a silent pause with no indication anything was happening.
+
 ### Newly registered domains (NRD)
 
 Enterprise DNS security products (Infoblox's BloxOne Threat Defense calls

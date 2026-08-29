@@ -378,9 +378,28 @@
     background: none; border: none; color: inherit; cursor: pointer;
     padding: 0; font-size: 0.85rem; line-height: 1;
   }
+  .spinner {
+    display: inline-block; width: 0.85em; height: 0.85em; margin-right: 0.4em;
+    border: 2px solid rgba(255,255,255,0.35); border-top-color: currentColor;
+    border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -0.15em;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #toast-container {
+    position: fixed; bottom: 1.2rem; right: 1.2rem; z-index: 1000;
+    display: flex; flex-direction: column; gap: 0.5rem; max-width: 24rem;
+  }
+  .toast {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    color: var(--text); border-radius: 8px; padding: 0.6rem 0.9rem;
+    font-size: 0.85rem; box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    opacity: 0; transform: translateY(0.4rem); transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.toast-error { border-color: var(--danger); }
 </style>
 </head>
 <body>
+<div id="toast-container" aria-live="polite"></div>
 <header>
   <div class="brand">
     <svg class="brand-icon" viewBox="0 0 200 200" aria-hidden="true">
@@ -1815,6 +1834,37 @@ async function api(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+function showToast(message, opts = {}) {
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = "toast" + (opts.error ? " toast-error" : "");
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  const duration = opts.duration || 6000;
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 250);
+  }, duration);
+}
+
+// Adding a list (blocklist/allowlist/watch-list source) re-fetches and
+// re-parses every configured list server-side before responding, which can
+// take a while - this gives the button a spinner for that wait instead of
+// leaving the UI looking unresponsive.
+async function withSpinner(button, fn) {
+  if (!button) return fn();
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<span class="spinner"></span>${t("common.adding", "Adding...")}`;
+  try {
+    return await fn();
+  } finally {
+    button.disabled = false;
+    button.innerHTML = original;
+  }
+}
+
 // --- i18n ---------------------------------------------------------------
 // Every translatable element carries data-i18n="<key>" (innerHTML) and/or
 // data-i18n-ph="<key>" (placeholder attribute). I18N_PL maps those keys to
@@ -1823,6 +1873,10 @@ async function api(path, options = {}) {
 // to keep in sync. Dynamic, JS-generated strings use t(key, englishText)
 // directly instead.
 const I18N_PL = {
+  // --- common ---
+  "common.adding": "Dodawanie...",
+  "toast.list_added": "Lista dodana",
+
   // --- top nav / tabs ---
   "nav.logs": "Logi",
   "nav.anomalies": "Alerty",
@@ -2565,12 +2619,15 @@ async function loadBlocklistCatalog() {
   for (const entry of catalog) {
     const addBtn = el("button", { class: "secondary", text: "Add" });
     addBtn.onclick = async () => {
-      await api("/api/blocklists", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: entry.name, url: entry.url }),
+      await withSpinner(addBtn, async () => {
+        await api("/api/blocklists", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: entry.name, url: entry.url }),
+        });
       });
       refreshAll();
+      showToast(t("toast.list_added", "List added") + `: ${entry.name}`);
     };
     rows.appendChild(el("tr", {}, [
       el("td", {}, [
@@ -2724,12 +2781,15 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
     const name = nameInput.value.trim();
     const url = urlInput.value.trim();
     if (!name || !url) return;
-    await api(`/api/client-groups/${groupIndex}/blocklist-sources`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, url }),
+    await withSpinner(e.submitter, async () => {
+      await api(`/api/client-groups/${groupIndex}/blocklist-sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, url }),
+      });
     });
     refreshAll();
+    showToast(t("toast.list_added", "List added") + `: ${name}`);
   });
   wrap.appendChild(addForm);
 
@@ -2755,12 +2815,15 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
       e.preventDefault();
       const entry = suggestions.find((c) => c.url === select.value);
       if (!entry) return;
-      await api(`/api/client-groups/${groupIndex}/blocklist-sources`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: entry.name, url: entry.url }),
+      await withSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${groupIndex}/blocklist-sources`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: entry.name, url: entry.url }),
+        });
       });
       refreshAll();
+      showToast(t("toast.list_added", "List added") + `: ${entry.name}`);
     });
     wrap.appendChild(suggestForm);
   }
@@ -3619,12 +3682,15 @@ document.getElementById("alert-source-form").addEventListener("submit", async (e
   const name = document.getElementById("alert-source-name").value.trim();
   const url = document.getElementById("alert-source-url").value.trim();
   if (!name || !url) return;
-  await api("/api/alert-rules/sources", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, url }),
+  await withSpinner(e.submitter, async () => {
+    await api("/api/alert-rules/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url }),
+    });
   });
   refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
 });
 
 document.getElementById("alert-source-from-blocklist-form").addEventListener("submit", async (e) => {
@@ -3633,12 +3699,15 @@ document.getElementById("alert-source-from-blocklist-form").addEventListener("su
   const url = select.value;
   if (!url) return;
   const name = select.selectedOptions[0].dataset.name || select.selectedOptions[0].textContent;
-  await api("/api/alert-rules/sources", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, url }),
+  await withSpinner(e.submitter, async () => {
+    await api("/api/alert-rules/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url }),
+    });
   });
   refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
 });
 
 document.getElementById("alert-rules-settings-save").addEventListener("click", async () => {
@@ -4267,13 +4336,16 @@ document.getElementById("add-allow-source-form").addEventListener("submit", asyn
   const name = document.getElementById("as-name").value.trim();
   const url = document.getElementById("as-url").value.trim();
   if (!name || !url) return;
-  await api("/api/allow-sources", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, url, enabled: true }),
+  await withSpinner(e.submitter, async () => {
+    await api("/api/allow-sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, enabled: true }),
+    });
   });
   e.target.reset();
   refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
 });
 
 document.getElementById("add-domain-upstream-form").addEventListener("submit", async (e) => {
@@ -4481,13 +4553,16 @@ document.getElementById("add-blocklist-form").addEventListener("submit", async (
   const name = document.getElementById("bl-name").value.trim();
   const url = document.getElementById("bl-url").value.trim();
   if (!name || !url) return;
-  await api("/api/blocklists", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, url, enabled: true }),
+  await withSpinner(e.submitter, async () => {
+    await api("/api/blocklists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, enabled: true }),
+    });
   });
   e.target.reset();
   refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
 });
 
 document.getElementById("refresh-blocklists").addEventListener("click", async () => {

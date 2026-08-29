@@ -517,6 +517,15 @@ dodałeś. Ten sam katalog jest też dostępny osobno dla każdej grupy
 klientów, w zakładce Clients (zobacz
 [Kontrola rodzicielska](#kontrola-rodzicielska--safesearch) wyżej).
 
+Dodanie źródła w dowolnym miejscu panelu - tu, w Allow sources, we
+własnych dodatkowych listach grupy klientów, czy na liście obserwowanej w
+Alert rules - pobiera i ponownie parsuje *wszystkie* skonfigurowane listy,
+nie tylko tę nową, więc na wolniejszym łączu albo przy dużej liczbie już
+dodanych list może to potrwać kilka sekund. Przycisk Add pokazuje wtedy
+"kółeczko" i pozostaje wyłączony na czas oczekiwania, a po zakończeniu
+pojawia się krótkie potwierdzenie (toast) - oba zastępują dawną ciszę bez
+żadnego sygnału, że coś się dzieje.
+
 ### Nowo zarejestrowane domeny (NRD)
 
 Firmowe produkty do bezpieczeństwa DNS (Infoblox BloxOne Threat Defense
