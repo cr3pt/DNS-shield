@@ -201,7 +201,10 @@
     .addr-cell > span { overflow-wrap: anywhere; min-width: 0; }
   .addr-cell-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
   .resolved-ip { margin-top: 0.35rem; }
-    .row-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .row-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .alerts-table-wrap { overflow-x: auto; }
+  .alerts-table { table-layout: fixed; min-width: 54rem; }
+  .alerts-table .alert-details-cell { overflow-wrap: break-word; }
   .toggle-btn { min-width: 5rem; text-align: center; }
     .url-cell { overflow-wrap: anywhere; word-break: break-all; }
   .icon-btn {
@@ -235,7 +238,7 @@
   }
   .pause-bar.paused #pause-status { color: var(--warn); font-weight: 600; }
   .pause-controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  .tabs { display: flex; gap: 0.5rem; }
+  .tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .tab-btn {
     background: transparent;
     color: var(--muted);
@@ -247,6 +250,18 @@
     font-size: 0.88rem;
   }
   .tab-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .find-domain-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px dashed var(--panel-border);
+    padding: 0.5rem 1.1rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.88rem;
+    margin-left: 0.75rem;
+  }
+  .find-domain-btn:hover { color: var(--text); border-color: var(--accent); }
   .tab-panel { display: none; flex-direction: column; gap: 1.5rem; }
   .tab-panel.active { display: flex; }
   .subtabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.25rem; }
@@ -277,6 +292,21 @@
   }
   .subtab-panel { display: none; flex-direction: column; gap: 1.5rem; }
   .subtab-panel.active { display: flex; }
+  #settings-search-wrap { position: relative; margin: 0.6rem 0 1.1rem; max-width: 26rem; }
+  #settings-search { width: 100%; }
+  #settings-search-results {
+    position: absolute; top: calc(100% + 0.3rem); left: 0; right: 0;
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35); max-height: 20rem; overflow-y: auto; z-index: 20;
+    display: none;
+  }
+  #settings-search-results.open { display: block; }
+  .settings-search-result { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.5rem 0.75rem; cursor: pointer; font-size: 0.85rem; border-bottom: 1px solid var(--panel-border); }
+  .settings-search-result:last-child { border-bottom: none; }
+  .settings-search-result:hover { background: var(--input-bg); }
+  .settings-search-result-subtab { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+  .settings-search-empty { padding: 0.6rem 0.75rem; color: var(--muted); font-size: 0.82rem; }
+  .settings-search-highlight { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; transition: outline-color 1.4s ease; }
   form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
     background: var(--input-bg);
@@ -350,6 +380,7 @@
       margin-bottom: 0.15rem;
     }
         .col-qtype, .card-table .col-qtype { display: none; }
+    .card-table.alerts-table { table-layout: auto; min-width: 0; }
   }
   .trend-legend { display: flex; gap: 1.1rem; margin-bottom: 0.6rem; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
   .trend-legend .swatch { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -450,6 +481,7 @@
     <button type="button" class="tab-btn" data-tab="logs" data-i18n="nav.logs">Logs</button>
     <button type="button" class="tab-btn" data-tab="anomalies"><span data-i18n="nav.anomalies">Alerts</span><span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
     <button type="button" class="tab-btn" data-tab="stats" data-i18n="nav.stats">Stats</button>
+    <button type="button" class="find-domain-btn" id="find-domain-btn" data-i18n="nav.find_domain">Find domain</button>
     <button type="button" class="tab-btn" data-tab="settings" data-i18n="nav.settings">Settings</button>
   </div>
 
@@ -535,6 +567,11 @@
       <button type="button" class="subtab-btn" data-subtab="clients" data-i18n="nav.subtab.clients">Clients</button>
       <button type="button" class="subtab-btn" data-subtab="cleans" data-i18n="nav.subtab.cleans">Cleans</button>
     </div>
+  </div>
+
+  <div id="settings-search-wrap">
+    <input type="text" id="settings-search" autocomplete="off" data-i18n-ph="settings.search_ph" placeholder="Find a setting...">
+    <div id="settings-search-results"></div>
   </div>
 
   <div id="subtab-general" class="subtab-panel">
@@ -1794,10 +1831,15 @@
       </div>
     </div>
     <p class="muted" id="reanalyze-status"></p>
-    <table>
+    <div class="alerts-table-wrap">
+    <table class="card-table alerts-table">
+      <colgroup>
+        <col style="width:6.5rem;"><col style="width:13rem;"><col style="width:7rem;"><col style="width:11rem;"><col style="width:5.5rem;"><col><col style="width:9.5rem;">
+      </colgroup>
       <thead><tr><th data-i18n="col.time">Time</th><th data-i18n="col.client">Client</th><th data-i18n="col.source">Source</th><th data-i18n="col.type">Type</th><th data-i18n="col.severity">Severity</th><th data-i18n="col.details">Details</th><th></th></tr></thead>
       <tbody id="anomaly-rows"></tbody>
     </table>
+    </div>
     <p class="muted" id="anomaly-empty" style="display:none;" data-i18n="alerts.no_alerts">No alerts.</p>
   </section>
   </div>
@@ -1905,6 +1947,10 @@ const I18N_PL = {
   "col.severity": "Ważność",
   "col.source": "Źródło",
   "col.details": "Szczegóły",
+  "col.actions": "Akcje",
+  "nav.find_domain": "Znajdź domenę",
+  "settings.search_ph": "Znajdź ustawienie...",
+  "settings.search_no_results": "Brak pasujących ustawień",
   "col.value": "Wartość",
   "col.role": "Rola",
   "col.allowed": "Dozwolone",
@@ -3782,6 +3828,121 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
   w.document.close();
 }
 
+function openFindDomainWindow() {
+  const w = window.open("", "_blank", "width=520,height=580");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the domain lookup.");
+    return;
+  }
+  const enrichAvailable = !!enrichmentAvailable;
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Find domain</title>
+<style>
+  body { margin:0; padding:1.5rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  h1 { font-size:1.05rem; margin:0 0 0.6rem; }
+  .muted { color:#8a9ab8; font-size:0.85rem; }
+  form { display:flex; gap:0.5rem; margin:1rem 0; }
+  input[type=text] { flex:1; padding:0.45rem 0.6rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#131d33; color:#dbe4f5; font-size:0.9rem; box-sizing:border-box; }
+  button { padding:0.45rem 0.9rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.85rem; white-space:nowrap; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  button.primary { background:#3b82f6; border-color:#3b82f6; color:#fff; }
+  #result { display:none; }
+  #result.open { display:block; }
+  .row { display:flex; justify-content:space-between; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .row:last-of-type { border-bottom:none; }
+  .row .label { color:#8a9ab8; font-size:0.8rem; }
+  .row .value { text-align:right; font-size:0.85rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; word-break:break-all; }
+  .badge { display:inline-block; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.75rem; font-weight:600; }
+  .badge.yes { background:rgba(255,93,117,0.15); color:#ff5d75; }
+  .badge.no { background:rgba(45,212,191,0.15); color:#2dd4bf; }
+  .actions { display:flex; gap:0.5rem; margin-top:1rem; }
+  #error { color:#ff5d75; font-size:0.85rem; margin:0.5rem 0; display:none; }
+</style></head>
+<body>
+  <h1>Find domain</h1>
+  <p class="muted">Check whether a domain is on your blocklists/allowlist, watched by an alert rule, or flagged as a typosquat - then optionally run a full threat-intel enrichment on it.</p>
+  <form id="lookup-form">
+    <input type="text" id="lookup-input" placeholder="example.com" autofocus>
+    <button type="submit" class="primary">Search</button>
+  </form>
+  <p id="error"></p>
+  <div id="result"></div>
+  <script>
+    const enrichAvailable = ${JSON.stringify(enrichAvailable)};
+    const form = document.getElementById("lookup-form");
+    const input = document.getElementById("lookup-input");
+    const resultEl = document.getElementById("result");
+    const errorEl = document.getElementById("error");
+
+    function row(label, valueHtml) {
+      return '<div class="row"><span class="label">' + label + '</span><span class="value">' + valueHtml + '</span></div>';
+    }
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const domain = input.value.trim().toLowerCase().replace(/\\.$/, "");
+      if (!domain) return;
+      errorEl.style.display = "none";
+      resultEl.classList.remove("open");
+      const submitBtn = form.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+      try {
+        const r = await window.opener.api("/api/domain-lookup?domain=" + encodeURIComponent(domain));
+        let html = '<h2 style="font-size:0.95rem;margin:0.5rem 0;"><code>' + esc(r.domain) + "</code></h2>";
+        html += row("Blocked", r.blocked ? '<span class="badge yes">Yes</span>' : '<span class="badge no">No</span>');
+        if (r.block_reason) html += row("Reason", esc(r.block_reason));
+        html += row("On allowlist", r.on_allowlist
+          ? '<span class="badge no">Yes</span>'
+          : '<span class="badge" style="background:rgba(255,255,255,0.08);color:#8a9ab8;">No</span>');
+        if (r.alert_rule) html += row("Alert rule", 'Watched via "' + esc(r.alert_rule.domain) + '"' + (r.alert_rule.source ? " (" + esc(r.alert_rule.source) + ")" : ""));
+        if (r.typosquat) html += row("Typosquat", "Looks like " + esc(r.typosquat.kind) + ' of "' + esc(r.typosquat.protected) + '"');
+        if (r.local_tld) html += row("Local TLD", "." + esc(r.local_tld));
+        html += '<div class="actions"><button type="button" id="enrich-btn"' + (enrichAvailable ? "" : " disabled") + '>Enrich</button><button type="button" id="copy-btn">Copy domain</button></div>';
+        resultEl.innerHTML = html;
+        resultEl.classList.add("open");
+
+        document.getElementById("copy-btn").onclick = () => {
+          navigator.clipboard.writeText(r.domain);
+        };
+        const enrichBtn = document.getElementById("enrich-btn");
+        if (!enrichAvailable) {
+          enrichBtn.title = "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
+        } else {
+          enrichBtn.onclick = async () => {
+            enrichBtn.disabled = true;
+            const original = enrichBtn.textContent;
+            enrichBtn.textContent = "...";
+            try {
+              const enrichResult = await window.opener.api("/api/enrich", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ target: r.domain, type: "domain" }),
+              });
+              window.opener.openEnrichmentWindow(enrichResult);
+            } catch (err) {
+              alert("Enrichment failed: " + (err && err.message ? err.message : err));
+            } finally {
+              enrichBtn.disabled = false;
+              enrichBtn.textContent = original;
+            }
+          };
+        }
+      } catch (err) {
+        errorEl.textContent = "Lookup failed: " + (err && err.message ? err.message : err);
+        errorEl.style.display = "block";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  <\/script>
+</body></html>`);
+  w.document.close();
+}
+
 function renderAnomalyRow(a) {
   const delBtn = el("button", { class: "danger", text: "Remove" });
   delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
@@ -3813,17 +3974,27 @@ function renderAnomalyRow(a) {
     }
   };
 
+  let clientExtra;
+  if (a.source === "threat_intel") {
+    const targetType = a.details && a.details.target_type === "ip" ? "ip" : "domain";
+    clientExtra = [enrichButton(a.client, targetType)];
+  } else if (isIpAddress(a.client)) {
+    clientExtra = [enrichButton(a.client, "ip"), clientBlockButton(a.client)];
+  } else {
+    clientExtra = [];
+  }
+
   return el("tr", {}, [
-    el("td", { text: fmtTime(a.ts) }),
-    addressCell(clientLabel(a.client), isIpAddress(a.client) ? [enrichButton(a.client, "ip"), clientBlockButton(a.client)] : [], a.client, "Client"),
-    el("td", {}, [alertSourceTag(a.source)]),
-    el("td", { text: a.kind_label }),
-    el("td", {}, [severityTag(a.severity)]),
-    el("td", {}, [
+    el("td", { text: fmtTime(a.ts), "data-label": t("col.time", "Time") }),
+    addressCell(clientLabel(a.client), clientExtra, a.client, t("col.client", "Client")),
+    el("td", { "data-label": t("col.source", "Source") }, [alertSourceTag(a.source)]),
+    el("td", { text: a.kind_label, "data-label": t("col.type", "Type") }),
+    el("td", { "data-label": t("col.severity", "Severity") }, [severityTag(a.severity)]),
+    el("td", { "data-label": t("col.details", "Details"), class: "alert-details-cell" }, [
       el("div", { text: a.summary }),
       el("div", { style: "margin-top:0.3rem;" }, [showDomainsBtn]),
     ]),
-    el("td", {}, [el("div", { class: "row-actions" }, actions)]),
+    el("td", { "data-label": t("col.actions", "Actions") }, [el("div", { class: "row-actions" }, actions)]),
   ]);
 }
 
@@ -5044,6 +5215,8 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
   btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
 }
 
+document.getElementById("find-domain-btn").addEventListener("click", openFindDomainWindow);
+
 const SUBTAB_NAMES = ["general", "users", "sso", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
 
 function setActiveSubtab(subtab) {
@@ -5059,6 +5232,80 @@ function setActiveSubtab(subtab) {
 
 for (const btn of document.querySelectorAll(".subtab-btn")) {
   btn.addEventListener("click", () => setActiveSubtab(btn.dataset.subtab));
+}
+
+function buildSettingsSearchIndex() {
+  const index = [];
+  for (const subtabName of SUBTAB_NAMES) {
+    const panel = document.getElementById("subtab-" + subtabName);
+    if (!panel) continue;
+    const btn = document.querySelector(`.subtab-btn[data-subtab="${subtabName}"]`);
+    const subtabLabel = btn ? btn.textContent.trim() : subtabName;
+    for (const lbl of panel.querySelectorAll("label, h2, h3, legend")) {
+      const text = lbl.textContent.trim();
+      if (!text) continue;
+      const target = lbl.tagName === "LABEL" ? (lbl.closest(".field") || lbl.parentElement) : lbl;
+      index.push({ subtab: subtabName, subtabLabel, text, target });
+    }
+  }
+  return index;
+}
+
+function renderSettingsSearchResults(query) {
+  const resultsEl = document.getElementById("settings-search-results");
+  resultsEl.innerHTML = "";
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    resultsEl.classList.remove("open");
+    return;
+  }
+  const matches = buildSettingsSearchIndex()
+    .filter((item) => item.text.toLowerCase().includes(q))
+    .slice(0, 10);
+  if (matches.length === 0) {
+    resultsEl.appendChild(el("div", { class: "settings-search-empty", text: t("settings.search_no_results", "No matching settings") }));
+    resultsEl.classList.add("open");
+    return;
+  }
+  for (const m of matches) {
+    const item = el("div", { class: "settings-search-result" }, [
+      el("span", { text: m.text }),
+      el("span", { class: "settings-search-result-subtab", text: m.subtabLabel }),
+    ]);
+    item.onclick = () => {
+      setActiveSubtab(m.subtab);
+      resultsEl.classList.remove("open");
+      const input = document.getElementById("settings-search");
+      input.value = "";
+      setTimeout(() => {
+        m.target.scrollIntoView({ behavior: "smooth", block: "center" });
+        m.target.classList.add("settings-search-highlight");
+        setTimeout(() => m.target.classList.remove("settings-search-highlight"), 1600);
+      }, 60);
+    };
+    resultsEl.appendChild(item);
+  }
+  resultsEl.classList.add("open");
+}
+
+const settingsSearchInput = document.getElementById("settings-search");
+if (settingsSearchInput) {
+  settingsSearchInput.addEventListener("input", (e) => renderSettingsSearchResults(e.target.value));
+  settingsSearchInput.addEventListener("focus", (e) => {
+    if (e.target.value.trim()) renderSettingsSearchResults(e.target.value);
+  });
+  settingsSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      settingsSearchInput.value = "";
+      document.getElementById("settings-search-results").classList.remove("open");
+      settingsSearchInput.blur();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#settings-search-wrap")) {
+      document.getElementById("settings-search-results").classList.remove("open");
+    }
+  });
 }
 
 document.getElementById("stats-range").value = trendRange;

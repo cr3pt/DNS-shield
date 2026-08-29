@@ -325,6 +325,27 @@ class BlocklistManager:
                 return tld
         return None
 
+    def lookup_domain(self, qname: str) -> dict[str, Any]:
+        """Aggregate lookup used by the "Find domain" dashboard feature: is this
+        domain currently blocked (and why), on the allowlist, watched by an alert
+        rule, flagged as a typosquat, or under a local TLD."""
+        qname = qname.rstrip(".").lower()
+        reason = self.block_reason(qname)
+        alert = self.alert_match(qname)
+        typo = self.typosquat_match(qname)
+        local_tld = self.local_tld_match_ignoring_toggle(qname)
+        with self._lock:
+            on_allowlist = self._find_match(qname, self._allowed) is not None
+        return {
+            "domain": qname,
+            "blocked": reason is not None,
+            "block_reason": reason,
+            "on_allowlist": on_allowlist,
+            "alert_rule": {"domain": alert[0], "source": alert[1]} if alert else None,
+            "typosquat": {"protected": typo[0], "kind": typo[1], "distance": typo[2]} if typo else None,
+            "local_tld": local_tld,
+        }
+
     def _compiled_regex_patterns(self) -> list[tuple[str, re.Pattern]]:
         patterns = tuple(self._config.get("denylist_regex", default=[]) or [])
         with self._regex_lock:

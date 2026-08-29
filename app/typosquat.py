@@ -1,5 +1,23 @@
 from __future__ import annotations
 
+import re
+
+_MULTI_LABEL_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "co.uk", "org.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk", "sch.uk", "ac.uk", "gov.uk", "nhs.uk",
+        "com.pl", "net.pl", "org.pl", "info.pl", "edu.pl", "gov.pl", "mil.pl", "waw.pl", "biz.pl",
+        "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au",
+        "co.nz", "net.nz", "org.nz", "govt.nz",
+        "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp",
+        "co.in", "net.in", "org.in", "firm.in", "gen.in", "ind.in",
+        "com.br", "net.br", "org.br",
+        "com.mx", "com.tr", "com.cn", "net.cn", "org.cn", "com.hk", "org.hk", "net.hk",
+        "co.za", "org.za", "co.il", "org.il", "net.il",
+        "com.sg", "com.my", "co.kr", "or.kr", "co.id", "or.id",
+        "com.ar", "com.co", "com.ve",
+    }
+)
+
 DEFAULT_PROTECTED_DOMAINS: tuple[str, ...] = (
     "google.com",
     "gmail.com",
@@ -58,12 +76,27 @@ _MIN_PROTECTED_LABEL_LENGTH_FOR_SUBSTRING = 4
 
 def _base_domain(qname: str) -> str:
     labels = qname.rstrip(".").lower().split(".")
+    if len(labels) >= 3 and ".".join(labels[-2:]) in _MULTI_LABEL_SUFFIXES:
+        return ".".join(labels[-3:])
     return ".".join(labels[-2:]) if len(labels) >= 2 else qname.rstrip(".").lower()
 
 
 def _second_level_label(domain: str) -> str:
     labels = domain.rstrip(".").lower().split(".")
+    if len(labels) >= 3 and ".".join(labels[-2:]) in _MULTI_LABEL_SUFFIXES:
+        return labels[-3]
     return labels[-2] if len(labels) >= 2 else labels[0]
+
+
+def _is_embedded_token(candidate_label: str, protected_label: str) -> bool:
+    """True only if protected_label appears as a distinct hyphen/edge-bounded
+    token inside candidate_label - not merely as a substring. This avoids
+    flagging legitimate compound domains like "googleapis", "amazonaws", or
+    "canalplus" just because they happen to contain a protected brand name."""
+    if protected_label == candidate_label:
+        return False
+    pattern = r"(?:^|-)" + re.escape(protected_label) + r"(?:$|-)"
+    return re.search(pattern, candidate_label) is not None
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -104,7 +137,7 @@ def find_typosquat_match(
         protected_label = _second_level_label(protected)
 
         if len(protected_label) >= _MIN_PROTECTED_LABEL_LENGTH_FOR_SUBSTRING:
-            if protected_label != candidate_label and protected_label in candidate_label:
+            if _is_embedded_token(candidate_label, protected_label):
                 return (protected, "embedded", 0)
 
         distance = _levenshtein(candidate_label, protected_label)

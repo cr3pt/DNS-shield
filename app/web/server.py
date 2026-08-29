@@ -2119,6 +2119,13 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         return config_store.mutate(_mutate)
 
+    @app.get("/api/domain-lookup")
+    def domain_lookup(domain: str, _: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        domain = domain.strip().lower().rstrip(".")
+        if not domain:
+            raise HTTPException(status_code=400, detail="Empty domain")
+        return blocklist.lookup_domain(domain)
+
     @app.post("/api/enrich")
     def enrich_target(body: EnrichIn, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> dict[str, Any]:
         target = body.target.strip()

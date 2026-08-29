@@ -125,7 +125,15 @@ class FilteringResolver:
             addr = ipaddress.ip_address(candidate_ip)
         except ValueError:
             return False
+        if addr.is_unspecified:
+            # 0.0.0.0 / :: are sinkhole/null-route answers (our own block page or an
+            # upstream filtering resolver's block response), not a real rebinding target.
+            return False
         if not addr.is_private:
+            return False
+        blocked_ipv4 = self._config.get("dns", "blocked_ipv4", default="0.0.0.0") or "0.0.0.0"
+        blocked_ipv6 = self._config.get("dns", "blocked_ipv6", default="::") or "::"
+        if candidate_ip in (blocked_ipv4, blocked_ipv6):
             return False
         if self._blocklist.local_tld_match_ignoring_toggle(qname):
             return False
