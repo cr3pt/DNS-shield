@@ -458,7 +458,7 @@
 
   <section>
     <div class="row" style="margin-bottom:0.5rem;">
-      <h2 style="margin:0;">Query trend</h2>
+      <h2 style="margin:0;" data-i18n="stats.query_trend">Query trend</h2>
       <select id="stats-range">
         <option value="24h">Last 24 hours</option>
         <option value="7d">Last 7 days</option>
@@ -470,26 +470,26 @@
   </section>
 
   <section>
-    <h2>Top blocked domains</h2>
+    <h2 data-i18n="stats.top_blocked">Top blocked domains</h2>
     <table class="card-table">
-      <thead><tr><th>Domain</th><th>Count</th><th></th></tr></thead>
+      <thead><tr><th data-i18n="col.domain">Domain</th><th data-i18n="col.count">Count</th><th></th></tr></thead>
       <tbody id="top-blocked-rows"></tbody>
     </table>
   </section>
 
   <div class="two-col">
     <section>
-      <h2>Top queried domains</h2>
+      <h2 data-i18n="stats.top_queried">Top queried domains</h2>
       <p class="muted">All queries, blocked and allowed.</p>
       <table class="card-table">
-        <thead><tr><th>Domain</th><th>Count</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.domain">Domain</th><th data-i18n="col.count">Count</th><th></th></tr></thead>
         <tbody id="top-domains-rows"></tbody>
       </table>
     </section>
     <section>
-      <h2>Top querying clients</h2>
+      <h2 data-i18n="stats.top_clients">Top querying clients</h2>
       <table class="card-table">
-        <thead><tr><th>Client</th><th>Count</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.client">Client</th><th data-i18n="col.count">Count</th><th></th></tr></thead>
         <tbody id="top-clients-rows"></tbody>
       </table>
     </section>
@@ -497,17 +497,17 @@
 
   <div class="two-col">
     <section>
-      <h2>Query types</h2>
+      <h2 data-i18n="stats.query_types">Query types</h2>
       <table>
-        <thead><tr><th>Type</th><th>Count</th></tr></thead>
+        <thead><tr><th data-i18n="col.type">Type</th><th data-i18n="col.count">Count</th></tr></thead>
         <tbody id="qtype-rows"></tbody>
       </table>
     </section>
     <section>
-      <h2>Blocked by</h2>
+      <h2 data-i18n="stats.blocked_by">Blocked by</h2>
       <p class="muted">Which blocklist/rule is responsible for the most blocks.</p>
       <table>
-        <thead><tr><th>Reason</th><th>Count</th></tr></thead>
+        <thead><tr><th data-i18n="col.reason">Reason</th><th data-i18n="col.count">Count</th></tr></thead>
         <tbody id="block-reason-rows"></tbody>
       </table>
     </section>
@@ -539,14 +539,14 @@
 
   <div id="subtab-general" class="subtab-panel">
     <section>
-      <h2>Web UI</h2>
+      <h2 data-i18n="general.web_ui">Web UI</h2>
       <p class="muted">The dashboard you're looking at right now - its own listen address/port, login, and look.</p>
       <form id="web-settings-form">
         <div class="field-grid">
-          <div class="field"><label>Listen address</label><input type="text" id="s-web-listen-address"></div>
-          <div class="field"><label>Listen port</label><input type="number" id="s-web-listen-port"></div>
+          <div class="field"><label data-i18n="field.listen_address">Listen address</label><input type="text" id="s-web-listen-address"></div>
+          <div class="field"><label data-i18n="field.listen_port">Listen port</label><input type="number" id="s-web-listen-port"></div>
           <div class="field">
-            <label>Color theme</label>
+            <label data-i18n="field.color_theme">Color theme</label>
             <select id="s-web-theme">
               <option value="navy">Navy &amp; Azure (dark)</option>
               <option value="slate">Slate &amp; Cyan (dark)</option>
@@ -561,11 +561,11 @@
         </div>
         <div class="field checkbox">
           <input type="checkbox" id="s-web-https-enabled">
-          <label for="s-web-https-enabled">Serve the dashboard over HTTPS</label>
+          <label for="s-web-https-enabled" data-i18n="general.serve_https">Serve the dashboard over HTTPS</label>
         </div>
         <div class="field-grid">
-          <div class="field"><label>Certificate file path (optional)</label><input type="text" id="s-web-https-cert-path" placeholder="leave blank to auto-generate a self-signed one"></div>
-          <div class="field"><label>Key file path (optional)</label><input type="text" id="s-web-https-key-path" placeholder="leave blank to auto-generate a self-signed one"></div>
+          <div class="field"><label data-i18n="general.cert_path">Certificate file path (optional)</label><input type="text" id="s-web-https-cert-path" placeholder="leave blank to auto-generate a self-signed one"></div>
+          <div class="field"><label data-i18n="general.key_path">Key file path (optional)</label><input type="text" id="s-web-https-key-path" placeholder="leave blank to auto-generate a self-signed one"></div>
         </div>
         <p class="hint">
           With no certificate/key path set, DNS-shield generates and reuses its own self-signed
@@ -576,24 +576,24 @@
           restarting the container either way.
         </p>
         <div class="field-grid">
-          <div class="field"><label>Max failed logins before lockout</label><input type="number" id="s-web-login-max-attempts" min="1" step="1"></div>
-          <div class="field"><label>Lockout duration (minutes)</label><input type="number" id="s-web-login-lockout" min="1" step="1"></div>
+          <div class="field"><label data-i18n="general.max_failed_logins">Max failed logins before lockout</label><input type="number" id="s-web-login-max-attempts" min="1" step="1"></div>
+          <div class="field"><label data-i18n="general.lockout_duration">Lockout duration (minutes)</label><input type="number" id="s-web-login-lockout" min="1" step="1"></div>
         </div>
         <p class="hint">Locks out further login attempts from an IP after this many failures in a row, for this many minutes - takes effect immediately, no restart needed.</p>
         <p class="hint">Listen address/port changes require restarting the container.</p>
-        <button type="submit">Save web settings</button>
+        <button type="submit" data-i18n="general.save_web_settings">Save web settings</button>
       </form>
     </section>
 
     <section>
-      <h2>Your account</h2>
+      <h2 data-i18n="general.your_account">Your account</h2>
       <p class="muted">Change the password for the account you're signed in with (<span id="my-username">-</span>).</p>
       <form id="password-form">
         <div class="field-grid">
-          <div class="field"><label>Current password</label><input type="password" id="s-current-password" autocomplete="current-password"></div>
-          <div class="field"><label>New password</label><input type="password" id="s-new-password" autocomplete="new-password"></div>
+          <div class="field"><label data-i18n="general.current_password">Current password</label><input type="password" id="s-current-password" autocomplete="current-password"></div>
+          <div class="field"><label data-i18n="general.new_password">New password</label><input type="password" id="s-new-password" autocomplete="new-password"></div>
         </div>
-        <button type="submit">Change password</button>
+        <button type="submit" data-i18n="general.change_password">Change password</button>
       </form>
 
       <h3 data-i18n="account.language.h2" style="margin-top:1.25rem;">Dashboard language</h3>
@@ -609,11 +609,11 @@
     </section>
 
     <section>
-      <h2>Two-factor authentication</h2>
+      <h2 data-i18n="general.2fa">Two-factor authentication</h2>
       <p class="muted" id="totp-status-text">-</p>
 
       <div id="totp-disabled-view" style="display:none;">
-        <button type="button" id="totp-start-btn">Enable 2FA</button>
+        <button type="button" id="totp-start-btn" data-i18n="general.enable_2fa">Enable 2FA</button>
       </div>
 
       <div id="totp-setup-view" style="display:none;">
@@ -622,11 +622,11 @@
           or enter the key manually, then type the 6-digit code it shows to confirm.
         </p>
         <div id="totp-qr" style="max-width:220px; background:#fff; padding:10px; border-radius:8px;"></div>
-        <p class="muted">Manual key: <code id="totp-manual-secret"></code></p>
+        <p class="muted"><span data-i18n="general.manual_key">Manual key:</span> <code id="totp-manual-secret"></code></p>
         <form id="totp-confirm-form" class="inline">
           <input type="text" id="totp-confirm-code" placeholder="6-digit code" inputmode="numeric" autocomplete="one-time-code" required>
-          <button type="submit">Confirm</button>
-          <button type="button" class="secondary" id="totp-cancel-btn">Cancel</button>
+          <button type="submit" data-i18n="common.confirm">Confirm</button>
+          <button type="button" class="secondary" id="totp-cancel-btn" data-i18n="common.cancel">Cancel</button>
         </form>
         <p class="muted" id="totp-confirm-error"></p>
       </div>
@@ -637,21 +637,21 @@
           authenticator app, and they won't be shown again.</strong>
         </p>
         <pre id="totp-backup-codes-list" style="background:var(--bg); padding:10px; border-radius:8px; user-select:all;"></pre>
-        <button type="button" class="secondary" id="totp-backup-done-btn">I've saved these</button>
+        <button type="button" class="secondary" id="totp-backup-done-btn" data-i18n="general.saved_codes">I've saved these</button>
       </div>
 
       <div id="totp-enabled-view" style="display:none;">
-        <p class="muted">Two-factor authentication is enabled for this account.</p>
+        <p class="muted" data-i18n="general.2fa_enabled">Two-factor authentication is enabled for this account.</p>
         <form id="totp-disable-form" class="inline">
           <input type="password" id="totp-disable-password" placeholder="Current password" autocomplete="current-password" required>
-          <button type="submit" class="danger">Disable 2FA</button>
+          <button type="submit" class="danger" data-i18n="general.disable_2fa">Disable 2FA</button>
         </form>
         <p class="muted" id="totp-disable-error"></p>
       </div>
     </section>
 
     <section>
-      <h2>Passkeys</h2>
+      <h2 data-i18n="general.passkeys">Passkeys</h2>
       <p class="muted">
         A hardware security key, or your device's own built-in authenticator (Touch ID, Windows
         Hello, a phone's fingerprint/face unlock), used as a second factor in place of typing a
@@ -662,16 +662,16 @@
         party, so set up local DNS or a hosts-file entry pointing a name at this host if that's
         how you normally reach it.
       </p>
-      <button type="button" id="passkey-register-btn">Add a passkey</button>
+      <button type="button" id="passkey-register-btn" data-i18n="general.add_passkey">Add a passkey</button>
       <table>
-        <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.created">Created</th><th data-i18n="col.last_used">Last used</th><th></th></tr></thead>
         <tbody id="passkey-rows"></tbody>
       </table>
       <p class="muted" id="passkey-register-error"></p>
     </section>
 
     <section>
-      <h2>API tokens</h2>
+      <h2 data-i18n="general.api_tokens">API tokens</h2>
       <p class="muted">
         Bearer tokens for scripts, cron jobs, or dashboards (e.g. Grafana) that need to call
         DNS-shield's API without a browser session - each token acts as you, with your own role
@@ -681,17 +681,17 @@
       </p>
       <form class="inline" id="add-token-form">
         <input type="text" id="token-name" placeholder="Name (e.g. Grafana)" required>
-        <button type="submit">Create token</button>
+        <button type="submit" data-i18n="general.create_token">Create token</button>
       </form>
       <div id="new-token-box" class="hint" style="display:none; margin-top:10px;"></div>
       <table>
-        <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.created">Created</th><th data-i18n="col.last_used">Last used</th><th></th></tr></thead>
         <tbody id="token-rows"></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Backup</h2>
+      <h2 data-i18n="general.backup">Backup</h2>
       <p class="muted">
         Downloads a .zip with a full snapshot of everything in this instance's config -
         blocklists, allow/deny rules, client groups, DNS/web settings, custom DNS records - as
@@ -704,13 +704,13 @@
         password hash (same as data/config.backup.yaml already on disk) - store the download
         like you would a password, not somewhere public.
       </p>
-      <button type="button" class="secondary" id="export-config-btn">Download backup (.zip)</button>
+      <button type="button" class="secondary" id="export-config-btn" data-i18n="general.download_backup">Download backup (.zip)</button>
     </section>
   </div>
 
   <div id="subtab-users" class="subtab-panel">
     <section>
-      <h2>Users</h2>
+      <h2 data-i18n="users.title">Users</h2>
       <p class="muted">
         Administrators see and manage everything. A "user" account is read-mostly and limited to
         whatever you grant below: which client IPs/CIDRs and/or client groups they see
@@ -719,39 +719,39 @@
         see only the public Stats view (query trend + top blocked domains).
       </p>
       <table class="card-table">
-        <thead><tr><th>Username</th><th>Role</th><th>Allowed</th><th>Permissions</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="users.username">Username</th><th data-i18n="col.role">Role</th><th data-i18n="users.allowed">Allowed</th><th data-i18n="col.permissions">Permissions</th><th></th></tr></thead>
         <tbody id="users-rows"></tbody>
       </table>
     </section>
     <section>
-      <h2>Add user</h2>
+      <h2 data-i18n="users.add_user">Add user</h2>
       <form id="user-create-form">
         <div class="field-grid">
-          <div class="field"><label>Username</label><input type="text" id="u-username" required></div>
-          <div class="field"><label>Password</label><input type="password" id="u-password" autocomplete="new-password" required></div>
+          <div class="field"><label data-i18n="users.username">Username</label><input type="text" id="u-username" required></div>
+          <div class="field"><label data-i18n="field.password">Password</label><input type="password" id="u-password" autocomplete="new-password" required></div>
           <div class="field">
-            <label>Role</label>
+            <label data-i18n="col.role">Role</label>
             <select id="u-role">
-              <option value="user">User (restricted)</option>
-              <option value="admin">Administrator</option>
+              <option value="user" data-i18n="users.role.user">User (restricted)</option>
+              <option value="admin" data-i18n="users.role.admin">Administrator</option>
             </select>
           </div>
-          <div class="field"><label>Allowed client IPs/CIDRs (comma-separated)</label><input type="text" id="u-allowed-clients" placeholder="192.168.1.50, 192.168.1.0/28"></div>
-          <div class="field"><label>Allowed client groups (comma-separated names)</label><input type="text" id="u-allowed-groups" placeholder="Kids, Guests"></div>
-          <div class="field checkbox"><input type="checkbox" id="u-view-threat-intel"><label for="u-view-threat-intel">Can see threat-intel Enrich results</label></div>
-          <div class="field checkbox"><input type="checkbox" id="u-view-anomalies"><label for="u-view-anomalies">Can see detected anomalies</label></div>
-          <div class="field checkbox"><input type="checkbox" id="u-can-block"><label for="u-can-block">Can block a domain/host</label></div>
-          <div class="field checkbox"><input type="checkbox" id="u-can-whitelist"><label for="u-can-whitelist">Can whitelist a domain</label></div>
+          <div class="field"><label data-i18n="users.allowed_clients">Allowed client IPs/CIDRs (comma-separated)</label><input type="text" id="u-allowed-clients" placeholder="192.168.1.50, 192.168.1.0/28"></div>
+          <div class="field"><label data-i18n="users.allowed_groups">Allowed client groups (comma-separated names)</label><input type="text" id="u-allowed-groups" placeholder="Kids, Guests"></div>
+          <div class="field checkbox"><input type="checkbox" id="u-view-threat-intel"><label for="u-view-threat-intel" data-i18n="users.perm.threat_intel">Can see threat-intel Enrich results</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-view-anomalies"><label for="u-view-anomalies" data-i18n="users.perm.anomalies">Can see detected anomalies</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-can-block"><label for="u-can-block" data-i18n="users.perm.block">Can block a domain/host</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-can-whitelist"><label for="u-can-whitelist" data-i18n="users.perm.whitelist">Can whitelist a domain</label></div>
         </div>
         <p class="hint">The role/permission fields above are ignored for Administrator accounts - an admin always sees and does everything.</p>
-        <button type="submit">Add user</button>
+        <button type="submit" data-i18n="users.add_user">Add user</button>
       </form>
     </section>
   </div>
 
   <div id="subtab-sso" class="subtab-panel">
     <section>
-      <h2>Single sign-on (OIDC)</h2>
+      <h2 data-i18n="sso.title">Single sign-on (OIDC)</h2>
       <p class="muted">
         Let people sign in through an external identity provider - Authentik, Keycloak,
         Authelia, Okta, Google Workspace, or anything else that speaks standard OpenID
@@ -762,33 +762,33 @@
       <form id="sso-settings-form">
         <div class="field checkbox">
           <input type="checkbox" id="s-sso-enabled">
-          <label for="s-sso-enabled">Enable single sign-on</label>
+          <label for="s-sso-enabled" data-i18n="sso.enable">Enable single sign-on</label>
         </div>
         <div class="field-grid">
           <div class="field">
-            <label>Issuer URL</label>
+            <label data-i18n="sso.issuer_url">Issuer URL</label>
             <input type="text" id="s-sso-issuer" placeholder="https://idp.example.com/application/o/dns-shield" autocomplete="off">
           </div>
-          <div class="field"><label>Client ID</label><input type="text" id="s-sso-client-id" autocomplete="off"></div>
+          <div class="field"><label data-i18n="sso.client_id">Client ID</label><input type="text" id="s-sso-client-id" autocomplete="off"></div>
           <div class="field">
-            <label>Client secret <span id="sso-client-secret-status" class="muted"></span></label>
+            <label><span data-i18n="sso.client_secret">Client secret</span> <span id="sso-client-secret-status" class="muted"></span></label>
             <input type="password" id="s-sso-client-secret" placeholder="leave blank to keep current" autocomplete="off">
           </div>
-          <div class="field"><label>Scopes</label><input type="text" id="s-sso-scopes" placeholder="openid email profile"></div>
-          <div class="field"><label>Sign-in button label</label><input type="text" id="s-sso-button-label" placeholder="Single Sign-On"></div>
+          <div class="field"><label data-i18n="sso.scopes">Scopes</label><input type="text" id="s-sso-scopes" placeholder="openid email profile"></div>
+          <div class="field"><label data-i18n="sso.button_label">Sign-in button label</label><input type="text" id="s-sso-button-label" placeholder="Single Sign-On"></div>
           <div class="field">
-            <label>Username claim</label>
+            <label data-i18n="sso.username_claim">Username claim</label>
             <input type="text" id="s-sso-username-claim" placeholder="preferred_username">
           </div>
           <div class="field checkbox">
             <input type="checkbox" id="s-sso-auto-provision">
-            <label for="s-sso-auto-provision">Automatically create an account on first sign-in</label>
+            <label for="s-sso-auto-provision" data-i18n="sso.auto_provision">Automatically create an account on first sign-in</label>
           </div>
           <div class="field">
-            <label>Role for auto-created accounts</label>
+            <label data-i18n="sso.default_role">Role for auto-created accounts</label>
             <select id="s-sso-default-role">
-              <option value="user">User (restricted)</option>
-              <option value="admin">Administrator</option>
+              <option value="user" data-i18n="users.role.user">User (restricted)</option>
+              <option value="admin" data-i18n="users.role.admin">Administrator</option>
             </select>
           </div>
         </div>
@@ -797,109 +797,109 @@
           <code id="sso-redirect-uri-hint"></code>. Accounts created by SSO get a random,
           unusable local password - only the identity provider can sign them in.
         </p>
-        <button type="submit">Save SSO settings</button>
+        <button type="submit" data-i18n="sso.save">Save SSO settings</button>
       </form>
     </section>
   </div>
 
   <div id="subtab-dns" class="subtab-panel">
     <section>
-      <h2>DNS</h2>
+      <h2 data-i18n="nav.subtab.dns">DNS</h2>
       <p class="muted">Core resolver behavior - listen address, blocking mode, caching, and the client-hostname/regex-denylist toggles.</p>
       <form id="dns-settings-form">
 
         <div class="settings-group">
-          <h3>Listener</h3>
+          <h3 data-i18n="dns.listener">Listener</h3>
           <div class="field-grid">
-            <div class="field"><label>Listen address</label><input type="text" id="s-dns-listen-address"></div>
-            <div class="field"><label>Listen port</label><input type="number" id="s-dns-listen-port"></div>
-            <div class="field"><label>Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
+            <div class="field"><label data-i18n="field.listen_address">Listen address</label><input type="text" id="s-dns-listen-address"></div>
+            <div class="field"><label data-i18n="field.listen_port">Listen port</label><input type="number" id="s-dns-listen-port"></div>
+            <div class="field"><label data-i18n="dns.upstream_timeout">Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
           </div>
           <p class="hint">Listen address/port require restarting the container (docker compose restart). Everything else on this page applies immediately.</p>
         </div>
 
         <div class="settings-group">
-          <h3>Upstream selection strategy</h3>
+          <h3 data-i18n="dns.upstream_strategy">Upstream selection strategy</h3>
           <p class="muted" style="margin:0 0 0.6rem;">The upstream server list itself is managed below, in "Upstream DNS servers" - this only decides which one is tried first.</p>
           <div class="field-grid">
             <div class="field">
-              <label>Strategy</label>
+              <label data-i18n="dns.strategy">Strategy</label>
               <select id="s-dns-upstream-strategy">
-                <option value="in_order">In order (as listed below)</option>
-                <option value="fastest">Fastest (lowest average latency)</option>
-                <option value="most_stable">Most stable (fewest failures)</option>
-                <option value="race">All at once - FIFO (first response wins)</option>
+                <option value="in_order" data-i18n="dns.strategy.in_order">In order (as listed below)</option>
+                <option value="fastest" data-i18n="dns.strategy.fastest">Fastest (lowest average latency)</option>
+                <option value="most_stable" data-i18n="dns.strategy.most_stable">Most stable (fewest failures)</option>
+                <option value="race" data-i18n="dns.strategy.race">All at once - FIFO (first response wins)</option>
               </select>
             </div>
-            <div class="field"><label>Averaging window (minutes)</label><input type="number" id="s-dns-upstream-stats-window"></div>
+            <div class="field"><label data-i18n="dns.averaging_window">Averaging window (minutes)</label><input type="number" id="s-dns-upstream-stats-window"></div>
           </div>
         </div>
 
         <div class="settings-group">
-          <h3>Blocking behavior</h3>
+          <h3 data-i18n="dns.blocking_behavior">Blocking behavior</h3>
           <div class="field-grid">
             <div class="field">
-              <label>Block mode</label>
+              <label data-i18n="dns.block_mode">Block mode</label>
               <select id="s-dns-block-mode">
                 <option value="nxdomain">nxdomain</option>
                 <option value="null_ip">null_ip</option>
               </select>
             </div>
-            <div class="field"><label>Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
-            <div class="field"><label>Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
+            <div class="field"><label data-i18n="dns.blocked_ipv4">Blocked IPv4</label><input type="text" id="s-dns-blocked-ipv4"></div>
+            <div class="field"><label data-i18n="dns.blocked_ipv6">Blocked IPv6</label><input type="text" id="s-dns-blocked-ipv6"></div>
           </div>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-block-page-enabled">
-            <label for="s-dns-block-page-enabled">Serve a local "blocked" page for null_ip (HTTP only, requires restart)</label>
+            <label for="s-dns-block-page-enabled" data-i18n="dns.block_page_enabled">Serve a local "blocked" page for null_ip (HTTP only, requires restart)</label>
           </div>
           <div class="field-grid">
-            <div class="field"><label>Block page port</label><input type="number" id="s-dns-block-page-port"></div>
+            <div class="field"><label data-i18n="dns.block_page_port">Block page port</label><input type="number" id="s-dns-block-page-port"></div>
           </div>
         </div>
 
         <div class="settings-group">
-          <h3>Content filtering</h3>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
+          <h3 data-i18n="dns.content_filtering">Content filtering</h3>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-block-ipv6"><label for="s-dns-block-ipv6" data-i18n="dns.disable_ipv6">Disable IPv6 (block all AAAA queries, not logged)</label></div>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-block-non-latin"><label for="s-dns-block-non-latin" data-i18n="dns.block_non_latin">Block non-Latin-script domains (Cyrillic/Arabic/CJK/etc.)</label></div>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-safe-search-enabled">
-            <label for="s-dns-safe-search-enabled">Force SafeSearch/Restricted Mode (Google, Bing, DuckDuckGo, YouTube, Yandex) - can be overridden per client group in the Clients tab</label>
+            <label for="s-dns-safe-search-enabled" data-i18n="dns.force_safe_search">Force SafeSearch/Restricted Mode (Google, Bing, DuckDuckGo, YouTube, Yandex) - can be overridden per client group in the Clients tab</label>
           </div>
         </div>
 
         <div class="settings-group">
-          <h3>DNSSEC</h3>
+          <h3 data-i18n="dns.dnssec">DNSSEC</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-dnssec-enabled">
-            <label for="s-dns-dnssec-enabled">Request DNSSEC validation from upstream (sets the DO bit and checks the AD flag on the reply - trusts your upstream resolver's own validation, not an independent signature check)</label>
+            <label for="s-dns-dnssec-enabled" data-i18n="dns.dnssec_request">Request DNSSEC validation from upstream (sets the DO bit and checks the AD flag on the reply - trusts your upstream resolver's own validation, not an independent signature check)</label>
           </div>
           <div class="field-grid">
             <div class="field" id="s-dns-dnssec-cache-field">
-              <label>DNSSEC status cache (seconds)</label>
+              <label data-i18n="dns.dnssec_cache">DNSSEC status cache (seconds)</label>
               <input type="number" id="s-dns-dnssec-cache-seconds" min="1">
             </div>
           </div>
         </div>
 
         <div class="settings-group">
-          <h3>Typosquat detection</h3>
+          <h3 data-i18n="dns.typosquat">Typosquat detection</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-typosquat-enabled">
-            <label for="s-dns-typosquat-enabled">Detect typosquatting (close spelling variants or an embedded brand name against the protected-domains list in Own lists -> Typosquat protection)</label>
+            <label for="s-dns-typosquat-enabled" data-i18n="dns.typosquat_detect">Detect typosquatting (close spelling variants or an embedded brand name against the protected-domains list in Own lists -> Typosquat protection)</label>
           </div>
           <div class="field-grid" id="s-dns-typosquat-fields">
-            <div class="field"><label>Max edit distance (1-3)</label><input type="number" id="s-dns-typosquat-max-distance" min="1" max="3" step="1"></div>
-            <div class="field"><label>Re-alert cooldown (minutes)</label><input type="number" id="s-dns-typosquat-cooldown" min="1" step="1"></div>
+            <div class="field"><label data-i18n="dns.max_edit_distance">Max edit distance (1-3)</label><input type="number" id="s-dns-typosquat-max-distance" min="1" max="3" step="1"></div>
+            <div class="field"><label data-i18n="dns.realert_cooldown">Re-alert cooldown (minutes)</label><input type="number" id="s-dns-typosquat-cooldown" min="1" step="1"></div>
             <div class="field">
-              <label>On a match</label>
+              <label data-i18n="dns.on_a_match">On a match</label>
               <select id="s-dns-typosquat-action">
-                <option value="alert">Alert only - resolve the domain normally</option>
-                <option value="redirect_real">Redirect to the real domain's actual address</option>
-                <option value="redirect_custom">Redirect to a specified address</option>
+                <option value="alert" data-i18n="dns.typosquat.alert">Alert only - resolve the domain normally</option>
+                <option value="redirect_real" data-i18n="dns.typosquat.redirect_real">Redirect to the real domain's actual address</option>
+                <option value="redirect_custom" data-i18n="dns.typosquat.redirect_custom">Redirect to a specified address</option>
               </select>
             </div>
             <div class="field" id="s-dns-typosquat-redirect-ip-field">
-              <label>Redirect address (for "specified address")</label>
+              <label data-i18n="dns.redirect_address">Redirect address (for "specified address")</label>
               <input type="text" id="s-dns-typosquat-redirect-ip" placeholder="e.g. 192.168.1.10 (a warning page you host)">
             </div>
           </div>
@@ -914,21 +914,21 @@
         </div>
 
         <div class="settings-group">
-          <h3>DNS rebinding protection</h3>
+          <h3 data-i18n="dns.rebinding">DNS rebinding protection</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-rebinding-enabled">
-            <label for="s-dns-rebinding-enabled">Alert (or block) when a public domain's answer points at a local/private address</label>
+            <label for="s-dns-rebinding-enabled" data-i18n="dns.rebinding_alert">Alert (or block) when a public domain's answer points at a local/private address</label>
           </div>
           <div class="field-grid" id="s-dns-rebinding-fields">
             <div class="field">
-              <label>On detection</label>
+              <label data-i18n="dns.on_detection">On detection</label>
               <select id="s-dns-rebinding-action">
-                <option value="alert">Alert only - resolve normally</option>
-                <option value="block">Alert and block the answer</option>
+                <option value="alert" data-i18n="dns.rebinding.alert">Alert only - resolve normally</option>
+                <option value="block" data-i18n="dns.rebinding.block">Alert and block the answer</option>
               </select>
             </div>
             <div class="field">
-              <label>Exempt domains, comma separated</label>
+              <label data-i18n="dns.exempt_domains">Exempt domains, comma separated</label>
               <input type="text" id="s-dns-rebinding-exempt" placeholder="e.g. internal.example.com">
             </div>
           </div>
@@ -944,18 +944,18 @@
         </div>
 
         <div class="settings-group">
-          <h3>Local TLD query alerts</h3>
+          <h3 data-i18n="dns.local_tld">Local TLD query alerts</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-local-tld-enabled">
-            <label for="s-dns-local-tld-enabled">Alert when a client queries a domain under a local TLD (e.g. mDNS/homenet naming)</label>
+            <label for="s-dns-local-tld-enabled" data-i18n="dns.local_tld_alert">Alert when a client queries a domain under a local TLD (e.g. mDNS/homenet naming)</label>
           </div>
           <div class="field-grid" id="s-dns-local-tld-fields">
             <div class="field">
-              <label>Local TLDs, comma separated</label>
+              <label data-i18n="dns.local_tlds_list">Local TLDs, comma separated</label>
               <input type="text" id="s-dns-local-tld-list" placeholder="local, lan, home, internal">
             </div>
             <div class="field">
-              <label>Re-alert cooldown (minutes)</label>
+              <label data-i18n="dns.realert_cooldown">Re-alert cooldown (minutes)</label>
               <input type="number" id="s-dns-local-tld-cooldown" min="1" step="1">
             </div>
           </div>
@@ -967,22 +967,22 @@
         </div>
 
         <div class="settings-group">
-          <h3>Regex denylist</h3>
+          <h3 data-i18n="dns.regex_denylist">Regex denylist</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-regex-denylist-enabled">
-            <label for="s-dns-regex-denylist-enabled">Enable regex denylist (experimental - checks every query against every pattern in Own lists -> Regex denylist; CPU cost grows with the pattern list, keep it short)</label>
+            <label for="s-dns-regex-denylist-enabled" data-i18n="dns.regex_denylist_enable">Enable regex denylist (experimental - checks every query against every pattern in Own lists -> Regex denylist; CPU cost grows with the pattern list, keep it short)</label>
           </div>
         </div>
 
         <div class="settings-group">
-          <h3>DNS-over-TLS (DoT) for clients</h3>
+          <h3 data-i18n="dns.dot">DNS-over-TLS (DoT) for clients</h3>
           <div class="field checkbox">
             <input type="checkbox" id="s-dns-dot-enabled">
-            <label for="s-dns-dot-enabled">Accept DNS-over-TLS (DoT) from clients on the port below (requires restart)</label>
+            <label for="s-dns-dot-enabled" data-i18n="dns.dot_accept">Accept DNS-over-TLS (DoT) from clients on the port below (requires restart)</label>
           </div>
           <div class="field-grid" id="s-dns-dot-port-field-wrap">
             <div class="field" id="s-dns-dot-port-field">
-              <label>DoT listen port</label>
+              <label data-i18n="dns.dot_port">DoT listen port</label>
               <input type="number" id="s-dns-dot-port" min="1" max="65535" step="1">
             </div>
           </div>
@@ -997,63 +997,63 @@
         </div>
 
         <div class="settings-group">
-          <h3>DNS answer cache</h3>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled">Answer cache enabled</label></div>
+          <h3 data-i18n="dns.cache">DNS answer cache</h3>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled" data-i18n="dns.cache_enabled">Answer cache enabled</label></div>
           <div class="field-grid">
-            <div class="field"><label>Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
-            <div class="field"><label>Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
-            <div class="field"><label>Cache max TTL (seconds)</label><input type="number" id="s-dns-cache-max-ttl"></div>
+            <div class="field"><label data-i18n="dns.cache_max_entries">Cache max entries</label><input type="number" id="s-dns-cache-max-entries"></div>
+            <div class="field"><label data-i18n="dns.cache_min_ttl">Cache min TTL (seconds)</label><input type="number" id="s-dns-cache-min-ttl"></div>
+            <div class="field"><label data-i18n="dns.cache_max_ttl">Cache max TTL (seconds)</label><input type="number" id="s-dns-cache-max-ttl"></div>
           </div>
         </div>
 
         <div class="settings-group">
-          <h3>Client hostnames (reverse DNS)</h3>
-          <div class="field checkbox"><input type="checkbox" id="s-dns-resolve-names"><label for="s-dns-resolve-names">Resolve client hostnames</label></div>
+          <h3 data-i18n="dns.client_hostnames">Client hostnames (reverse DNS)</h3>
+          <div class="field checkbox"><input type="checkbox" id="s-dns-resolve-names"><label for="s-dns-resolve-names" data-i18n="dns.resolve_hostnames">Resolve client hostnames</label></div>
           <div class="field-grid">
-            <div class="field"><label>Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
-            <div class="field"><label>Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
+            <div class="field"><label data-i18n="dns.name_resolver">Name resolver (your router)</label><input type="text" id="s-dns-name-resolver" placeholder="192.168.1.1:53"></div>
+            <div class="field"><label data-i18n="dns.name_cache">Name cache (seconds)</label><input type="number" id="s-dns-name-cache-seconds"></div>
           </div>
         </div>
 
-        <button type="submit">Save DNS settings</button>
+        <button type="submit" data-i18n="dns.save">Save DNS settings</button>
       </form>
     </section>
 
     <section>
-      <h2>Upstream DNS servers</h2>
+      <h2 data-i18n="dns.upstream_servers">Upstream DNS servers</h2>
       <p class="muted">One per line - you can list as many as you like. All are used as fallback if earlier ones fail; the selection strategy above decides which is tried first. A line starting with # is disabled - kept in the list but never used - same as the Disable button in the table below.</p>
       <form id="upstreams-form">
         <textarea id="s-upstreams" placeholder="one per line, e.g.&#10;1.1.1.1:53&#10;9.9.9.9:53&#10;dot://1.1.1.1&#10;doh://cloudflare-dns.com/dns-query&#10;# disabled for now:&#10;# 8.8.8.8:53"></textarea>
-        <div style="margin-top:0.5rem;"><button type="submit">Save upstreams</button></div>
+        <div style="margin-top:0.5rem;"><button type="submit" data-i18n="dns.save_upstreams">Save upstreams</button></div>
       </form>
       <table style="margin-top:0.75rem;">
-        <thead><tr><th>Upstream</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="dns.upstream">Upstream</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="upstream-rows"></tbody>
       </table>
-      <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);margin:1.25rem 0 0.6rem;">Health</h3>
+      <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);margin:1.25rem 0 0.6rem;" data-i18n="dns.health">Health</h3>
       <table>
-        <thead><tr><th>Upstream</th><th>Avg latency</th><th>Success rate</th><th>Samples</th></tr></thead>
+        <thead><tr><th data-i18n="dns.upstream">Upstream</th><th data-i18n="dns.avg_latency">Avg latency</th><th data-i18n="dns.success_rate">Success rate</th><th data-i18n="dns.samples">Samples</th></tr></thead>
         <tbody id="upstream-health-rows"></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Per-domain DNS routing</h2>
+      <h2 data-i18n="dns.per_domain_routing">Per-domain DNS routing</h2>
       <p class="muted">Route specific domains to specific resolvers regardless of client (e.g. internal/corporate domains) - takes priority over everything else.</p>
       <form class="inline" id="add-domain-upstream-form">
         <input type="text" id="du-name" placeholder="Name">
         <input type="text" id="du-domains" placeholder="domains, comma separated" required>
         <input type="text" id="du-upstreams" placeholder="upstreams, comma separated" required>
-        <button type="submit">Add</button>
+        <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table>
-        <thead><tr><th>Name</th><th>Domains</th><th>Upstreams</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="dns.domains">Domains</th><th data-i18n="dns.upstreams">Upstreams</th><th></th></tr></thead>
         <tbody id="domain-upstream-rows"></tbody>
       </table>
     </section>
 
     <section>
-      <h2>Custom DNS records</h2>
+      <h2 data-i18n="dns.custom_records">Custom DNS records</h2>
       <p class="muted">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. A plain name matches itself and its subdomains; a name with a wildcard (<code>*</code> for any characters, <code>?</code> for one) matches only what the pattern actually covers - e.g. <code>*.internal.example</code> matches <code>vpn.internal.example</code> but not <code>internal.example</code> itself. A/AAAA only.</p>
       <form class="inline" id="add-rewrite-form">
         <input type="text" id="rw-name" placeholder="nas.home or *.internal.example" required>
@@ -1062,10 +1062,10 @@
           <option value="AAAA">AAAA (IPv6)</option>
         </select>
         <input type="text" id="rw-value" placeholder="192.168.1.10" required>
-        <button type="submit">Add</button>
+        <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.type">Type</th><th data-i18n="col.value">Value</th><th></th></tr></thead>
         <tbody id="rewrite-rows"></tbody>
       </table>
     </section>
@@ -1702,12 +1702,12 @@
 
   <div id="tab-logs" class="tab-panel">
   <section>
-    <h2>Query log</h2>
+    <h2 data-i18n="logs.query_log">Query log</h2>
     <form class="inline" id="query-log-filter-form">
-      <input type="text" id="ql-domain" placeholder="Domain contains...">
-      <input type="text" id="ql-client" placeholder="Client IP or name contains...">
+      <input type="text" id="ql-domain" placeholder="Domain contains..." data-i18n-ph="logs.ph.domain">
+      <input type="text" id="ql-client" placeholder="Client IP or name contains..." data-i18n-ph="logs.ph.client">
       <select id="ql-qtype">
-        <option value="">All types</option>
+        <option value="" data-i18n="logs.all_types">All types</option>
         <option value="A">A</option>
         <option value="AAAA">AAAA</option>
         <option value="CNAME">CNAME</option>
@@ -1721,26 +1721,26 @@
         <option value="HTTPS">HTTPS</option>
       </select>
       <select id="ql-status">
-        <option value="">All results</option>
-        <option value="true">Blocked</option>
-        <option value="false">Allowed</option>
+        <option value="" data-i18n="logs.all_results">All results</option>
+        <option value="true" data-i18n="logs.blocked">Blocked</option>
+        <option value="false" data-i18n="logs.allowed">Allowed</option>
       </select>
       <select id="ql-range">
-        <option value="">All time</option>
-        <option value="3600">Last hour</option>
-        <option value="86400">Last 24 hours</option>
-        <option value="604800">Last 7 days</option>
+        <option value="" data-i18n="logs.all_time">All time</option>
+        <option value="3600" data-i18n="logs.last_hour">Last hour</option>
+        <option value="86400" data-i18n="logs.last_24h">Last 24 hours</option>
+        <option value="604800" data-i18n="logs.last_7d">Last 7 days</option>
       </select>
-      <button type="submit">Apply filters</button>
-      <button type="button" class="secondary" id="query-log-clear">Clear</button>
+      <button type="submit" data-i18n="logs.apply_filters">Apply filters</button>
+      <button type="button" class="secondary" id="query-log-clear" data-i18n="common.clear">Clear</button>
     </form>
     <p class="muted" id="query-log-summary"></p>
     <table class="card-table">
-      <thead><tr><th>Time</th><th>Domain</th><th class="col-qtype">Type</th><th>Client</th><th>Result</th><th></th></tr></thead>
+      <thead><tr><th data-i18n="col.time">Time</th><th data-i18n="col.domain">Domain</th><th class="col-qtype" data-i18n="col.type">Type</th><th data-i18n="col.client">Client</th><th data-i18n="col.result">Result</th><th></th></tr></thead>
       <tbody id="query-log-rows"></tbody>
     </table>
     <div style="margin-top:0.5rem;">
-      <button type="button" class="secondary" id="query-log-load-more" style="display:none;">Load more</button>
+      <button type="button" class="secondary" id="query-log-load-more" style="display:none;" data-i18n="common.load_more">Load more</button>
     </div>
   </section>
   </div>
@@ -1748,23 +1748,23 @@
   <div id="tab-anomalies" class="tab-panel">
   <section>
     <div class="row">
-      <h2>Alerts</h2>
+      <h2 data-i18n="alerts.title">Alerts</h2>
       <div class="inline" style="align-items:center;">
         <div class="field checkbox" style="margin:0;">
           <input type="checkbox" id="anomaly-show-acknowledged">
-          <label for="anomaly-show-acknowledged">Show acknowledged</label>
+          <label for="anomaly-show-acknowledged" data-i18n="alerts.show_acknowledged">Show acknowledged</label>
         </div>
-        <button type="button" class="secondary" id="anomaly-check-now">Check now</button>
+        <button type="button" class="secondary" id="anomaly-check-now" data-i18n="alerts.check_now">Check now</button>
         <select id="reanalyze-range">
-          <option value="12">Last 12 hours</option>
-          <option value="24" selected>Last 24 hours</option>
-          <option value="48">Last 48 hours</option>
-          <option value="168">Last 7 days</option>
-          <option value="336">Last 14 days</option>
-          <option value="720">Last 30 days</option>
+          <option value="12" data-i18n="range.last_12h">Last 12 hours</option>
+          <option value="24" selected data-i18n="logs.last_24h">Last 24 hours</option>
+          <option value="48" data-i18n="range.last_48h">Last 48 hours</option>
+          <option value="168" data-i18n="logs.last_7d">Last 7 days</option>
+          <option value="336" data-i18n="range.last_14d">Last 14 days</option>
+          <option value="720" data-i18n="range.last_30d">Last 30 days</option>
         </select>
-        <button type="button" class="secondary" id="reanalyze-btn">Reanalyse</button>
-        <button type="button" class="danger" id="anomaly-clear-all">Clear all</button>
+        <button type="button" class="secondary" id="reanalyze-btn" data-i18n="alerts.reanalyse">Reanalyse</button>
+        <button type="button" class="danger" id="anomaly-clear-all" data-i18n="common.clear_all">Clear all</button>
       </div>
     </div>
     <p class="muted">
@@ -1779,26 +1779,26 @@
       event).
     </p>
     <div class="inline" id="alert-source-filters" style="align-items:center; margin-bottom:0.6rem;">
-      <span class="muted" style="font-size:0.85rem;">Show:</span>
+      <span class="muted" style="font-size:0.85rem;" data-i18n="common.show_colon">Show:</span>
       <div class="field checkbox" style="margin:0;">
         <input type="checkbox" id="alert-filter-anomaly" checked>
-        <label for="alert-filter-anomaly">Anomalies</label>
+        <label for="alert-filter-anomaly" data-i18n="alerts.source.anomaly">Anomalies</label>
       </div>
       <div class="field checkbox" style="margin:0;">
         <input type="checkbox" id="alert-filter-alert_rule" checked>
-        <label for="alert-filter-alert_rule">Alert rules</label>
+        <label for="alert-filter-alert_rule" data-i18n="alerts.source.alert_rule">Alert rules</label>
       </div>
       <div class="field checkbox" style="margin:0;">
         <input type="checkbox" id="alert-filter-threat_intel" checked>
-        <label for="alert-filter-threat_intel">Threat intelligence</label>
+        <label for="alert-filter-threat_intel" data-i18n="alerts.source.threat_intel">Threat intelligence</label>
       </div>
     </div>
     <p class="muted" id="reanalyze-status"></p>
     <table>
-      <thead><tr><th>Time</th><th>Client</th><th>Source</th><th>Type</th><th>Severity</th><th>Details</th><th></th></tr></thead>
+      <thead><tr><th data-i18n="col.time">Time</th><th data-i18n="col.client">Client</th><th data-i18n="col.source">Source</th><th data-i18n="col.type">Type</th><th data-i18n="col.severity">Severity</th><th data-i18n="col.details">Details</th><th></th></tr></thead>
       <tbody id="anomaly-rows"></tbody>
     </table>
-    <p class="muted" id="anomaly-empty" style="display:none;">No alerts.</p>
+    <p class="muted" id="anomaly-empty" style="display:none;" data-i18n="alerts.no_alerts">No alerts.</p>
   </section>
   </div>
 </main>
@@ -1893,6 +1893,219 @@ const I18N_PL = {
   // --- common ---
   "common.adding": "Dodawanie...",
   "toast.list_added": "Lista dodana",
+  "col.domain": "Domena",
+  "col.count": "Liczba",
+  "col.client": "Klient",
+  "col.type": "Typ",
+  "col.reason": "Powód",
+  "col.name": "Nazwa",
+  "col.url": "URL",
+  "col.status": "Status",
+  "col.time": "Czas",
+  "col.severity": "Ważność",
+  "col.source": "Źródło",
+  "col.details": "Szczegóły",
+  "col.value": "Wartość",
+  "col.role": "Rola",
+  "col.allowed": "Dozwolone",
+  "col.permissions": "Uprawnienia",
+  "col.who": "Kto",
+  "col.action": "Akcja",
+  "col.address": "Adres",
+  "col.result": "Wynik",
+  "common.clear": "Wyczyść",
+  "common.clear_all": "Wyczyść wszystko",
+  "common.load_more": "Załaduj więcej",
+  "common.show_colon": "Pokaż:",
+  "range.last_12h": "Ostatnie 12 godzin",
+  "range.last_48h": "Ostatnie 48 godzin",
+  "range.last_14d": "Ostatnie 14 dni",
+  "range.last_30d": "Ostatnie 30 dni",
+
+  // --- logs tab ---
+  "logs.query_log": "Log zapytań",
+  "logs.ph.domain": "Domena zawiera...",
+  "logs.ph.client": "Klient (IP lub nazwa) zawiera...",
+  "logs.all_types": "Wszystkie typy",
+  "logs.all_results": "Wszystkie wyniki",
+  "logs.blocked": "Zablokowane",
+  "logs.allowed": "Dozwolone",
+  "logs.all_time": "Cały czas",
+  "logs.last_hour": "Ostatnia godzina",
+  "logs.last_24h": "Ostatnie 24 godziny",
+  "logs.last_7d": "Ostatnie 7 dni",
+  "logs.apply_filters": "Zastosuj filtry",
+  "logs.no_matching": "Brak pasujących zapytań",
+  "logs.showing": "Wyświetlono",
+  "logs.of": "z",
+  "logs.matching_queries": "pasujących zapytań",
+
+  // --- alerts tab ---
+  "alerts.title": "Alerty",
+  "alerts.show_acknowledged": "Pokaż potwierdzone",
+  "alerts.check_now": "Sprawdź teraz",
+  "alerts.reanalyse": "Przeanalizuj ponownie",
+  "alerts.no_alerts": "Brak alertów.",
+  "alerts.source.anomaly": "Anomalie",
+  "alerts.source.alert_rule": "Reguły alertów",
+  "alerts.source.threat_intel": "Threat intelligence",
+  "alerts.tag.anomaly": "Anomalia",
+  "alerts.tag.alert_rule": "Reguła alertu",
+  "alerts.tag.threat_intel": "Threat intel",
+  "col.created": "Utworzono",
+  "col.last_used": "Ostatnio użyte",
+  "common.confirm": "Potwierdź",
+  "common.cancel": "Anuluj",
+
+  // --- settings: general ---
+  "general.web_ui": "Panel webowy",
+  "field.listen_address": "Adres nasłuchu",
+  "field.listen_port": "Port nasłuchu",
+  "field.color_theme": "Motyw kolorystyczny",
+  "general.serve_https": "Serwuj panel przez HTTPS",
+  "general.cert_path": "Ścieżka do pliku certyfikatu (opcjonalnie)",
+  "general.key_path": "Ścieżka do pliku klucza (opcjonalnie)",
+  "general.max_failed_logins": "Maks. nieudanych logowań przed blokadą",
+  "general.lockout_duration": "Czas blokady (minuty)",
+  "general.save_web_settings": "Zapisz ustawienia panelu",
+  "general.your_account": "Twoje konto",
+  "general.current_password": "Obecne hasło",
+  "general.new_password": "Nowe hasło",
+  "general.change_password": "Zmień hasło",
+  "general.2fa": "Uwierzytelnianie dwuskładnikowe",
+  "general.enable_2fa": "Włącz 2FA",
+  "general.manual_key": "Klucz ręczny:",
+  "general.saved_codes": "Zapisałem/-am te kody",
+  "general.2fa_enabled": "Uwierzytelnianie dwuskładnikowe jest włączone dla tego konta.",
+  "general.disable_2fa": "Wyłącz 2FA",
+  "general.passkeys": "Klucze dostępu",
+  "general.add_passkey": "Dodaj klucz dostępu",
+  "general.api_tokens": "Tokeny API",
+  "general.create_token": "Utwórz token",
+  "general.backup": "Kopia zapasowa",
+  "general.download_backup": "Pobierz kopię zapasową (.zip)",
+  "general.2fa_currently_enabled": "Uwierzytelnianie dwuskładnikowe jest obecnie włączone.",
+  "general.2fa_off_hint": "Domyślnie wyłączone - dodaje drugi krok logowania (kod z aplikacji uwierzytelniającej).",
+  "field.password": "Hasło",
+
+  // --- settings: users ---
+  "users.title": "Użytkownicy",
+  "users.username": "Nazwa użytkownika",
+  "users.allowed": "Dozwolone",
+  "users.add_user": "Dodaj użytkownika",
+  "users.role.user": "Użytkownik (ograniczony)",
+  "users.role.admin": "Administrator",
+  "users.allowed_clients": "Dozwolone IP/CIDR klientów (oddzielone przecinkami)",
+  "users.allowed_groups": "Dozwolone grupy klientów (nazwy, oddzielone przecinkami)",
+  "users.perm.threat_intel": "Widzi wyniki threat-intel (Enrich)",
+  "users.perm.anomalies": "Widzi wykryte anomalie",
+  "users.perm.block": "Może zablokować domenę/host",
+  "users.perm.whitelist": "Może dodać domenę do listy dozwolonych",
+  "users.summary.everything": "wszystko",
+  "users.summary.threat_intel": "threat-intel",
+  "users.summary.anomalies": "anomalie",
+  "users.summary.can_block": "może blokować",
+  "users.summary.can_whitelist": "może dodawać do listy dozwolonych",
+  "users.summary.read_only": "tylko odczyt",
+  "users.summary.nothing_yet": "jeszcze nic",
+
+  // --- settings: sso ---
+  "sso.title": "Logowanie jednokrotne (OIDC)",
+  "sso.enable": "Włącz logowanie jednokrotne",
+  "sso.issuer_url": "Adres URL wystawcy (Issuer URL)",
+  "sso.client_id": "Client ID",
+  "sso.client_secret": "Client secret",
+  "sso.scopes": "Zakresy (Scopes)",
+  "sso.button_label": "Etykieta przycisku logowania",
+  "sso.username_claim": "Pole (claim) z nazwą użytkownika",
+  "sso.auto_provision": "Automatycznie twórz konto przy pierwszym logowaniu",
+  "sso.default_role": "Rola dla automatycznie tworzonych kont",
+  "sso.save": "Zapisz ustawienia SSO",
+
+  // --- settings: dns ---
+  "common.add": "Dodaj",
+  "dns.listener": "Nasłuch",
+  "dns.upstream_timeout": "Limit czasu upstreamu (sekundy)",
+  "dns.upstream_strategy": "Strategia wyboru serwera nadrzędnego",
+  "dns.strategy": "Strategia",
+  "dns.strategy.in_order": "Po kolei (wg listy poniżej)",
+  "dns.strategy.fastest": "Najszybszy (najniższe średnie opóźnienie)",
+  "dns.strategy.most_stable": "Najstabilniejszy (najmniej błędów)",
+  "dns.strategy.race": "Wszystkie naraz - FIFO (wygrywa pierwsza odpowiedź)",
+  "dns.averaging_window": "Okno uśredniania (minuty)",
+  "dns.blocking_behavior": "Zachowanie blokowania",
+  "dns.block_mode": "Tryb blokowania",
+  "dns.blocked_ipv4": "Zablokowane IPv4",
+  "dns.blocked_ipv6": "Zablokowane IPv6",
+  "dns.block_page_enabled": "Serwuj lokalną stronę \"zablokowano\" dla null_ip (tylko HTTP, wymaga restartu)",
+  "dns.block_page_port": "Port strony blokady",
+  "dns.content_filtering": "Filtrowanie treści",
+  "dns.disable_ipv6": "Wyłącz IPv6 (blokuj wszystkie zapytania AAAA, nielogowane)",
+  "dns.block_non_latin": "Blokuj domeny w alfabetach innych niż łaciński (cyrylica/arabski/CJK itd.)",
+  "dns.force_safe_search": "Wymuś SafeSearch/tryb ograniczony (Google, Bing, DuckDuckGo, YouTube, Yandex) - można nadpisać per grupa klientów w zakładce Clients",
+  "dns.dnssec": "DNSSEC",
+  "dns.dnssec_request": "Żądaj walidacji DNSSEC od serwera nadrzędnego (ustawia bit DO i sprawdza flagę AD w odpowiedzi - ufa walidacji własnego resolvera nadrzędnego, nie jest niezależną weryfikacją podpisu)",
+  "dns.dnssec_cache": "Cache statusu DNSSEC (sekundy)",
+  "dns.typosquat": "Wykrywanie typosquattingu",
+  "dns.typosquat_detect": "Wykrywaj typosquatting (bliskie warianty pisowni lub osadzoną nazwę marki względem listy chronionych domen w Own lists -> Typosquat protection)",
+  "dns.max_edit_distance": "Maks. odległość edycyjna (1-3)",
+  "dns.realert_cooldown": "Cooldown ponownego alarmowania (minuty)",
+  "dns.on_a_match": "Przy dopasowaniu",
+  "dns.typosquat.alert": "Tylko alert - rozwiąż domenę normalnie",
+  "dns.typosquat.redirect_real": "Przekieruj na prawdziwy adres oryginalnej domeny",
+  "dns.typosquat.redirect_custom": "Przekieruj na wskazany adres",
+  "dns.redirect_address": "Adres przekierowania (dla \"wskazanego adresu\")",
+  "dns.rebinding": "Ochrona przed DNS rebinding",
+  "dns.rebinding_alert": "Alarmuj (albo blokuj), gdy odpowiedź publicznej domeny wskazuje na adres lokalny/prywatny",
+  "dns.on_detection": "Po wykryciu",
+  "dns.rebinding.alert": "Tylko alert - rozwiąż normalnie",
+  "dns.rebinding.block": "Alarmuj i zablokuj odpowiedź",
+  "dns.exempt_domains": "Domeny wyjątków, oddzielone przecinkami",
+  "dns.local_tld": "Alerty zapytań o lokalne TLD",
+  "dns.local_tld_alert": "Alarmuj, gdy klient odpytuje domenę pod lokalnym TLD (np. nazewnictwo mDNS/homenet)",
+  "dns.local_tlds_list": "Lokalne TLD, oddzielone przecinkami",
+  "dns.regex_denylist": "Lista blokad regex",
+  "dns.regex_denylist_enable": "Włącz listę blokad regex (eksperymentalne - sprawdza każde zapytanie względem każdego wzorca w Own lists -> Regex denylist; koszt CPU rośnie z listą wzorców, trzymaj ją krótką)",
+  "dns.dot": "DNS-over-TLS (DoT) dla klientów",
+  "dns.dot_accept": "Akceptuj DNS-over-TLS (DoT) od klientów na porcie poniżej (wymaga restartu)",
+  "dns.dot_port": "Port nasłuchu DoT",
+  "dns.cache": "Cache odpowiedzi DNS",
+  "dns.cache_enabled": "Cache odpowiedzi włączony",
+  "dns.cache_max_entries": "Maks. liczba wpisów w cache",
+  "dns.cache_min_ttl": "Min. TTL cache (sekundy)",
+  "dns.cache_max_ttl": "Maks. TTL cache (sekundy)",
+  "dns.client_hostnames": "Nazwy hostów klientów (reverse DNS)",
+  "dns.resolve_hostnames": "Rozwiązuj nazwy hostów klientów",
+  "dns.name_resolver": "Resolver nazw (Twój router)",
+  "dns.name_cache": "Cache nazw (sekundy)",
+  "dns.save": "Zapisz ustawienia DNS",
+  "dns.upstream_servers": "Serwery nadrzędne DNS",
+  "dns.save_upstreams": "Zapisz serwery nadrzędne",
+  "dns.upstream": "Serwer nadrzędny",
+  "dns.health": "Kondycja",
+  "dns.avg_latency": "Śr. opóźnienie",
+  "dns.success_rate": "Wskaźnik sukcesu",
+  "dns.samples": "Próbki",
+  "dns.per_domain_routing": "Routing DNS per domena",
+  "dns.domains": "Domeny",
+  "dns.upstreams": "Serwery nadrzędne",
+  "dns.custom_records": "Niestandardowe rekordy DNS",
+
+  // --- stats tab ---
+  "stats.query_trend": "Trend zapytań",
+  "stats.top_blocked": "Najczęściej blokowane domeny",
+  "stats.top_queried": "Najczęściej odpytywane domeny",
+  "stats.top_clients": "Najbardziej aktywni klienci",
+  "stats.query_types": "Typy zapytań",
+  "stats.blocked_by": "Zablokowane przez",
+  "card.total_queries": "Wszystkie zapytania",
+  "card.blocked_queries": "Zablokowane zapytania",
+  "card.block_rate": "Odsetek blokowania",
+  "card.blocklist_domains": "Domeny na liście blokad",
+  "card.cache_entries": "Wpisy w cache",
+  "card.cache_hit_rate": "Trafienia w cache",
+  "status.dns_listening_on": "DNS nasłuchuje na",
+  "status.uptime": "czas działania",
 
   // --- top nav / tabs ---
   "nav.logs": "Logi",
@@ -2339,8 +2552,8 @@ async function loadStatusAndStats() {
     api("/api/stats?top_n=25&log_n=100"),
   ]);
 
-  document.getElementById("dns-listen").textContent = "DNS listening on " + status.dns_listen;
-  document.getElementById("uptime").textContent = "uptime " + fmtDuration(status.uptime_seconds);
+  document.getElementById("dns-listen").textContent = t("status.dns_listening_on", "DNS listening on") + " " + status.dns_listen;
+  document.getElementById("uptime").textContent = t("status.uptime", "uptime") + " " + fmtDuration(status.uptime_seconds);
   renderPauseBar(status.pause);
 
   const cards = document.getElementById("cards");
@@ -2352,10 +2565,10 @@ async function loadStatusAndStats() {
     ])
   );
   const pct = stats.total_queries ? ((stats.blocked_queries / stats.total_queries) * 100).toFixed(1) : "0.0";
-  add("Total queries", stats.total_queries.toLocaleString());
-  add("Blocked queries", stats.blocked_queries.toLocaleString());
-  add("Block rate", pct + "%");
-  add("Blocklist domains", status.blocklist_domains.toLocaleString());
+  add(t("card.total_queries", "Total queries"), stats.total_queries.toLocaleString());
+  add(t("card.blocked_queries", "Blocked queries"), stats.blocked_queries.toLocaleString());
+  add(t("card.block_rate", "Block rate"), pct + "%");
+  add(t("card.blocklist_domains", "Blocklist domains"), status.blocklist_domains.toLocaleString());
 
   const cacheSection = document.getElementById("cache-section");
   if (status.cache && status.cache.enabled) {
@@ -2363,8 +2576,8 @@ async function loadStatusAndStats() {
     const c = status.cache;
     const cacheTotal = c.hits + c.misses;
     const hitRate = cacheTotal ? ((c.hits / cacheTotal) * 100).toFixed(1) : "0.0";
-    add("Cache entries", c.entries.toLocaleString());
-    add("Cache hit rate", hitRate + "%");
+    add(t("card.cache_entries", "Cache entries"), c.entries.toLocaleString());
+    add(t("card.cache_hit_rate", "Cache hit rate"), hitRate + "%");
   } else {
     cacheSection.style.display = "none";
   }
@@ -2443,8 +2656,8 @@ function renderTrendLegend() {
     el("span", { class: "dot", style: `background:${color}` }),
     document.createTextNode(label),
   ]);
-  legend.appendChild(item("var(--accent)", "Total queries"));
-  legend.appendChild(item("var(--danger)", "Blocked queries"));
+  legend.appendChild(item("var(--accent)", t("card.total_queries", "Total queries")));
+  legend.appendChild(item("var(--danger)", t("card.blocked_queries", "Blocked queries")));
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -3380,7 +3593,9 @@ async function loadQueryLog(reset) {
 
   const shown = queryLogOffset + result.rows.length;
   document.getElementById("query-log-summary").textContent =
-    result.total === 0 ? "No matching queries" : `Showing ${shown} of ${result.total.toLocaleString()} matching queries`;
+    result.total === 0
+      ? t("logs.no_matching", "No matching queries")
+      : `${t("logs.showing", "Showing")} ${shown} ${t("logs.of", "of")} ${result.total.toLocaleString()} ${t("logs.matching_queries", "matching queries")}`;
   document.getElementById("query-log-load-more").style.display = shown < result.total ? "" : "none";
 }
 
@@ -3533,9 +3748,13 @@ function renderAnomalyRow(a) {
   ]);
 }
 
-const ALERT_SOURCE_LABELS = { anomaly: "Anomaly", alert_rule: "Alert rule", threat_intel: "Threat intel" };
+function alertSourceLabel(source) {
+  if (source === "alert_rule") return t("alerts.tag.alert_rule", "Alert rule");
+  if (source === "threat_intel") return t("alerts.tag.threat_intel", "Threat intel");
+  return t("alerts.tag.anomaly", "Anomaly");
+}
 function alertSourceTag(source) {
-  return el("span", { class: "tag tag-" + (source || "anomaly"), text: ALERT_SOURCE_LABELS[source] || source || "Anomaly" });
+  return el("span", { class: "tag tag-" + (source || "anomaly"), text: alertSourceLabel(source) });
 }
 
 const ALERT_SOURCES = ["anomaly", "alert_rule", "threat_intel"];
@@ -4004,28 +4223,28 @@ function splitCsv(value) {
 }
 
 function permissionSummary(u) {
-  if (u.role === "admin") return "everything";
+  if (u.role === "admin") return t("users.summary.everything", "everything");
   const perms = u.permissions || {};
   const parts = [];
-  if (perms.view_threat_intel) parts.push("threat-intel");
-  if (perms.view_anomalies) parts.push("anomalies");
-  if (perms.can_block) parts.push("can block");
-  if (perms.can_whitelist) parts.push("can whitelist");
-  return parts.length ? parts.join(", ") : "read-only";
+  if (perms.view_threat_intel) parts.push(t("users.summary.threat_intel", "threat-intel"));
+  if (perms.view_anomalies) parts.push(t("users.summary.anomalies", "anomalies"));
+  if (perms.can_block) parts.push(t("users.summary.can_block", "can block"));
+  if (perms.can_whitelist) parts.push(t("users.summary.can_whitelist", "can whitelist"));
+  return parts.length ? parts.join(", ") : t("users.summary.read_only", "read-only");
 }
 
 function allowedSummary(u) {
-  if (u.role === "admin") return "everything";
+  if (u.role === "admin") return t("users.summary.everything", "everything");
   const perms = u.permissions || {};
   const parts = [...(perms.allowed_clients || []), ...(perms.allowed_groups || [])];
-  return parts.length ? parts.join(", ") : "nothing yet";
+  return parts.length ? parts.join(", ") : t("users.summary.nothing_yet", "nothing yet");
 }
 
 function renderTotpStatus() {
   const enabled = !!(currentUser && currentUser.totp_enabled);
   document.getElementById("totp-status-text").textContent = enabled
-    ? "Two-factor authentication is currently enabled."
-    : "Off by default - adds a second step (an authenticator app code) to signing in.";
+    ? t("general.2fa_currently_enabled", "Two-factor authentication is currently enabled.")
+    : t("general.2fa_off_hint", "Off by default - adds a second step (an authenticator app code) to signing in.");
   document.getElementById("totp-disabled-view").style.display = enabled ? "none" : "";
   document.getElementById("totp-enabled-view").style.display = enabled ? "" : "none";
   document.getElementById("totp-setup-view").style.display = "none";
