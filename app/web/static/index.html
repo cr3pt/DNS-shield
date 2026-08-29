@@ -1535,7 +1535,7 @@
       </table>
 
       <h3 style="margin-top:1.25rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);" data-i18n="blocklists.suggested">Suggested lists</h3>
-      <p class="muted">
+      <p class="muted" data-i18n="blocklists.hint.suggested">
         Well-known public blocklists - StevenBlack's Unified Hosts, AdGuard's own DNS filter, and
         several of <a href="https://firebog.net" target="_blank" rel="noopener">Firebog</a>'s
         recommended ("ticked") lists. Adding one just fills in the form above for you and fetches
@@ -1551,7 +1551,7 @@
 
     <section>
       <h2 data-i18n="blocklists.allow_sources">Allow-list sources</h2>
-      <p class="muted">Same format as blocklists, but any domain fetched here is never blocked - overrides the blocklists above.</p>
+      <p class="muted" data-i18n="blocklists.hint.allow_sources">Same format as blocklists, but any domain fetched here is never blocked - overrides the blocklists above.</p>
       <form class="inline" id="add-allow-source-form">
         <input type="text" id="as-name" data-i18n-ph="common.name_ph" placeholder="Name" required>
         <input type="url" id="as-url" placeholder="https://.../allowlist.txt" required>
@@ -1565,7 +1565,7 @@
 
     <section>
       <h2 data-i18n="blocklists.refresh_schedule">Refresh schedule</h2>
-      <p class="muted">How often every enabled blocklist/allow-list source above is re-fetched in the background. "Refresh now" next to Blocklists always fetches immediately regardless of this.</p>
+      <p class="muted" data-i18n="blocklists.hint.refresh_schedule">How often every enabled blocklist/allow-list source above is re-fetched in the background. "Refresh now" next to Blocklists always fetches immediately regardless of this.</p>
       <form id="blocklist-refresh-form">
         <div class="field-grid">
           <div class="field"><label data-i18n="blocklists.refresh_interval">Blocklist refresh interval (hours)</label><input type="number" id="s-refresh-interval"></div>
@@ -1579,7 +1579,7 @@
     <div class="two-col">
       <section class="section-allow">
         <h2 data-i18n="ownlists.allowlist">Allowlist (never blocked)</h2>
-        <p class="muted">Always resolved normally, even if a blocklist matches - takes priority over the blocklists, but a denylist entry still wins over this.</p>
+        <p class="muted" data-i18n="ownlists.hint.allowlist">Always resolved normally, even if a blocklist matches - takes priority over the blocklists, but a denylist entry still wins over this.</p>
         <form class="inline" id="add-allow-form">
           <input type="text" id="allow-domain" placeholder="example.com" required>
           <button type="submit" data-i18n="common.add">Add</button>
@@ -1588,7 +1588,7 @@
       </section>
       <section class="section-deny">
         <h2 data-i18n="ownlists.denylist">Denylist (always blocked)</h2>
-        <p class="muted">Always blocked, even if not on any blocklist - and even if the same domain is also on the allowlist above.</p>
+        <p class="muted" data-i18n="ownlists.hint.denylist">Always blocked, even if not on any blocklist - and even if the same domain is also on the allowlist above.</p>
         <form class="inline" id="add-deny-form">
           <input type="text" id="deny-domain" placeholder="tracker.example.com" required>
           <button type="submit" data-i18n="common.add">Add</button>
@@ -1599,7 +1599,7 @@
 
     <section>
       <h2><span data-i18n="ownlists.regex_denylist">Regex denylist</span> <span class="tag" style="background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)" data-i18n="common.experimental">experimental</span></h2>
-      <p class="muted">
+      <p class="muted" data-i18n="ownlists.hint.regex">
         Blocks any query name matching one of these Python regular expressions - e.g.
         <code>^ads?[0-9]*\.</code> catches ad/ad1/ads2 subdomains across every domain at once,
         something a plain domain/subdomain denylist entry above can't express. Off by default -
@@ -1617,7 +1617,7 @@
 
     <section>
       <h2 data-i18n="ownlists.blocked_ips">Blocked destination IPs</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="ownlists.hint.blocked_ips">
         Blocks a query the moment its answer resolves to one of these IPs/CIDRs, or one from a
         subscribed list below - even for a domain on the allowlist above. Catches a trusted
         domain that's been compromised or rebound to point at a known-bad address; the domain
@@ -1630,7 +1630,7 @@
       <table><tbody id="deny-answer-ip-rows"></tbody></table>
 
       <h3 style="margin-top:1rem;" data-i18n="ownlists.malicious_ip_lists">Malicious-IP lists</h3>
-      <p class="muted">Subscribed lists of IPs/CIDRs (one per line, "#" for comments) - fetched, cached, and refreshed on the same schedule as Blocklists.</p>
+      <p class="muted" data-i18n="ownlists.hint.malicious_ip_lists">Subscribed lists of IPs/CIDRs (one per line, "#" for comments) - fetched, cached, and refreshed on the same schedule as Blocklists.</p>
       <form class="inline" id="add-answer-ip-source-form">
         <input type="text" id="answer-ip-source-name" data-i18n-ph="ownlists.list_name_ph" placeholder="list name" style="width:9rem;">
         <input type="text" id="answer-ip-source-url" placeholder="https://..." style="flex:1;min-width:12rem;">
@@ -1644,7 +1644,7 @@
 
     <section>
       <h2 data-i18n="ownlists.typosquat_title">Typosquat protection</h2>
-      <p class="muted">
+      <p class="muted" data-i18n="ownlists.hint.typosquat">
         Flags a query as a probable typosquat when it's a close spelling variant (e.g.
         <code>paypa1.com</code>, <code>faceb00k.com</code>) or has a protected brand name
         embedded in a longer domain (e.g. <code>paypal-security-check.com</code>) - never an
@@ -2027,6 +2027,19 @@ const I18N_PL = {
   "import.hint.adguard": "Prześlij plik AdGuardHome.yaml, aby zaimportować jego filtry, filtry dozwolonych, reguły użytkownika, serwery nadrzędne, tryb blokowania oraz adresy IP/CIDR per klient. Zastępuje to Twoje obecne listy blokujące i grupy klientów tymi z AdGuard, ale zachowuje wszystko inne (w tym Twoje logowanie do panelu). Kontrola rodzicielska, bezpieczne przeglądanie, DHCP, TLS oraz hasło do AdGuard nigdy nie są importowane.",
   "import.hint.pihole1": "Prześlij plik <code>gravity.db</code> - własną bazę SQLite Pi-hole, zawartą w kopii zapasowej \"Teleporter\" lub skopiowaną bezpośrednio z <code>/etc/pihole/gravity.db</code> na hoście Pi-hole. Importuje adresy URL subskrypcji list blokujących (i, w nowszych wersjach gravity.db, list dozwolonych), włączone domeny dozwól/blokuj, włączone wzorce regex-deny (mapowane na własną eksperymentalną listę blokującą regex DNS-shield, która zostaje dla Ciebie włączona) oraz adresy IP klientów jako grupy klientów.",
   "import.hint.pihole2": "Nie ma tego w gravity.db, więc nie jest importowane w ten sposób: serwery DNS nadrzędne, adres/port nasłuchu, tryb blokowania (znajdują się w setupVars.conf/pihole.toml Pi-hole, innym pliku), wpisy regex ALLOW (brak odpowiednika w DNS-shield), przypisania list do grup klientów oraz Twoje logowanie do panelu. Wynik importu dokładnie pokazuje, co zostało przeniesione, a co nie.",
+
+  // --- settings: blocklists hints ---
+  "blocklists.hint.suggested": "Znane publiczne listy blokujące - Unified Hosts od StevenBlack, własny filtr DNS AdGuard oraz kilka poleconych (\"zaznaczonych\") list z <a href=\"https://firebog.net\" target=\"_blank\" rel=\"noopener\">Firebog</a>. Dodanie jednej po prostu wypełnia za Ciebie powyższy formularz i pobiera ją jak każde inne źródło - format jest wykrywany automatycznie w obu przypadkach, a potem możesz ją Wyłączyć lub Usunąć tak samo jak każdą wpisaną ręcznie. Wpis znika z tej listy po dodaniu, bo nie ma już nic więcej do zasugerowania.",
+  "blocklists.hint.allow_sources": "Ten sam format co listy blokujące, ale żadna domena pobrana tutaj nigdy nie jest blokowana - ma pierwszeństwo przed listami blokującymi powyżej.",
+  "blocklists.hint.refresh_schedule": "Jak często każde włączone źródło listy blokującej/dozwolonej powyżej jest ponownie pobierane w tle. \"Odśwież teraz\" obok Listy blokujące zawsze pobiera natychmiast, niezależnie od tego ustawienia.",
+
+  // --- settings: own lists hints ---
+  "ownlists.hint.allowlist": "Zawsze rozwiązywana normalnie, nawet jeśli pasuje do listy blokującej - ma priorytet nad listami blokującymi, ale wpis na liście blokowanych nadal wygrywa nad tym.",
+  "ownlists.hint.denylist": "Zawsze blokowana, nawet jeśli nie znajduje się na żadnej liście blokującej - i nawet jeśli ta sama domena jest też na liście dozwolonych powyżej.",
+  "ownlists.hint.regex": "Blokuje każdą nazwę zapytania pasującą do jednego z tych wyrażeń regularnych Pythona - np. <code>^ads?[0-9]*\\.</code> wyłapuje subdomeny ad/ad1/ads2 we wszystkich domenach naraz, czego zwykły wpis domeny/subdomeny na liście blokowanych powyżej nie potrafi wyrazić. Domyślnie wyłączone - przełącz \"Włącz listę blokującą regex\" w Ustawienia -> DNS - ponieważ każdy włączony wzorzec tutaj jest sprawdzany przy każdym pojedynczym zapytaniu, trzymaj listę krótką. Wzorce są kompilowane raz i buforowane w pamięci, nie kompilowane ponownie przy każdym zapytaniu, ale samo dopasowywanie to wciąż realna praca CPU na zapytanie - to jest przeznaczone dla garstki starannie dobranych reguł, nie dla pełnej listy.",
+  "ownlists.hint.blocked_ips": "Blokuje zapytanie w momencie, gdy jego odpowiedź wskazuje na jeden z tych adresów IP/CIDR lub jeden z subskrybowanej listy poniżej - nawet dla domeny na liście dozwolonych powyżej. Wyłapuje zaufaną domenę, która została skompromitowana lub przekierowana (rebinding) na znany zły adres; lista dozwolonych domen nadal rządzi wszystkim innym dotyczącym tej domeny.",
+  "ownlists.hint.malicious_ip_lists": "Subskrybowane listy adresów IP/CIDR (po jednym w wierszu, \"#\" dla komentarzy) - pobierane, buforowane i odświeżane według tego samego harmonogramu co Listy blokujące.",
+  "ownlists.hint.typosquat": "Oznacza zapytanie jako prawdopodobny typosquat, gdy jest bliskim wariantem literowym (np. <code>paypa1.com</code>, <code>faceb00k.com</code>) lub ma osadzoną chronioną nazwę marki w dłuższej domenie (np. <code>paypal-security-check.com</code>) - nigdy dokładne dopasowanie ani prawdziwa subdomena samej chronionej domeny. Zawsze generuje alert (zakładka Alerty, z powiadomieniem jeśli skonfigurowane); Ustawienia -> DNS mają też wybór \"Po dopasowaniu\" decydujący, co dzieje się z samym zapytaniem - rozwiąż normalnie (domyślnie), przekieruj na prawdziwy adres marki lub przekieruj na wskazany przez Ciebie adres.",
   "toast.list_added": "Lista dodana",
   "col.domain": "Domena",
   "col.count": "Liczba",
