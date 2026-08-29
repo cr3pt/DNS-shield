@@ -38,6 +38,10 @@ class EnrichmentStore:
         conn = self._connect()
         try:
             conn.executescript(SCHEMA)
+            try:
+                conn.execute("ALTER TABLE enrichments ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
         finally:
             conn.close()
@@ -49,19 +53,35 @@ class EnrichmentStore:
         overall_verdict: str,
         overall_score: int | None,
         sources: dict[str, Any],
+        source: str = "manual",
     ) -> int:
         with self._lock:
             conn = self._connect()
             try:
                 cur = conn.execute(
-                    "INSERT INTO enrichments (ts, target, target_type, overall_verdict, overall_score, sources_json) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (time.time(), target, target_type, overall_verdict, overall_score, json.dumps(sources)),
+                    "INSERT INTO enrichments (ts, target, target_type, overall_verdict, overall_score, sources_json, source) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (time.time(), target, target_type, overall_verdict, overall_score, json.dumps(sources), source),
                 )
                 conn.commit()
                 return cur.lastrowid
             finally:
                 conn.close()
+
+    def known_targets(self, target_type: str | None = None) -> set[str]:
+        """All targets ever recorded - used to seed the auto-enrich "already
+        checked" set at startup so a restart doesn't re-enrich everything."""
+        conn = self._connect()
+        try:
+            if target_type is not None:
+                rows = conn.execute(
+                    "SELECT DISTINCT target FROM enrichments WHERE target_type = ?", (target_type,)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT DISTINCT target FROM enrichments").fetchall()
+        finally:
+            conn.close()
+        return {row[0] for row in rows}
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -73,6 +93,7 @@ class EnrichmentStore:
             "overall_verdict": row["overall_verdict"],
             "overall_score": row["overall_score"],
             "sources": json.loads(row["sources_json"]),
+            "source": row["source"] if "source" in row.keys() else "manual",
         }
 
     def recent(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -80,7 +101,7 @@ class EnrichmentStore:
         try:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT id, ts, target, target_type, overall_verdict, overall_score, sources_json "
+                "SELECT id, ts, target, target_type, overall_verdict, overall_score, sources_json, source "
                 "FROM enrichments ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -93,7 +114,7 @@ class EnrichmentStore:
         try:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT id, ts, target, target_type, overall_verdict, overall_score, sources_json "
+                "SELECT id, ts, target, target_type, overall_verdict, overall_score, sources_json, source "
                 "FROM enrichments WHERE target = ? ORDER BY id DESC LIMIT ?",
                 (target, limit),
             ).fetchall()

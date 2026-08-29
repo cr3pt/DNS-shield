@@ -1197,6 +1197,23 @@
           </div>
         </div>
 
+        <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-auto-enabled">
+          <label for="s-enrich-auto-enabled">Automatically enrich newly-seen domains</label>
+        </div>
+        <p class="hint" style="color:var(--muted);">
+          Runs Enrich once for a domain, the very first time DNS-shield ever sees it queried -
+          never on repeat queries, and never more than the check limit below per run, so a
+          burst of new domains (a device coming online, a phone restoring apps) can't blow
+          through a free-tier API quota in one go; it just catches up over the next few
+          checks instead. Needs "Enable public lookups" above (or a local reputation
+          service) to actually call anything.
+        </p>
+        <div class="field-grid">
+          <div class="field"><label>Check every (seconds)</label><input type="number" id="s-enrich-auto-interval" min="5" step="1"></div>
+          <div class="field"><label>New domains per check</label><input type="number" id="s-enrich-auto-max-per-check" min="1" step="1"></div>
+        </div>
+
         <button type="submit">Save threat-intel settings</button>
       </form>
     </section>
@@ -2080,13 +2097,14 @@ function openEnrichmentWindow(result) {
     ? `<div class="history">
         <h2>Lookup history <span class="muted">(${history.length} of this target's past checks, newest first)</span></h2>
         <table class="hist-table">
-          <thead><tr><th>When</th><th>Verdict at the time</th><th>Score</th></tr></thead>
+          <thead><tr><th>When</th><th>Verdict at the time</th><th>Score</th><th>How</th></tr></thead>
           <tbody>
             ${history
               .map((h) => {
                 const hc = VERDICT_COLORS[h.overall_verdict] || VERDICT_COLORS.unknown;
                 const when = new Date(h.ts * 1000).toLocaleString();
-                return `<tr><td>${escapeHtml(when)}</td><td><span class="hbadge" style="background:${hc.accent};">${escapeHtml(h.overall_verdict)}</span></td><td>${h.overall_score != null ? h.overall_score : "&ndash;"}</td></tr>`;
+                const how = h.source === "auto" ? "auto (newly seen)" : "manual";
+                return `<tr><td>${escapeHtml(when)}</td><td><span class="hbadge" style="background:${hc.accent};">${escapeHtml(h.overall_verdict)}</span></td><td>${h.overall_score != null ? h.overall_score : "&ndash;"}</td><td class="muted">${escapeHtml(how)}</td></tr>`;
               })
               .join("")}
           </tbody>
@@ -3043,6 +3061,9 @@ async function loadSettings() {
   document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
   document.getElementById("s-enrich-alert-enabled").checked = enr.alert_enabled !== false;
   document.getElementById("s-enrich-alert-min-severity").value = enr.alert_min_severity ?? "medium";
+  document.getElementById("s-enrich-auto-enabled").checked = !!enr.auto_enrich_enabled;
+  document.getElementById("s-enrich-auto-interval").value = enr.auto_enrich_interval_seconds ?? 30;
+  document.getElementById("s-enrich-auto-max-per-check").value = enr.auto_enrich_max_per_check ?? 5;
 
   const publicReady = !!enr.public_enabled && (
     enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set ||
@@ -4308,6 +4329,9 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
     local_url: document.getElementById("s-enrich-local-url").value.trim(),
     alert_enabled: document.getElementById("s-enrich-alert-enabled").checked,
     alert_min_severity: document.getElementById("s-enrich-alert-min-severity").value,
+    auto_enrich_enabled: document.getElementById("s-enrich-auto-enabled").checked,
+    auto_enrich_interval_seconds: floatField("s-enrich-auto-interval"),
+    auto_enrich_max_per_check: intField("s-enrich-auto-max-per-check"),
   };
   const vt = document.getElementById("s-vt-key").value.trim();
   const abuse = document.getElementById("s-abuseipdb-key").value.trim();

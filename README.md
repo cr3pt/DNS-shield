@@ -1011,13 +1011,49 @@ no equivalent "allowlist this IP" action to offer.
 A lookup that comes back medium-or-worse (configurable, Settings ->
 Threat intelligence -> "Add an Alert when a lookup comes back with a bad
 reputation") also adds an entry to the **Alerts** tab, same place local
-anomaly detection and alert-rule hits land - see the next section. This
-still only ever happens because you clicked Enrich somewhere; nothing
-about the lookup itself becomes automatic. Repeat lookups on the same bad
-indicator respect the same re-alert cooldown as everything else in
-Alerts (Settings -> Anomalies -> "Re-alert cooldown"), so clicking Enrich
-on a domain you already know is bad ten times in a row doesn't create ten
-identical entries.
+anomaly detection and alert-rule hits land - see the next section.
+Repeat lookups on the same bad indicator respect the same re-alert
+cooldown as everything else in Alerts (Settings -> Anomalies ->
+"Re-alert cooldown"), so clicking Enrich on a domain you already know is
+bad ten times in a row doesn't create ten identical entries.
+
+### Automatically enriching newly-seen domains
+
+Enrich is otherwise entirely manual - see above - but Settings -> Threat
+intelligence -> "Automatically enrich newly-seen domains" (off by
+default) adds one exception: the first time DNS-shield ever sees a query
+for a given domain, it runs Enrich for it in the background, on the
+theory that a domain nobody on your network has ever queried before is
+exactly the moment a new threat is most likely to show up unblocked and
+most worth a reputation check. Every query after that first one is
+ignored for this purpose - once a domain's been checked, it's never
+auto-enriched again, so this doesn't turn into a lookup on every single
+query.
+
+This still needs "Enable public lookups" (or a local reputation service)
+switched on to actually call anything, same gate as a manual Enrich - the
+automatic part is only ever *which* domains get checked and *when*, never
+a way around that switch. A background check every 30 seconds (both
+configurable) looks at whatever's been queried since the last check and
+enriches up to 5 newly-seen domains from it (also configurable) - capped
+deliberately, so a burst of new domains all at once (a device coming
+online, a phone restoring its apps) can't blow through a free-tier API
+quota in one go; it just falls behind and catches up over the next few
+checks instead of enriching everything at once or silently dropping the
+overflow. "Newly seen" survives a restart too: it's based on whether a
+domain has ever been recorded in `enrichment.db` (see below), not an
+in-memory list, so restarting the container doesn't reset every domain
+back to "new" and re-check your whole history.
+
+Every Enrich result - manual or automatic - is recorded in
+`enrichment.db`: target, timestamp, overall verdict/score, and the raw
+per-source responses, kept indefinitely so a domain's reputation history
+is there to look back on. A result triggered this way is marked
+`source: "auto"` (a manually-clicked one is `"manual"`) - visible as a
+"How" column in the Enrich popup's lookup-history table, and in
+`GET /api/enrich/history`, so it's always clear whether a given check
+happened because you clicked something or because DNS-shield noticed the
+domain on its own.
 
 ### Alerts tab, and local anomaly detection
 
@@ -1885,9 +1921,13 @@ app/
   import_adguard.py    one-off AdGuard Home -> DNS-shield config converter (see above)
   import_pihole.py      one-off Pi-hole gravity.db -> DNS-shield config converter (see above)
   enrichment.py         VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/RDAP/crt.sh reputation
-                        lookups - only ever called from the "Enrich" button's endpoint, never
-                        on its own (see above)
+                        lookups, called either from the "Enrich" button's endpoint or from
+                        auto_enrich.py below (see above)
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
+  auto_enrich.py         background worker that runs Enrich once for each newly-seen queried
+                        domain when enabled (see Automatically enriching newly-seen domains
+                        above) - watches the query log the same way anomaly.py's
+                        watched-domain loop does
   anomaly.py             local, heuristic anomaly detection over the query log, plus the
                         watched-domain/alert-rules background loop - SQLite storage
                         (data/anomalies.db) (see above)

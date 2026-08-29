@@ -1141,13 +1141,51 @@ Sprawdzenie, które wróci z wynikiem co najmniej średnim (konfigurowalne,
 Settings -> Threat intelligence -> "Add an Alert when a lookup comes back
 with a bad reputation"), dodaje też wpis do zakładki **Alerts** - tam
 samo, gdzie lądują trafienia lokalnego wykrywania anomalii i reguł
-alertów - zobacz kolejną sekcję. To wciąż dzieje się wyłącznie dlatego,
-że kliknięto Enrich gdzieś w panelu; samo sprawdzenie w żaden sposób nie
-staje się automatyczne. Powtórne sprawdzenie tego samego złego wskaźnika
-respektuje ten sam cooldown ponownego alarmowania, co reszta Alerts
-(Settings -> Anomalies -> "Re-alert cooldown"), więc kliknięcie Enrich
-dziesięć razy z rzędu na domenie, o której już wiadomo, że jest zła, nie
-tworzy dziesięciu identycznych wpisów.
+alertów - zobacz kolejną sekcję. Powtórne sprawdzenie tego samego złego
+wskaźnika respektuje ten sam cooldown ponownego alarmowania, co reszta
+Alerts (Settings -> Anomalies -> "Re-alert cooldown"), więc kliknięcie
+Enrich dziesięć razy z rzędu na domenie, o której już wiadomo, że jest
+zła, nie tworzy dziesięciu identycznych wpisów.
+
+### Automatyczne wzbogacanie nowo widzianych domen
+
+Poza tym Enrich jest w pełni ręczny - zobacz wyżej - ale Settings ->
+Threat intelligence -> "Automatically enrich newly-seen domains"
+(domyślnie wyłączone) dodaje jeden wyjątek: przy pierwszym zapytaniu o
+daną domenę, jakie DNS-shield kiedykolwiek widział, uruchamia dla niej
+Enrich w tle - z założenia, że domena, o którą nikt w Twojej sieci
+nigdy wcześniej nie pytał, to właśnie moment, w którym nowe zagrożenie
+najprawdopodobniej pojawi się jeszcze niezablokowane, i najbardziej
+warto wtedy sprawdzić jej reputację. Każde kolejne zapytanie o tę samą
+domenę jest już do tego celu ignorowane - raz sprawdzona domena nigdy
+nie jest wzbogacana automatycznie ponownie, więc nie zamienia się to w
+sprawdzanie przy każdym pojedynczym zapytaniu.
+
+Nadal wymaga to włączonego "Enable public lookups" (albo własnej usługi
+reputacji) - dokładnie tej samej bramki, co ręczny Enrich; automatyczna
+jest wyłącznie decyzja, *które* domeny i *kiedy* sprawdzić, nigdy sposób
+na obejście tego przełącznika. Sprawdzenie w tle co 30 sekund (obie
+wartości konfigurowalne) patrzy na to, co zostało odpytane od ostatniego
+sprawdzenia, i wzbogaca do 5 nowo widzianych domen z tej puli (też
+konfigurowalne) - celowo z limitem, żeby nagły skok liczby nowych domen
+naraz (urządzenie właśnie się podłączyło, telefon przywraca aplikacje)
+nie wyczerpał w jednej chwili darmowego limitu API; zamiast tego panel po
+prostu zostaje w tyle i nadrabia w kolejnych sprawdzeniach, nie sprawdza
+wszystkiego naraz ani po cichu nie gubi nadwyżki. "Nowo widziana" przeżywa
+też restart: opiera się na tym, czy dana domena była już kiedykolwiek
+zapisana w `enrichment.db` (zobacz niżej), a nie na liście trzymanej
+tylko w pamięci, więc restart kontenera nie resetuje wszystkich domen z
+powrotem do stanu "nowa" i nie sprawdza całej historii od nowa.
+
+Każdy wynik Enrich - ręczny czy automatyczny - zapisywany jest w
+`enrichment.db`: cel, znacznik czasu, ogólny werdykt/wynik oraz surowe
+odpowiedzi z poszczególnych źródeł, przechowywane bezterminowo, żeby
+historia reputacji danej domeny była zawsze dostępna do wglądu. Wynik
+uruchomiony w ten sposób oznaczony jest jako `source: "auto"` (ręcznie
+kliknięty to `"manual"`) - widoczne jako kolumna "How" w tabeli historii
+sprawdzeń w popupie Enrich, a także w `GET /api/enrich/history`, więc
+zawsze wiadomo, czy dane sprawdzenie wynikło z kliknięcia, czy z tego,
+że DNS-shield sam zauważył domenę.
 
 ### Zakładka Alerts i lokalne wykrywanie anomalii
 
@@ -2120,10 +2158,14 @@ app/
   import_pihole.py      jednorazowy konwerter Pi-hole gravity.db -> konfiguracja
                         DNS-shield (zobacz wyżej)
   enrichment.py         zapytania o reputację do VirusTotal/AbuseIPDB/OTX/GreyNoise/
-                        Shodan/URLhaus/RDAP/crt.sh - wywoływane wyłącznie z punktu
-                        końcowego przycisku "Enrich", nigdy samodzielnie (zobacz wyżej)
+                        Shodan/URLhaus/RDAP/crt.sh - wywoływane albo z punktu końcowego
+                        przycisku "Enrich", albo z auto_enrich.py niżej (zobacz wyżej)
   enrichment_store.py   lokalne przechowywanie wyników wzbogacania: SQLite
                        (data/enrichment.db)
+  auto_enrich.py         mechanizm w tle, który raz uruchamia Enrich dla każdej nowo
+                        widzianej odpytywanej domeny, gdy jest włączony (zobacz
+                        "Automatyczne wzbogacanie nowo widzianych domen" wyżej) - obserwuje
+                        log zapytań tak samo, jak pętla obserwowanych domen w anomaly.py
   anomaly.py             lokalne, heurystyczne wykrywanie anomalii nad logiem zapytań,
                         plus pętla w tle obsługująca obserwowane domeny i reguły
                         alertów - przechowywanie w SQLite (data/anomalies.db) (zobacz

@@ -489,3 +489,32 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
         "overall_score": overall_score,
         "sources": sources,
     }
+
+
+_VERDICT_RANK = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def maybe_alert_on_verdict(result: dict[str, Any], config_store, anomaly) -> None:
+    """Turn a bad-enough enrich() result into an Alerts-tab entry, shared by
+    both the manual Enrich endpoint and the auto-enrich background worker so
+    the two never diverge in what counts as "bad enough"."""
+    if anomaly is None:
+        return
+    enr_cfg = config_store.get("enrichment", default={}) or {}
+    if not bool(enr_cfg.get("alert_enabled", True)):
+        return
+    threshold = _VERDICT_RANK.get(enr_cfg.get("alert_min_severity", "medium") or "medium", 2)
+    verdict = result.get("overall_verdict", "unknown")
+    if _VERDICT_RANK.get(verdict, -1) < threshold:
+        return
+    flagged = [
+        name for name, src in result.get("sources", {}).items()
+        if src and src.get("ok") and src.get("verdict") not in (None, "safe")
+    ]
+    summary = f'{result["target"]} flagged {verdict} by threat-intel' + (
+        f" ({', '.join(sorted(flagged))})" if flagged else ""
+    )
+    anomaly.record_threat_intel_alert(
+        result["target"], result["type"], verdict, summary,
+        {"overall_score": result.get("overall_score"), "flagged_sources": flagged},
+    )

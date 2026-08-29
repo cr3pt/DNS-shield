@@ -115,6 +115,13 @@ enrichment:
   # in the dashboard) comes back at or above this severity.
   alert_enabled: true
   alert_min_severity: "medium"  # low | medium | high
+  # Automatically run Enrich the first time a domain is ever queried, instead
+  # of only when you click the button yourself. Off by default - needs
+  # public_enabled (or a local reputation service) above to do anything.
+  # Only the domain's very first query triggers a lookup; repeats never do.
+  auto_enrich_enabled: false
+  auto_enrich_interval_seconds: 30  # how often the background check runs
+  auto_enrich_max_per_check: 5      # new domains looked up per check, to protect API quotas
 
 anomaly:
   enabled: false

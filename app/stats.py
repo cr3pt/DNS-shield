@@ -408,6 +408,25 @@ class Stats:
         finally:
             conn.close()
 
+    def queries_since(self, last_id: int, limit: int = 2000) -> list[dict[str, Any]]:
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, ts, domain, qtype, client, blocked FROM queries "
+                "WHERE id > ? ORDER BY id ASC LIMIT ?",
+                (last_id, limit),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {
+                "id": row["id"], "ts": row["ts"], "domain": row["domain"], "qtype": row["qtype"],
+                "client": row["client"], "blocked": bool(row["blocked"]),
+            }
+            for row in rows
+        ]
+
     def alert_hits_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
         conn = self._connect()
         try:

@@ -13,6 +13,7 @@ import uvicorn
 
 from app.anomaly import AnomalyDetector
 from app.audit import AuditLog
+from app.auto_enrich import AutoEnricher
 from app.block_page import start_block_page_server
 from app.blocklist import BlocklistManager
 from app.client_names import ClientNameResolver
@@ -143,6 +144,9 @@ def main() -> None:
         config_store, stats, DATA_DIR / "anomalies.db", on_new_anomalies=notifications.notify_anomalies
     )
     anomaly.start()
+
+    auto_enricher = AutoEnricher(config_store, stats, enrichment_store, anomaly=anomaly)
+    auto_enricher.start()
 
     users = UserStore(config_store)
     sessions = SessionStore()
