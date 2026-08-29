@@ -967,9 +967,9 @@
 
     <section>
       <h2>Custom DNS records</h2>
-      <p class="muted">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. Matches the name and its subdomains. A/AAAA only.</p>
+      <p class="muted">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. A plain name matches itself and its subdomains; a name with a wildcard (<code>*</code> for any characters, <code>?</code> for one) matches only what the pattern actually covers - e.g. <code>*.internal.example</code> matches <code>vpn.internal.example</code> but not <code>internal.example</code> itself. A/AAAA only.</p>
       <form class="inline" id="add-rewrite-form">
-        <input type="text" id="rw-name" placeholder="nas.home" required>
+        <input type="text" id="rw-name" placeholder="nas.home or *.internal.example" required>
         <select id="rw-type">
           <option value="A">A (IPv4)</option>
           <option value="AAAA">AAAA (IPv6)</option>

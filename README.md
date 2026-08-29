@@ -395,13 +395,29 @@ dns_rewrites:
     value: "192.168.1.10"
 ```
 
-A rewrite matches the name and its subdomains (so `printer.nas.home` also
-resolves, from the entry above), A/AAAA only - no CNAME chasing, to keep
-this a flat lookup that always terminates. It's checked *after* blocking,
-not before: a fully blocked client or an already-blocked domain still
-behaves as blocked regardless of any rewrite - a rewrite is an answer, not
-an exemption. Manage rewrites from the dashboard (Settings -> Custom DNS
-records) or by editing the list directly.
+A plain rewrite name (no `*`/`?`) matches the name and its subdomains (so
+`printer.nas.home` also resolves, from the entry above); a name containing
+`*` (any run of characters) or `?` (any single character) is matched as a
+glob pattern against the full queried name instead, so you can be more
+precise about what it covers:
+
+```yaml
+dns_rewrites:
+  - name: "*.internal.example"
+    type: "A"
+    value: "10.0.0.5"
+```
+
+`*.internal.example` matches `vpn.internal.example` and
+`db.staging.internal.example`, but - unlike the plain-name form above -
+*not* `internal.example` itself, since the pattern requires at least one
+character before the literal `.internal.example`; add a second entry for
+the bare domain if you want that too. A/AAAA only, either way - no CNAME
+chasing, to keep this a flat lookup that always terminates. It's checked
+*after* blocking, not before: a fully blocked client or an already-blocked
+domain still behaves as blocked regardless of any rewrite - a rewrite is
+an answer, not an exemption. Manage rewrites from the dashboard
+(Settings -> Custom DNS records) or by editing the list directly.
 
 ### Blocklist formats and suggested lists
 

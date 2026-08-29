@@ -443,14 +443,31 @@ dns_rewrites:
     value: "192.168.1.10"
 ```
 
-Rewrite dopasowuje daną nazwę i jej subdomeny (więc `printer.nas.home`
-również się rozwiąże na podstawie powyższego wpisu), wyłącznie dla
-rekordów A/AAAA - bez podążania za CNAME, żeby to wyszukiwanie zawsze
-kończyło się w jednym kroku. Jest sprawdzane *po* blokowaniu, nie przed
-nim: w pełni zablokowany klient albo już zablokowana domena nadal
-zachowują się jak zablokowane, niezależnie od jakiegokolwiek rewrite'a -
-rewrite to odpowiedź, a nie zwolnienie z blokady. Rewrite'ami zarządzasz z
-panelu (Settings -> Custom DNS records) albo edytując listę bezpośrednio.
+Zwykła nazwa rewrite'a (bez `*`/`?`) dopasowuje daną nazwę i jej subdomeny
+(więc `printer.nas.home` również się rozwiąże na podstawie powyższego
+wpisu); nazwa zawierająca `*` (dowolny ciąg znaków) albo `?` (dowolny
+pojedynczy znak) jest zamiast tego dopasowywana jako wzorzec glob względem
+pełnej odpytywanej nazwy, więc można dokładniej określić, co ma obejmować:
+
+```yaml
+dns_rewrites:
+  - name: "*.internal.example"
+    type: "A"
+    value: "10.0.0.5"
+```
+
+`*.internal.example` dopasuje `vpn.internal.example` i
+`db.staging.internal.example`, ale - w odróżnieniu od zwykłej nazwy
+powyżej - *nie* dopasuje samej `internal.example`, ponieważ wzorzec wymaga
+przynajmniej jednego znaku przed dosłownym `.internal.example`; jeśli
+zależy Ci też na samej domenie bez subdomeny, dodaj dla niej osobny wpis.
+W obu przypadkach wyłącznie dla rekordów A/AAAA - bez podążania za CNAME,
+żeby to wyszukiwanie zawsze kończyło się w jednym kroku. Jest sprawdzane
+*po* blokowaniu, nie przed nim: w pełni zablokowany klient albo już
+zablokowana domena nadal zachowują się jak zablokowane, niezależnie od
+jakiegokolwiek rewrite'a - rewrite to odpowiedź, a nie zwolnienie z
+blokady. Rewrite'ami zarządzasz z panelu (Settings -> Custom DNS records)
+albo edytując listę bezpośrednio.
 
 ### Formaty list blokad i sugerowane listy
 
