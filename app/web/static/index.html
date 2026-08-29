@@ -1259,7 +1259,7 @@
   <div id="subtab-anomalies" class="subtab-panel">
     <section>
       <h2 data-i18n="anom.local_detection">Local anomaly detection</h2>
-      <p class="hint" style="color:var(--muted);">
+      <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.overview">
         A background check over your own query log, entirely local - no cloud service, no ML,
         just simple per-client thresholds re-checked on a timer. Flags things like a client
         suddenly hammering many blocked domains (compromised app/device), a burst of unusually
@@ -1282,7 +1282,7 @@
           <div class="field"><label data-i18n="anom.blocked_domain_burst">Distinct-blocked-domain burst threshold</label><input type="number" id="s-anomaly-blocked-domain-burst" min="1" step="1"></div>
           <div class="field"><label data-i18n="dns.realert_cooldown">Re-alert cooldown (minutes)</label><input type="number" id="s-anomaly-cooldown" min="1" step="1"></div>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.domain_burst">
           A distinct-domain burst only fires if a good share of those domains also look
           <em>randomly generated</em> (Shannon entropy of the domain's own label, e.g.
           "kq7xzpqm3f.info") rather than real words - this is what keeps it from firing on
@@ -1294,7 +1294,7 @@
           <div class="field"><label data-i18n="anom.randomness_threshold">Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-entropy-min-bits" min="0" max="5" step="0.1"></div>
           <div class="field"><label data-i18n="anom.random_share">Share of domains that must look random (0-1)</label><input type="number" id="s-anomaly-entropy-fraction" min="0" max="1" step="0.05"></div>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.tunneling">
           DNS tunneling abuses DNS as a covert data channel by encoding data into a long
           stream of distinct, near-random subdomains of one domain (e.g.
           <code>k3f9a...92mz.tunnel.example.com</code>, one unique subdomain per query). This
@@ -1307,7 +1307,7 @@
           <div class="field"><label data-i18n="anom.min_subdomain_length">Minimum subdomain length to score</label><input type="number" id="s-anomaly-tunnel-min-length" min="1" step="1"></div>
           <div class="field"><label data-i18n="anom.randomness_threshold">Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-tunnel-min-bits" min="0" max="5" step="0.1"></div>
         </div>
-        <p class="hint" style="color:var(--muted);">
+        <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.ptr_scan">
           Fires when a client sends many distinct reverse-DNS (PTR) lookups for local/private IPs
           within a single window - one-off lookups (a NAS resolving its gateway, a router
           browsing the LAN) are normal, but a client working through a private range in sequence
@@ -1322,7 +1322,7 @@
 
     <section>
       <h2 data-i18n="anom.excluded">Excluded from anomaly detection</h2>
-      <p class="hint" style="color:var(--muted);">
+      <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.excluded">
         Domains below (and their subdomains) never trigger a watched-domain, typosquat,
         DNS-rebinding, or local-TLD alert - handy for a known-good domain that happens to
         look suspicious to one of those checks. Doesn't affect the volumetric checks above
@@ -1336,24 +1336,25 @@
     <section>
       <h2 data-i18n="alertrules.title">Alert rules (watched domains &amp; lists)</h2>
       <p class="hint" style="color:var(--muted);">
-        Flag a query the instant it happens, rather than waiting for a statistical pattern -
+        <span data-i18n="alertrules.hint.main_pre">Flag a query the instant it happens, rather than waiting for a statistical pattern -
         querying a domain below (or one from a subscribed watch list) always raises an alert,
-        whether or not it's actually blocked. Checked roughly every
-        <span id="alert-rules-interval-note">15</span> seconds. Purely observational: this never
+        whether or not it's actually blocked. Checked roughly every</span>
+        <span id="alert-rules-interval-note">15</span>
+        <span data-i18n="alertrules.hint.main_post">seconds. Purely observational: this never
         changes how a query resolves, and every hit goes through the same cooldown/notification
-        pipeline as the anomalies above.
+        pipeline as the anomalies above.</span>
       </p>
       <div id="alert-domains"></div>
 
       <h3 style="margin-top:1rem;" data-i18n="alertrules.watch_lists">Watch lists</h3>
-      <p class="muted">Subscribed lists of domains to watch, same formats/auto-detection as the Blocklists section.</p>
+      <p class="muted" data-i18n="alertrules.hint.watch_lists">Subscribed lists of domains to watch, same formats/auto-detection as the Blocklists section.</p>
       <form class="inline" id="alert-source-from-blocklist-form">
         <select id="alert-source-from-blocklist" style="flex:1;min-width:12rem;">
           <option value="" data-i18n="alertrules.add_from_blocklists">-- add a list already in Blocklists --</option>
         </select>
         <button type="submit" data-i18n="alertrules.watch_this_list">Watch this list</button>
       </form>
-      <p class="muted" style="margin-top:0.4rem;">Or watch a list that isn't in Blocklists at all:</p>
+      <p class="muted" style="margin-top:0.4rem;" data-i18n="alertrules.hint.or_watch">Or watch a list that isn't in Blocklists at all:</p>
       <form class="inline" id="alert-source-form">
         <input type="text" id="alert-source-name" placeholder="list name" style="width:9rem;">
         <input type="text" id="alert-source-url" placeholder="https://..." style="flex:1;min-width:12rem;">
@@ -1375,7 +1376,7 @@
   <div id="subtab-notifications" class="subtab-panel">
     <section>
       <h2 data-i18n="notif.email_title">Email notifications</h2>
-      <p class="hint" style="color:var(--muted);">
+      <p class="hint" style="color:var(--muted);" data-i18n="notif.hint.email">
         Sends an email straight to the SMTP server <em>you</em> configure below when new
         anomalies are detected - not a third-party cloud service, this is exactly what any
         mail client does: your own mail server, or your own account at any provider. Off by
@@ -2002,6 +2003,22 @@ const I18N_PL = {
   "ti.hint.rdap_crtsh": "Obie usługi działają tylko dla domen i nie wymagają klucza (darmowe usługi publiczne, bez konta) - nadal jednak wymagają włączenia \"Włącz publiczne sprawdzenia\" powyżej, bo to wciąż wywołania do zewnętrznych usług. Wiek domeny oznacza domenę zarejestrowaną bardzo niedawno, częsty sygnał phishingu/typosquattingu; crt.sh po prostu informuje, ile certyfikatów i odrębnych nazw subdomen jest zarejestrowanych dla danej domeny, dla Twojej własnej wiedzy.",
   "ti.hint.local_service": "Wskaż tutaj infrastrukturę, którą sam prowadzisz, zamiast (lub obok) usług publicznych powyżej - nie podlega przełącznikowi powyżej, bo to nie jest wywołanie do zewnętrznej usługi. DNS-shield wysyła POST-em <code>{\"target\": \"&lt;domena-lub-ip&gt;\", \"type\": \"domain\"|\"ip\"}</code> jako JSON pod adres URL poniżej i oczekuje w odpowiedzi <code>{\"verdict\": \"safe\"|\"low\"|\"medium\"|\"high\"|\"critical\", \"score\": 0-100, \"summary\": \"...\"}</code> (score/summary opcjonalne).",
   "ti.hint.auto_enrich": "Uruchamia Enrich raz dla domeny, przy pierwszym zapytaniu jakie DNS-shield kiedykolwiek dla niej zobaczy - nigdy przy powtórnych zapytaniach i nigdy więcej niż limit sprawdzeń poniżej na jedno uruchomienie, więc nagły napływ nowych domen (urządzenie łączące się po raz pierwszy, telefon przywracający aplikacje) nie wyczerpie od razu darmowego limitu API; zamiast tego nadrabia zaległości w kolejnych kilku sprawdzeniach. Potrzebuje włączonego \"Włącz publiczne sprawdzenia\" powyżej (lub lokalnej usługi reputacji), żeby cokolwiek faktycznie wywołać.",
+
+  // --- settings: anomalies hints ---
+  "anom.hint.overview": "Sprawdzenie w tle Twojego własnego dziennika zapytań, całkowicie lokalne - bez usługi chmurowej, bez ML, tylko proste progi per-klient sprawdzane cyklicznie. Wykrywa m.in. klienta nagle bombardującego wiele zablokowanych domen (skompromitowana aplikacja/urządzenie), nagły skok liczby różnych domen w krótkim oknie (typowe dla malware DGA przechodzącego przez kandydackie domeny C2) lub niezwykle wysoki odsetek zapytań klienta będących blokowanymi. Domyślnie wyłączone; włączenie nic nie kosztuje poza okresowym zapytaniem i nigdy nie zmienia sposobu odpowiadania na żadne zapytanie - tylko odczytuje dziennik i zapisuje tutaj alert.",
+  "anom.hint.domain_burst": "Skok liczby różnych domen uruchamia alert tylko wtedy, gdy spora część tych domen wygląda też na <em>wygenerowaną losowo</em> (entropia Shannona etykiety domeny, np. \"kq7xzpqm3f.info\"), a nie na prawdziwe słowa - to właśnie zapobiega uruchamianiu alertu przy zwykłym ruchu o dużej liczbie różnych domen, jak strona ładująca trzydzieści różnych, prawdziwych domen reklamowo-śledzących, co nie jest faktycznie podejrzane.",
+  "anom.hint.tunneling": "DNS tunneling wykorzystuje DNS jako ukryty kanał danych, kodując dane w długim strumieniu odrębnych, niemal losowych subdomen jednej domeny (np. <code>k3f9a...92mz.tunnel.example.com</code>, jedna unikalna subdomena na zapytanie). Alert uruchamia się, gdy klient odpytuje wiele odrębnych subdomen <em>tej samej</em> domeny w danym oknie i większość z nich wygląda na zakodowane dane (długie + wysoka entropia), a nie na typową garstkę subdomen prawdziwej strony.",
+  "anom.hint.ptr_scan": "Uruchamia się, gdy klient wysyła wiele odrębnych zapytań odwrotnego DNS (PTR) dla lokalnych/prywatnych adresów IP w jednym oknie - pojedyncze zapytania (NAS sprawdzający swoją bramę, router przeglądający sieć LAN) są normalne, ale klient przechodzący kolejno przez zakres prywatny wygląda, jakby wyliczał, co jest w Twojej sieci.",
+  "anom.hint.excluded": "Domeny poniżej (i ich subdomeny) nigdy nie wywołują alertu obserwowanej domeny, typosquattingu, DNS rebinding ani lokalnego TLD - przydatne dla znanej, dobrej domeny, która akurat wygląda podejrzanie dla jednego z tych sprawdzeń. Nie wpływa na sprawdzenia ilościowe powyżej (skoki zapytań, odsetek blokowania, DNS tunneling, skanowanie PTR), które oznaczają ogólne zachowanie klienta, a nie pojedynczą domenę. Najszybszy sposób dodania to przycisk \"Wyklucz\" obok domeny w wyskakującym okienku \"Pokaż domeny\" alertu.",
+
+  // --- settings: alert rules hints ---
+  "alertrules.hint.main_pre": "Oznacz zapytanie natychmiast, gdy nastąpi, zamiast czekać na wzorzec statystyczny - zapytanie o domenę poniżej (lub z subskrybowanej listy obserwowanej) zawsze wywołuje alert, niezależnie od tego, czy jest faktycznie blokowane. Sprawdzane mniej więcej co",
+  "alertrules.hint.main_post": "sekund. Czysto obserwacyjne: to nigdy nie zmienia sposobu rozwiązania zapytania, a każde trafienie przechodzi przez ten sam mechanizm cooldownu/powiadomień co anomalie powyżej.",
+  "alertrules.hint.watch_lists": "Subskrybowane listy domen do obserwowania, te same formaty/automatyczne wykrywanie co w sekcji Listy blokujące.",
+  "alertrules.hint.or_watch": "Albo obserwuj listę, której w ogóle nie ma w Listach blokujących:",
+
+  // --- settings: notifications hints ---
+  "notif.hint.email": "Wysyła e-mail bezpośrednio na serwer SMTP, który skonfigurujesz poniżej, gdy zostaną wykryte nowe anomalie - to nie usługa chmurowa firm trzecich, to dokładnie to, co robi każdy klient pocztowy: Twój własny serwer pocztowy lub Twoje własne konto u dowolnego dostawcy. Domyślnie wyłączone; nic nigdy nie jest wysyłane, dopóki nie włączysz tego tutaj i nie ustawisz co najmniej jednego odbiorcy.",
   "toast.list_added": "Lista dodana",
   "col.domain": "Domena",
   "col.count": "Liczba",
