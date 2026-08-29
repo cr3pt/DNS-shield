@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import re
+import secrets
 import sqlite3
 import tempfile
 import time
@@ -13,7 +14,7 @@ from typing import Any
 import yaml
 from dnslib import DNSRecord
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from app.auth import verify_password
@@ -28,6 +29,7 @@ from app.passkeys import PendingChallengeStore
 from app import passkeys as passkeys_lib
 from webauthn.helpers import bytes_to_base64url
 from app.sessions import COOKIE_NAME, SessionStore
+from app.sso import OIDCError, PendingSSOStore, build_authorization_url, exchange_code, verify_id_token
 from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
@@ -92,6 +94,21 @@ def _notification_email_settings(cfg: dict[str, Any]) -> dict[str, Any]:
         "from_address": cfg.get("from_address", "") or "",
         "to_addresses": cfg.get("to_addresses", []) or [],
         "min_severity": cfg.get("min_severity", "medium") or "medium",
+    }
+
+
+def _sso_settings_public(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "issuer": cfg.get("issuer", "") or "",
+        "client_id": cfg.get("client_id", "") or "",
+        "client_secret_set": bool(cfg.get("client_secret")),
+        "client_secret_preview": _masked_key_preview(cfg.get("client_secret")),
+        "scopes": cfg.get("scopes", "") or "openid email profile",
+        "button_label": cfg.get("button_label", "") or "Single Sign-On",
+        "username_claim": cfg.get("username_claim", "") or "preferred_username",
+        "auto_provision": bool(cfg.get("auto_provision", True)),
+        "default_role": cfg.get("default_role", "") or "user",
     }
 
 
@@ -374,6 +391,18 @@ class NotificationWebhookIn(BaseModel):
     min_severity: str | None = None
 
 
+class SSOSettingsIn(BaseModel):
+    enabled: bool | None = None
+    issuer: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    scopes: str | None = None
+    button_label: str | None = None
+    username_claim: str | None = None
+    auto_provision: bool | None = None
+    default_role: str | None = None
+
+
 def create_app(
     config_store,
     blocklist,
@@ -398,6 +427,7 @@ def create_app(
     login_throttle = LoginThrottle()
     pending_totp = PendingTotpStore()
     pending_challenges = PendingChallengeStore()
+    pending_sso = PendingSSOStore()
 
     def _webauthn_rp_id(request: Request) -> str:
         return request.url.hostname or "localhost"
@@ -632,6 +662,92 @@ def create_app(
             audit_log.record(username, "login (passkey)", client_ip=client_ip)
         return {"ok": True, "user": public_user(user)}
 
+    def _sso_config() -> dict[str, Any]:
+        return config_store.get("sso", default={}) or {}
+
+    def _sso_redirect_uri(request: Request) -> str:
+        return f"{request.url.scheme}://{request.url.netloc}/api/sso/callback"
+
+    @app.get("/api/sso/login")
+    def sso_login(request: Request, next: str = "/") -> RedirectResponse:
+        cfg = _sso_config()
+        if not cfg.get("enabled"):
+            raise HTTPException(status_code=404, detail="Single sign-on is not enabled")
+        nonce = secrets.token_urlsafe(24)
+        safe_next = next if next.startswith("/") and not next.startswith("//") else "/"
+        state = pending_sso.create(nonce, safe_next)
+        try:
+            auth_url = build_authorization_url(cfg, _sso_redirect_uri(request), state, nonce)
+        except OIDCError:
+            return RedirectResponse("/login?error=sso_unavailable")
+        return RedirectResponse(auth_url)
+
+    @app.get("/api/sso/callback")
+    def sso_callback(
+        request: Request,
+        response: Response,
+        code: str | None = None,
+        state: str | None = None,
+        error: str | None = None,
+    ) -> RedirectResponse:
+        client_ip = request.client.host if request.client else "unknown"
+        cfg = _sso_config()
+        if not cfg.get("enabled"):
+            raise HTTPException(status_code=404, detail="Single sign-on is not enabled")
+
+        max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
+        lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
+        login_throttle.configure(max_attempts, lockout_seconds)
+        if login_throttle.retry_after(client_ip) is not None:
+            return RedirectResponse("/login?error=sso_failed")
+
+        entry = pending_sso.consume(state)
+        if error or entry is None:
+            return RedirectResponse("/login?error=sso_failed")
+
+        if code is None:
+            return RedirectResponse("/login?error=sso_failed")
+
+        try:
+            token, metadata = exchange_code(cfg, _sso_redirect_uri(request), code)
+            id_token = token.get("id_token")
+            if not id_token:
+                raise OIDCError("Identity provider did not return an ID token")
+            claims = verify_id_token(id_token, metadata, cfg, entry["nonce"])
+        except OIDCError:
+            login_throttle.record_failure(client_ip)
+            return RedirectResponse("/login?error=sso_failed")
+
+        username_claim = cfg.get("username_claim") or "preferred_username"
+        identity = claims.get(username_claim) or claims.get("email") or claims.get("sub")
+        if not identity:
+            return RedirectResponse("/login?error=sso_no_identity")
+        identity = str(identity).strip()
+
+        existing = users.get(identity)
+        if existing is None:
+            if not cfg.get("auto_provision", True):
+                return RedirectResponse("/login?error=sso_no_account")
+            user = users.find_or_create_sso(identity, cfg.get("default_role") or "user")
+        else:
+            user = existing
+
+        login_throttle.record_success(client_ip)
+        session_token = sessions.create(user["username"])
+        redirect = RedirectResponse(entry.get("next") or "/")
+        redirect.set_cookie(
+            COOKIE_NAME,
+            session_token,
+            httponly=True,
+            samesite="lax",
+            secure=bool(config_store.get("web", "https_enabled", default=False)),
+            max_age=7 * 24 * 3600,
+            path="/",
+        )
+        if audit_log is not None:
+            audit_log.record(user["username"], "login (SSO)", client_ip=client_ip)
+        return redirect
+
     @app.post("/api/logout")
     def logout(request: Request, response: Response) -> dict[str, Any]:
         user = _current_user(request)
@@ -662,9 +778,12 @@ def create_app(
             or enr.get("crtsh_enabled")
         )
         local_ready = bool(enr.get("local_enabled")) and bool(enr.get("local_url"))
+        sso_cfg = config_store.get("sso", default={}) or {}
         return {
             "user": public_user(user) if user is not None else None,
             "enrichment_available": public_ready or local_ready,
+            "sso_enabled": bool(sso_cfg.get("enabled")),
+            "sso_button_label": sso_cfg.get("button_label") or "Single Sign-On",
         }
 
     @app.get("/api/public/summary")
@@ -1517,6 +1636,7 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "local_api_key_set": bool(snap.get("enrichment", {}).get("local_api_key")),
                 "local_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("local_api_key")),
             },
+            "sso": _sso_settings_public(snap.get("sso", {})),
             "anomaly": _anomaly_settings(snap.get("anomaly", {})),
             "alert_rules": _alert_rules_settings(snap.get("alert_rules", {})),
             "notifications": {
@@ -1649,6 +1769,20 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "local_api_key_set": bool(enr.get("local_api_key")),
                 "local_api_key_preview": _masked_key_preview(enr.get("local_api_key")),
             }
+
+        return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/sso")
+    def update_sso_settings(body: SSOSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        keep_if_blank = {"client_secret"}
+        data_in = body.model_dump(exclude_unset=True)
+        if "default_role" in data_in and data_in["default_role"] not in ("admin", "user"):
+            raise HTTPException(status_code=400, detail='Default role must be "admin" or "user"')
+        payload = {k: v for k, v in data_in.items() if (v if k in keep_if_blank else v is not None)}
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            data.setdefault("sso", {}).update(payload)
+            return _sso_settings_public(data["sso"])
 
         return config_store.mutate(_mutate)
 

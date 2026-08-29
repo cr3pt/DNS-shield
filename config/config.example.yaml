@@ -78,6 +78,20 @@ web:
 
 users: []
 
+# Single sign-on: let people authenticate through an external OpenID Connect
+# provider (Authentik, Keycloak, Authelia, Okta, Google Workspace, ...)
+# instead of, or alongside, a local password. Off by default.
+sso:
+  enabled: false
+  issuer: ""            # e.g. https://idp.example.com/application/o/dns-shield
+  client_id: ""
+  client_secret: ""
+  scopes: "openid email profile"
+  button_label: "Single Sign-On"
+  username_claim: "preferred_username"
+  auto_provision: true   # create a local account on first successful sign-in
+  default_role: "user"   # role given to accounts auto-created this way
+
 logging:
   level: "INFO"
   retention_days: 30

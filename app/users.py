@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import secrets
 import time
 from typing import Any
 
@@ -47,6 +48,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "totp_enabled": bool(user.get("totp_enabled", False)),
         "has_passkeys": bool(user.get("webauthn_credentials")),
         "language": user.get("language") or "",
+        "sso": bool(user.get("sso", False)),
     }
 
 
@@ -136,6 +138,33 @@ class UserStore:
                 "password_hash": hash_password(password),
                 "role": role,
                 "permissions": _normalized_permissions(permissions),
+            }
+            users.append(user)
+            return user
+
+        return self._config.mutate(_mutate)
+
+    def find_or_create_sso(self, username: str, default_role: str) -> dict[str, Any]:
+        """Look up a user provisioned by SSO, or create one on first successful
+        login. The account gets an unusable random password hash - password
+        login stays impossible for it, only the SSO flow (or a later manual
+        password reset by an admin) can authenticate it."""
+        username = (username or "").strip()
+        if not username:
+            raise ValueError("The identity provider did not return a usable username")
+        role = default_role if default_role in ("admin", "user") else "user"
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            users = data.setdefault("users", [])
+            for user in users:
+                if user.get("username") == username:
+                    return user
+            user = {
+                "username": username,
+                "password_hash": hash_password(secrets.token_urlsafe(32)),
+                "role": role,
+                "permissions": dict(DEFAULT_PERMISSIONS),
+                "sso": True,
             }
             users.append(user)
             return user

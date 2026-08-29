@@ -1666,6 +1666,58 @@ drugim logiem zapytań. Przechowywany jest we własnej bazie `audit.db`,
 przycinanej wg tego samego harmonogramu `logging.retention_days`, co log
 zapytań.
 
+### Logowanie SSO (OpenID Connect)
+
+Settings -> Users -> "Single sign-on" pozwala logować się przez zewnętrznego
+dostawcę tożsamości zamiast (albo obok) lokalnego hasła DNS-shield - działa
+z każdym dostawcą mówiącym standardowym OpenID Connect: Authentik,
+Keycloak, Authelia, Okta, Google Workspace, Microsoft Entra ID i tak dalej.
+Domyślnie wyłączone; włączenie dodaje na stronie logowania przycisk "Sign
+in with ..." obok formularza login/hasło, nigdy go nie zastępując.
+
+Do skonfigurowania potrzeba czterech rzeczy od dostawcy: **adresu URL
+wystawcy (issuer)** (DNS-shield sam pobiera z niego
+`<issuer>/.well-known/openid-configuration`, żeby odkryć adresy endpointów
+autoryzacji, tokenu i JWKS - nie trzeba wpisywać ich osobno), **Client ID**
+i **Client secret** z aplikacji OAuth zarejestrowanej u dostawcy, oraz
+**redirect URI**, który trzeba zarejestrować po stronie tej aplikacji -
+strona ustawień pokazuje go dokładnie w takiej postaci, w jakiej ma być
+(`<adres Twojego panelu>/api/sso/callback`). Reszta - zakresy (scopes),
+które pole (claim) niesie nazwę użytkownika, etykieta przycisku logowania
+oraz czy pierwsze logowanie ma automatycznie założyć lokalne konto (i z
+jaką rolą) - ma sensowne wartości domyślne, które można zostawić bez zmian.
+
+Sam przebieg to standardowy OIDC z kodem autoryzacyjnym: kliknięcie
+przycisku przekierowuje do dostawcy z losowym `state` i `nonce`, które
+DNS-shield generuje i pamięta po stronie serwera (nic czytelnego dla
+przeglądarki, więc żadnego z nich nie da się sfałszować ani odtworzyć);
+dostawca przekierowuje z powrotem z kodem, DNS-shield wymienia go na
+tokeny bezpośrednio serwer-serwer (przeglądarka nigdy nie widzi client
+secret), po czym weryfikuje podpis zwróconego tokenu ID względem
+publicznego zestawu kluczy (JWKS) dostawcy, a także jego wystawcę
+(issuer), odbiorcę (audience) i nonce - dopiero wtedy ustawiane jest
+ciasteczko sesji DNS-shield, dokładnie tak samo jak przy logowaniu hasłem.
+Zbudowane na [Authlib](https://docs.authlib.org/) - takiej samej,
+dobrze przetestowanej bibliotece OAuth, po jaką sięgnąłby każdy framework,
+a nie na własnoręcznie napisanej weryfikacji tokenów.
+
+Pierwsze udane logowanie tożsamości, której DNS-shield jeszcze nie zna,
+automatycznie zakłada dla niej lokalne konto (ustawienie **username claim**,
+domyślnie `preferred_username`, decyduje, co staje się nazwą użytkownika;
+w razie braku używane jest pole `email`, potem `sub`) z rolą wybraną w
+ustawieniach - chyba że auto-provisioning zostanie wyłączony, wtedy konto
+musi najpierw ręcznie założyć administrator, a SSO tylko uwierzytelnia już
+istniejące. Tak czy inaczej, konto założone przez SSO dostaje losowy, nigdy
+nie pokazywany lokalny hash hasła, więc logowanie hasłem pozostaje dla
+niego niemożliwe - zalogować może je tylko dostawca tożsamości (albo
+późniejszy ręczny reset hasła przez administratora). Istniejące konta
+też działają z SSO: jeśli nazwa użytkownika zwrócona przez dostawcę
+pasuje do konta już wcześniej założonego, obowiązuje rola i uprawnienia
+tego konta, niezależnie od SSO. Client secret przechowywany jest tak samo,
+jak hasło SMTP czy klucze API do threat-intel - po zapisaniu widoczny jest
+tylko jako krótki, zamaskowany podgląd, a ponowny zapis formularza bez
+wpisania nowej wartości zostawia go bez zmian.
+
 ### HTTPS dla panelu
 
 `web.https_enabled` (Settings -> General, domyślnie wyłączone) sprawia,
@@ -1991,6 +2043,8 @@ app/
                         (zobacz "Uwierzytelnianie dwuskładnikowe" wyżej)
   passkeys.py             ceremonie rejestracji i uwierzytelniania WebAuthn (zobacz
                         "Klucze dostępu" wyżej), cienki wrapper na bibliotece webauthn
+  sso.py                  odkrywanie OpenID Connect, wymiana kodu autoryzacyjnego i
+                        weryfikacja tokenu ID (zobacz "Logowanie SSO" wyżej), na Authlib
   dns_rewrites.py       dopasowywanie niestandardowych, lokalnych rekordów A/AAAA
                        (zobacz "Niestandardowe rekordy DNS" wyżej)
   dns_cache.py         cache odpowiedzi z serwerów nadrzędnych w pamięci, respektujący

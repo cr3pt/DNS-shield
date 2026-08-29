@@ -498,6 +498,7 @@
     <div class="subtabs">
       <button type="button" class="subtab-btn" data-subtab="general" data-i18n="nav.subtab.general">General</button>
       <button type="button" class="subtab-btn" data-subtab="users" data-i18n="nav.subtab.users">Users</button>
+      <button type="button" class="subtab-btn" data-subtab="sso" data-i18n="nav.subtab.sso">Single sign-on</button>
       <button type="button" class="subtab-btn" data-subtab="auditlog" data-i18n="nav.subtab.auditlog">Audit log</button>
       <button type="button" class="subtab-btn" data-subtab="dns">DNS</button>
       <button type="button" class="subtab-btn" data-subtab="logging" data-i18n="nav.subtab.logging">Logging</button>
@@ -722,6 +723,59 @@
         </div>
         <p class="hint">The role/permission fields above are ignored for Administrator accounts - an admin always sees and does everything.</p>
         <button type="submit">Add user</button>
+      </form>
+    </section>
+  </div>
+
+  <div id="subtab-sso" class="subtab-panel">
+    <section>
+      <h2>Single sign-on (OIDC)</h2>
+      <p class="muted">
+        Let people sign in through an external identity provider - Authentik, Keycloak,
+        Authelia, Okta, Google Workspace, or anything else that speaks standard OpenID
+        Connect - instead of (or alongside) a local DNS-shield password. The first
+        successful sign-in for an identity creates its DNS-shield account automatically,
+        unless you turn that off below.
+      </p>
+      <form id="sso-settings-form">
+        <div class="field checkbox">
+          <input type="checkbox" id="s-sso-enabled">
+          <label for="s-sso-enabled">Enable single sign-on</label>
+        </div>
+        <div class="field-grid">
+          <div class="field">
+            <label>Issuer URL</label>
+            <input type="text" id="s-sso-issuer" placeholder="https://idp.example.com/application/o/dns-shield" autocomplete="off">
+          </div>
+          <div class="field"><label>Client ID</label><input type="text" id="s-sso-client-id" autocomplete="off"></div>
+          <div class="field">
+            <label>Client secret <span id="sso-client-secret-status" class="muted"></span></label>
+            <input type="password" id="s-sso-client-secret" placeholder="leave blank to keep current" autocomplete="off">
+          </div>
+          <div class="field"><label>Scopes</label><input type="text" id="s-sso-scopes" placeholder="openid email profile"></div>
+          <div class="field"><label>Sign-in button label</label><input type="text" id="s-sso-button-label" placeholder="Single Sign-On"></div>
+          <div class="field">
+            <label>Username claim</label>
+            <input type="text" id="s-sso-username-claim" placeholder="preferred_username">
+          </div>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-sso-auto-provision">
+            <label for="s-sso-auto-provision">Automatically create an account on first sign-in</label>
+          </div>
+          <div class="field">
+            <label>Role for auto-created accounts</label>
+            <select id="s-sso-default-role">
+              <option value="user">User (restricted)</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint">
+          The redirect URI to register with your identity provider is
+          <code id="sso-redirect-uri-hint"></code>. Accounts created by SSO get a random,
+          unusable local password - only the identity provider can sign them in.
+        </p>
+        <button type="submit">Save SSO settings</button>
       </form>
     </section>
   </div>
@@ -1726,6 +1780,7 @@ const I18N_PL = {
   "nav.settings": "Ustawienia",
   "nav.subtab.general": "Ogólne",
   "nav.subtab.users": "Użytkownicy",
+  "nav.subtab.sso": "Logowanie SSO",
   "nav.subtab.auditlog": "Log audytu",
   "nav.subtab.dns": "DNS",
   "nav.subtab.logging": "Logowanie",
@@ -2917,6 +2972,20 @@ async function loadSettings() {
   document.getElementById("s-notif-from-address").value = notifEmail.from_address ?? "";
   document.getElementById("s-notif-to-addresses").value = (notifEmail.to_addresses || []).join(", ");
   document.getElementById("s-notif-min-severity").value = notifEmail.min_severity ?? "medium";
+
+  const sso = s.sso || {};
+  document.getElementById("s-sso-enabled").checked = !!sso.enabled;
+  document.getElementById("s-sso-issuer").value = sso.issuer ?? "";
+  document.getElementById("s-sso-client-id").value = sso.client_id ?? "";
+  document.getElementById("s-sso-client-secret").value = "";
+  document.getElementById("sso-client-secret-status").textContent = sso.client_secret_set
+    ? `(configured: ${sso.client_secret_preview}) ` : "(not set)";
+  document.getElementById("s-sso-scopes").value = sso.scopes ?? "openid email profile";
+  document.getElementById("s-sso-button-label").value = sso.button_label ?? "Single Sign-On";
+  document.getElementById("s-sso-username-claim").value = sso.username_claim ?? "preferred_username";
+  document.getElementById("s-sso-auto-provision").checked = sso.auto_provision !== false;
+  document.getElementById("s-sso-default-role").value = sso.default_role ?? "user";
+  document.getElementById("sso-redirect-uri-hint").textContent = `${location.origin}/api/sso/callback`;
 }
 
 async function loadLogIgnore() {
@@ -3493,6 +3562,28 @@ document.getElementById("notifications-email-form").addEventListener("submit", a
   refreshAll();
 });
 
+document.getElementById("sso-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const secret = document.getElementById("s-sso-client-secret").value;
+  const body = {
+    enabled: document.getElementById("s-sso-enabled").checked,
+    issuer: document.getElementById("s-sso-issuer").value.trim(),
+    client_id: document.getElementById("s-sso-client-id").value.trim(),
+    scopes: document.getElementById("s-sso-scopes").value.trim() || "openid email profile",
+    button_label: document.getElementById("s-sso-button-label").value.trim() || "Single Sign-On",
+    username_claim: document.getElementById("s-sso-username-claim").value.trim() || "preferred_username",
+    auto_provision: document.getElementById("s-sso-auto-provision").checked,
+    default_role: document.getElementById("s-sso-default-role").value,
+  };
+  if (secret) body.client_secret = secret;
+  await api("/api/settings/sso", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  refreshAll();
+});
+
 document.getElementById("notif-send-test-email").addEventListener("click", async () => {
   const btn = document.getElementById("notif-send-test-email");
   const result = document.getElementById("notif-test-email-result");
@@ -3953,7 +4044,7 @@ async function loadUsers() {
   tbody.innerHTML = "";
   for (const u of list) {
     const tr = el("tr", {}, [
-      el("td", { text: u.username }),
+      el("td", { text: u.username + (u.sso ? " (SSO)" : "") }),
       el("td", { text: u.role }),
       el("td", { text: allowedSummary(u) }),
       el("td", { text: permissionSummary(u) }),
@@ -4439,7 +4530,7 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
   btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
 }
 
-const SUBTAB_NAMES = ["general", "users", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
+const SUBTAB_NAMES = ["general", "users", "sso", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
 
 function setActiveSubtab(subtab) {
   if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";

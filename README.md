@@ -1482,6 +1482,55 @@ uselessness, and it's meant to answer "who changed what", not to be a
 second query log. Stored in its own `audit.db`, pruned on the same
 `logging.retention_days` schedule as the query log.
 
+### Single sign-on (SSO / OpenID Connect)
+
+Settings -> Users -> "Single sign-on" lets people authenticate through an
+external identity provider instead of, or alongside, a local DNS-shield
+password - any provider that speaks standard OpenID Connect works:
+Authentik, Keycloak, Authelia, Okta, Google Workspace, Microsoft Entra ID,
+and so on. Off by default; turning it on adds a "Sign in with ..." button
+to the login page next to the username/password form, never replacing it.
+
+Configuring it needs four things from your provider: the **issuer URL**
+(DNS-shield fetches `<issuer>/.well-known/openid-configuration` from it to
+discover the authorization, token, and JWKS endpoints - no need to enter
+those individually), a **client ID** and **client secret** from an OAuth
+application you register there, and the **redirect URI** to register on
+that application's side, which the settings page shows you exactly
+(`<your dashboard URL>/api/sso/callback`). The rest - scopes, which claim
+carries the username, the sign-in button's label, and whether a first-time
+sign-in should auto-create a local account (and with which role) - has
+sensible defaults you can leave alone.
+
+The flow itself is standard authorization-code OIDC: clicking the button
+redirects to your provider with a random `state` and `nonce` DNS-shield
+generates and remembers server-side (nothing client-readable, so neither
+can be forged or replayed); the provider redirects back with a code,
+DNS-shield exchanges it for tokens directly (server-to-server, the
+browser never sees the client secret), and verifies the returned ID
+token's signature against the provider's own published JWKS key set plus
+its issuer, audience, and nonce - only then does a DNS-shield session
+cookie get set, exactly like a password login would. Built on
+[Authlib](https://docs.authlib.org/), the same kind of well-audited OAuth
+library any framework would reach for, rather than hand-rolled token
+verification.
+
+A first successful sign-in for an identity DNS-shield hasn't seen before
+creates its local account automatically (the **username claim** setting,
+`preferred_username` by default, decides what becomes the username;
+falls back to the `email` claim, then `sub`) with the role you picked in
+Settings - unless you turn auto-provisioning off, in which case an admin
+has to create the account by hand first and SSO only authenticates
+existing ones. Either way, an SSO-provisioned account gets a random,
+never-shown local password hash, so the password-login path stays
+impossible for it - only the identity provider (or a manual password
+reset by an admin afterward) can sign it in. Existing accounts work with
+SSO too: if the username the provider returns matches an account you
+already created, that account's own role and permissions apply, SSO or
+not. The client secret is stored the same way the SMTP and threat-intel
+API keys are - masked to a short preview once saved, and left untouched
+if you save the form again without retyping it.
+
 ### HTTPS for the dashboard
 
 `web.https_enabled` (Settings -> General, off by default) makes the
@@ -1773,6 +1822,8 @@ app/
                         login flow uses (see Two-factor authentication above)
   passkeys.py             WebAuthn registration/authentication ceremonies (see Passkeys
                         above), thin wrapper over the webauthn library
+  sso.py                  OpenID Connect discovery, authorization-code exchange, and ID
+                        token verification (see Single sign-on above), built on Authlib
   dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)

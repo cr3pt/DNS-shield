@@ -54,6 +54,14 @@
   }
   .public-link { display: block; margin-top: 1.5rem; color: var(--muted); font-size: 0.85rem; text-decoration: none; }
   .public-link:hover { color: var(--accent); }
+  .sso-divider { display: flex; align-items: center; gap: 0.75rem; margin: 1.1rem 0; color: var(--muted); font-size: 0.8rem; }
+  .sso-divider::before, .sso-divider::after { content: ""; flex: 1; height: 1px; background: var(--panel-border); }
+  #sso-btn {
+    display: none; margin-top: 0; padding: 0.7rem; border: 1px solid var(--panel-border); border-radius: 8px;
+    background: transparent; color: var(--text); font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%;
+    text-decoration: none; text-align: center;
+  }
+  #sso-btn:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -96,6 +104,8 @@
     <button type="submit" id="totp-submit-btn">Verify</button>
     <button type="button" id="passkey-btn" style="display:none; background:var(--panel-border); color:var(--text);">Use a passkey instead</button>
   </form>
+  <div class="sso-divider" id="sso-divider" style="display:none;">or</div>
+  <a id="sso-btn" href="#">Sign in with SSO</a>
   <a class="public-link" href="/">View public stats without signing in &rarr;</a>
 </div>
 <script>
@@ -126,6 +136,29 @@ const passkeyBtn = document.getElementById("passkey-btn");
 const params = new URLSearchParams(location.search);
 const nextUrl = params.get("next") || "/";
 let pendingTotpToken = null;
+
+const ssoErrors = {
+  sso_failed: "Single sign-on failed - try again, or use your username and password.",
+  sso_expired: "The sign-in request expired - try again.",
+  sso_unavailable: "Single sign-on is temporarily unavailable.",
+  sso_no_identity: "The identity provider did not return a usable account name.",
+  sso_no_account: "No DNS-shield account exists for that identity yet - ask an administrator to create one.",
+};
+const ssoError = params.get("error");
+if (ssoError && ssoErrors[ssoError]) {
+  errorBox.textContent = ssoErrors[ssoError];
+  errorBox.style.display = "block";
+}
+
+fetch("/api/whoami").then((r) => r.json()).then((body) => {
+  if (body.sso_enabled) {
+    const btn = document.getElementById("sso-btn");
+    btn.textContent = "Sign in with " + (body.sso_button_label || "SSO");
+    btn.href = "/api/sso/login?next=" + encodeURIComponent(nextUrl.startsWith("/") ? nextUrl : "/");
+    btn.style.display = "block";
+    document.getElementById("sso-divider").style.display = "flex";
+  }
+}).catch(() => {});
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
