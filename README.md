@@ -2005,6 +2005,18 @@ workers (above) each hold an independent copy, so the same set of
 subscribed lists costs proportionally more RAM per worker, not once
 shared across them.
 
+## Development
+
+A pytest suite covers the pure-logic modules (typosquat detection, IP/CIDR/MAC/host
+matching, blocklist format parsing, threat-intel error handling, and the
+anomaly-detector false-positive exclusions), using the real `ConfigStore` against a
+throwaway SQLite file rather than hand-rolled fakes wherever practical.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Security notes
 
 - Change the default `admin` password before exposing the dashboard

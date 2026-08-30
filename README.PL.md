@@ -2260,6 +2260,19 @@ roboczych DNS (opisanych wyżej) trzyma niezależną kopię, więc ten sam
 zestaw subskrybowanych list kosztuje proporcjonalnie więcej pamięci RAM
 na każdy proces roboczy z osobna, a nie raz, współdzielony między nimi.
 
+## Rozwój
+
+Zestaw testów pytest pokrywa moduły czystej logiki (wykrywanie typosquattingu,
+dopasowywanie IP/CIDR/MAC/hosta, parsowanie formatów list blokujących, obsługę
+błędów threat-intel oraz wykluczenia fałszywych alarmów w detektorze anomalii),
+używając prawdziwego `ConfigStore` na jednorazowym pliku SQLite tam, gdzie to
+praktyczne, zamiast ręcznie pisanych atrap.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Uwagi o bezpieczeństwie
 
 - Zmień domyślne hasło konta `admin`, zanim wystawisz panel poza
