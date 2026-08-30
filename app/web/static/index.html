@@ -2700,6 +2700,31 @@ function openEnrichmentWindow(result) {
     return;
   }
 
+  const lb = result.local_blocklist;
+  const localStatusRows = [];
+  if (lb) {
+    if (lb.blocked) {
+      localStatusRows.push(`<p><strong>Blocked</strong> - ${escapeHtml(lb.block_reason || "")}</p>`);
+    }
+    if (result.type === "domain") {
+      if (lb.on_allowlist) localStatusRows.push(`<p>On the allowlist</p>`);
+      if (lb.alert_rule) {
+        localStatusRows.push(
+          `<p>Watched via alert rule: "${escapeHtml(lb.alert_rule.domain)}"`
+          + `${lb.alert_rule.source ? " (" + escapeHtml(lb.alert_rule.source) + ")" : ""}</p>`
+        );
+      }
+      if (lb.typosquat) {
+        localStatusRows.push(`<p>Possible typosquat of "${escapeHtml(lb.typosquat.protected)}" (${escapeHtml(lb.typosquat.kind)})</p>`);
+      }
+      if (lb.local_tld) localStatusRows.push(`<p>Local TLD: .${escapeHtml(lb.local_tld)}</p>`);
+    }
+  }
+  const localStatusHtml = `<div class="local-status">
+      <h2>DNS-shield local status</h2>
+      ${localStatusRows.length ? localStatusRows.join("") : '<p class="muted">Not on any local blocklist, allowlist, alert rule, or typosquat/local-TLD match.</p>'}
+    </div>`;
+
   const sourceHtml = Object.entries(result.sources)
     .filter(([, src]) => src !== null)
     .map(([name, src]) => {
@@ -2768,6 +2793,9 @@ function openEnrichmentWindow(result) {
   .src h3 { margin:0 0 0.4rem; font-size:1rem; text-transform:capitalize; }
   .badge { font-size:0.7rem; padding:0.1rem 0.5rem; border-radius:999px; background:rgba(255,255,255,0.18); margin-left:0.5rem; text-transform:uppercase; }
   .muted { opacity:0.7; font-weight:400; text-transform:none; letter-spacing:normal; }
+  .local-status { border-top:1px solid rgba(255,255,255,0.18); padding:1rem 0; }
+  .local-status h2 { margin:0 0 0.4rem; }
+  .local-status p { margin:0.3rem 0; }
   .footer { margin-top:1.5rem; font-size:0.75rem; opacity:0.6; }
   .history { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
   .hist-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
@@ -2788,6 +2816,7 @@ function openEnrichmentWindow(result) {
 <body>
   <h1>${escapeHtml(result.target)}</h1>
   <div class="verdict">${escapeHtml(result.overall_verdict)}${result.overall_score != null ? " &middot; score " + result.overall_score : ""}</div>
+  ${localStatusHtml}
   ${sourceHtml || '<p class="muted">No threat-intel sources configured yet.</p>'}
   ${historyHtml}
   ${safeAllowHtml}

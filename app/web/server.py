@@ -2223,6 +2223,13 @@ To restore into an EXISTING instance (data/config.db already exists):
         if target_type == "ip":
             blocked_clients = config_store.get("blocked_clients", default=[]) or []
             result["client_blocked"] = any(ip_matches(result["target"], p) for p in blocked_clients)
+            ip_source = blocklist.answer_ip_blocked(result["target"])
+            result["local_blocklist"] = {
+                "blocked": ip_source is not None,
+                "block_reason": f"Malicious IP list: {ip_source}" if ip_source else None,
+            }
+        else:
+            result["local_blocklist"] = blocklist.lookup_domain(result["target"])
         maybe_alert_on_verdict(result, config_store, anomaly)
         return result
 
