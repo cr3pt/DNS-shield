@@ -4612,21 +4612,53 @@ function renderAnomalyRow(a) {
     ));
   }
 
-  const showDomainsBtn = el("button", { class: "secondary", text: t("alerts.show_domains", "Show domains") });
-  showDomainsBtn.onclick = async () => {
-    showDomainsBtn.disabled = true;
-    try {
-      const [result, excluded] = await Promise.all([
-        api(`/api/anomalies/${a.id}/domains`),
-        api("/api/anomaly-exclusions").catch(() => []),
-      ]);
-      openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable, excluded);
-    } catch (err) {
-      alert(t("alerts.load_domains_failed", "Failed to load domains") + ": " + err.message);
-    } finally {
-      showDomainsBtn.disabled = false;
-    }
-  };
+  // "Show domains" assumes a client + time window it queried domains in, which
+  // doesn't exist for a threat-intel alert (it's a single target's reputation,
+  // not a burst of activity) - it would only ever open an empty popup. Offer a
+  // direct Enrich re-check there instead, since that's what's actually useful.
+  let detailsActionBtn;
+  if ((a.kind || "").startsWith("threat_intel:") && a.client) {
+    const targetType = a.details && a.details.target_type === "ip" ? "ip" : "domain";
+    detailsActionBtn = el("button", { class: "secondary", text: t("common.enrich", "Enrich") });
+    detailsActionBtn.title = enrichmentAvailable
+      ? t("common.enrich_title", "Check reputation via your configured threat-intel service(s) (manual only)")
+      : t("common.enrich_title_unavailable", "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.");
+    detailsActionBtn.disabled = !enrichmentAvailable;
+    detailsActionBtn.classList.add("enrich-btn");
+    detailsActionBtn.onclick = async () => {
+      if (!enrichmentAvailable) return;
+      detailsActionBtn.disabled = true;
+      try {
+        const result = await api("/api/enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: a.client, type: targetType }),
+        });
+        openEnrichmentWindow(result);
+      } catch (err) {
+        alert(t("common.enrich_failed", "Enrichment failed") + ": " + (err && err.message ? err.message : err));
+      } finally {
+        detailsActionBtn.disabled = !enrichmentAvailable;
+      }
+    };
+  } else {
+    const showDomainsBtn = el("button", { class: "secondary", text: t("alerts.show_domains", "Show domains") });
+    showDomainsBtn.onclick = async () => {
+      showDomainsBtn.disabled = true;
+      try {
+        const [result, excluded] = await Promise.all([
+          api(`/api/anomalies/${a.id}/domains`),
+          api("/api/anomaly-exclusions").catch(() => []),
+        ]);
+        openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable, excluded);
+      } catch (err) {
+        alert(t("alerts.load_domains_failed", "Failed to load domains") + ": " + err.message);
+      } finally {
+        showDomainsBtn.disabled = false;
+      }
+    };
+    detailsActionBtn = showDomainsBtn;
+  }
 
   let clientExtra;
   if (a.source === "threat_intel") {
@@ -4646,7 +4678,7 @@ function renderAnomalyRow(a) {
     el("td", { "data-label": t("col.severity", "Severity") }, [severityTag(a.severity)]),
     el("td", { "data-label": t("col.details", "Details"), class: "alert-details-cell" }, [
       el("div", { text: alertSummaryText(a) }),
-      el("div", { style: "margin-top:0.3rem;" }, [showDomainsBtn]),
+      el("div", { style: "margin-top:0.3rem;" }, [detailsActionBtn]),
     ]),
     el("td", { "data-label": t("col.actions", "Actions") }, [el("div", { class: "row-actions" }, actions)]),
   ]);
