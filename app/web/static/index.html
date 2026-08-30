@@ -1359,6 +1359,18 @@
     </section>
 
     <section>
+      <h2 data-i18n="threatintelfp.title">Threat intel false positives</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="threatintelfp.hint">
+        Targets below never trigger a threat-intel alert again, no matter how badly a future
+        lookup scores them - handy for a domain/IP you've checked and decided is a false positive
+        from one of your configured services. Doesn't affect the Enrich popup itself, which still
+        shows whatever the services report. Add one with the "Mark as FP" button on a threat-intel
+        alert in the Alerts tab.
+      </p>
+      <div id="threat-intel-fp-targets"></div>
+    </section>
+
+    <section>
       <h2 data-i18n="alertrules.title">Alert rules (watched domains &amp; lists)</h2>
       <p class="hint" style="color:var(--muted);">
         <span data-i18n="alertrules.hint.main_pre">Flag a query the instant it happens, rather than waiting for a statistical pattern -
@@ -2272,6 +2284,7 @@ const I18N_PL = {
   "alerts.mark_fp": "Oznacz jako FP",
   "alerts.mark_fp_title.typosquat": "Nigdy więcej nie alarmuj dla dokładnie tej domeny wobec tej chronionej domeny",
   "alerts.mark_fp_title.rebinding": "Nigdy więcej nie alarmuj dla dokładnie tej domeny rozwiązującej się do dokładnie tego adresu",
+  "alerts.mark_fp_title.threat_intel": "Nigdy więcej nie alarmuj dla werdyktu threat-intel dla dokładnie tego celu",
   "alerts.mark_fp_failed": "Nie udało się oznaczyć jako fałszywy alarm",
   "alerts.kind.high_blocked_ratio": "Wysoki odsetek blokowanych zapytań",
   "alerts.kind.domain_burst": "Seria losowo wyglądających domen (możliwe DGA)",
@@ -2450,6 +2463,7 @@ const I18N_PL = {
   "editor.typosquat_fp": "Pary domen wykluczone z wykrywania typosquattingu",
   "editor.typosquat_fp_empty": "Jeszcze żadnych - użyj przycisku \"Oznacz jako FP\" na alercie typosquat w zakładce Alerty.",
   "editor.rebinding_fp": "Pary domena/adres wykluczone z wykrywania DNS rebinding",
+  "editor.threat_intel_fp": "Cele wykluczone z alertów threat-intel",
   "editor.rebinding_fp_empty": "Jeszcze żadnych - użyj przycisku \"Oznacz jako FP\" na alercie DNS rebinding w zakładce Alerty.",
   "editor.watched_domains": "Obserwowane domeny (zawsze alarmują, zablokowane czy nie)",
 
@@ -2497,6 +2511,8 @@ const I18N_PL = {
   "typosquatfp.hint": "Poniższe pary nigdy więcej nie wywołają alertu typosquat dla dokładnie tej odpytywanej domeny wobec dokładnie tej chronionej domeny - inne domeny dopasowane do tej samej chronionej domeny nadal będą wykrywane. Dodaj parę przyciskiem \"Oznacz jako FP\" przy alercie typosquat w zakładce Alerty.",
   "rebindingfp.title": "Fałszywe alarmy DNS rebinding",
   "rebindingfp.hint": "Poniższe pary nigdy więcej nie wywołają alertu DNS rebinding dla dokładnie tej domeny rozwiązującej się do dokładnie tego lokalnego/prywatnego adresu - ta sama domena rozwiązująca się do innego lokalnego adresu nadal będzie wykrywana. Przydatne dla domeny, którą świadomie kierujesz na adres lokalny przez split-horizon DNS. Dodaj parę przyciskiem \"Oznacz jako FP\" przy alercie DNS rebinding w zakładce Alerty.",
+  "threatintelfp.title": "Fałszywe alarmy threat intel",
+  "threatintelfp.hint": "Poniższe cele nigdy więcej nie wywołają alertu threat-intel, bez względu na to, jak źle oceni je przyszłe sprawdzenie - przydatne dla domeny/IP, które sprawdziłeś i uznałeś za fałszywy alarm jednej ze skonfigurowanych usług. Nie wpływa na sam popup Enrich, który nadal pokaże to, co zgłaszają usługi. Dodaj cel przyciskiem \"Oznacz jako FP\" przy alercie threat-intel w zakładce Alerty.",
 
   // --- settings: alert rules ---
   "alertrules.title": "Reguły alertów (obserwowane domeny i listy)",
@@ -4550,6 +4566,12 @@ function renderAnomalyRow(a) {
       t("alerts.mark_fp_title.rebinding", "Never alert again for this exact domain resolving to this exact address")
     ));
   }
+  if ((a.kind || "").startsWith("threat_intel:") && a.client) {
+    actions.unshift(markFpButton(
+      a, "/api/threat-intel-fp", { target: a.client }, a.client,
+      t("alerts.mark_fp_title.threat_intel", "Never alert again for this exact target's threat-intel verdict")
+    ));
+  }
 
   const showDomainsBtn = el("button", { class: "secondary", text: t("alerts.show_domains", "Show domains") });
   showDomainsBtn.onclick = async () => {
@@ -4686,6 +4708,19 @@ async function loadRebindingFpPairs() {
   const container = document.getElementById("rebinding-fp-pairs");
   container.innerHTML = "";
   container.appendChild(wrap);
+}
+
+async function loadThreatIntelFpTargets() {
+  const targets = await api("/api/threat-intel-fp");
+  const editor = buildRuleEditor(
+    t("editor.threat_intel_fp", "Targets excluded from threat-intel alerts"),
+    targets,
+    async (v) => { await api("/api/threat-intel-fp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target: v }) }); refreshAll(); },
+    async (v) => { await api(`/api/threat-intel-fp/${encodeURIComponent(v)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const container = document.getElementById("threat-intel-fp-targets");
+  container.innerHTML = "";
+  container.appendChild(editor);
 }
 
 async function loadAlertDomains() {
@@ -5010,6 +5045,7 @@ async function refreshAll() {
   await loadAnomalyExclusions();
   await loadTyposquatFpPairs();
   await loadRebindingFpPairs();
+  await loadThreatIntelFpTargets();
   await loadAlertDomains();
   await loadAlertSources();
   await loadWebhooks();

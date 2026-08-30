@@ -154,6 +154,10 @@ class RebindingFpIn(BaseModel):
     ip: str
 
 
+class ThreatIntelFpIn(BaseModel):
+    target: str
+
+
 class ValueIn(BaseModel):
     value: str
 
@@ -2191,6 +2195,36 @@ To restore into an EXISTING instance (data/config.db already exists):
             pairs = data.setdefault("anomaly", {}).setdefault("rebinding_fp_pairs", [])
             pairs[:] = [p for p in pairs if not (p.get("domain") == domain and p.get("ip") == ip)]
             return pairs
+
+        return config_store.mutate(_mutate)
+
+    @app.get("/api/threat-intel-fp")
+    def list_threat_intel_fp(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> list[str]:
+        return config_store.get("anomaly", "threat_intel_fp_targets", default=[]) or []
+
+    @app.post("/api/threat-intel-fp")
+    def add_threat_intel_fp(body: ThreatIntelFpIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        target = body.target.strip().lower()
+        if not target:
+            raise HTTPException(status_code=400, detail="Empty target")
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            targets = data.setdefault("anomaly", {}).setdefault("threat_intel_fp_targets", [])
+            if target not in targets:
+                targets.append(target)
+            return targets
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/threat-intel-fp/{target}")
+    def remove_threat_intel_fp(target: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        target = target.strip().lower()
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            targets = data.setdefault("anomaly", {}).setdefault("threat_intel_fp_targets", [])
+            if target in targets:
+                targets.remove(target)
+            return targets
 
         return config_store.mutate(_mutate)
 

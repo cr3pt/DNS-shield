@@ -159,6 +159,10 @@ class AnomalyDetector:
             if isinstance(p, dict)
         }
 
+    def _threat_intel_fp_targets(self) -> set[str]:
+        targets = self._config.get("anomaly", "threat_intel_fp_targets", default=[]) or []
+        return {(t or "").strip().lower() for t in targets if t}
+
     def _init_schema(self) -> None:
         conn = self._connect()
         try:
@@ -474,6 +478,8 @@ class AnomalyDetector:
         instead of only ever being visible in the one-off popup that triggered it."""
         severity = _THREAT_INTEL_SEVERITY_MAP.get(verdict)
         if severity is None:
+            return None
+        if target.strip().lower() in self._threat_intel_fp_targets():
             return None
         cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60

@@ -140,6 +140,16 @@ def test_rebinding_fp_pair_does_not_suppress_same_domain_different_ip(config_sto
     assert len(found) == 1
 
 
+def test_threat_intel_fp_target_suppresses_only_that_exact_target(config_store, tmp_path):
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update({"threat_intel_fp_targets": ["youtube.com"]}))
+    det = _make_detector(config_store, tmp_path, [])
+    suppressed = det.record_threat_intel_alert("youtube.com", "domain", "high", "youtube.com flagged high", {})
+    assert suppressed is None
+    found = det.record_threat_intel_alert("evil.example", "domain", "high", "evil.example flagged high", {})
+    assert found is not None
+    assert found["kind"] == "threat_intel:evil.example"
+
+
 def test_local_tld_alert_suppressed_for_private_client(config_store, tmp_path):
     hits = [
         {"id": 1, "ts": time.time(), "domain": "printer.local", "client": "192.168.1.50", "local_tld_match": "local"},
