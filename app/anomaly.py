@@ -110,6 +110,7 @@ KIND_LABELS = {
 }
 
 _THREAT_INTEL_SEVERITY_MAP = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
+_VERDICT_RANK = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 class AnomalyDetector:
@@ -159,9 +160,17 @@ class AnomalyDetector:
             if isinstance(p, dict)
         }
 
-    def _threat_intel_fp_targets(self) -> set[str]:
-        targets = self._config.get("anomaly", "threat_intel_fp_targets", default=[]) or []
-        return {(t or "").strip().lower() for t in targets if t}
+    def _threat_intel_fp_baseline(self) -> dict[str, str]:
+        """Maps each excluded threat-intel target to the verdict it had when it was
+        marked a false positive, so a later, strictly worse verdict for that same
+        target can still alert (with a note that it was previously excluded)
+        instead of being silently swallowed forever."""
+        entries = self._config.get("anomaly", "threat_intel_fp_targets", default=[]) or []
+        return {
+            (e.get("target") or "").strip().lower(): (e.get("verdict") or "").strip().lower()
+            for e in entries
+            if isinstance(e, dict) and e.get("target")
+        }
 
     def _init_schema(self) -> None:
         conn = self._connect()
@@ -479,8 +488,18 @@ class AnomalyDetector:
         severity = _THREAT_INTEL_SEVERITY_MAP.get(verdict)
         if severity is None:
             return None
-        if target.strip().lower() in self._threat_intel_fp_targets():
-            return None
+
+        fp_escalated_from: str | None = None
+        baseline_verdict = self._threat_intel_fp_baseline().get(target.strip().lower())
+        if baseline_verdict is not None:
+            if _VERDICT_RANK.get(verdict, 0) <= _VERDICT_RANK.get(baseline_verdict, 0):
+                return None
+            # Worse than the verdict it had when marked a false positive - still
+            # worth surfacing, but the alert must say so rather than looking like
+            # a fresh, unexplained hit on a target the user already dismissed.
+            fp_escalated_from = baseline_verdict
+            summary = f'{summary} (previously marked as a false positive at "{baseline_verdict}" - now escalated to "{verdict}")'
+
         cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
         kind = f"threat_intel:{target}"
@@ -498,6 +517,8 @@ class AnomalyDetector:
                 details = dict(details)
                 details["target_type"] = target_type
                 details["verdict"] = verdict
+                if fp_escalated_from is not None:
+                    details["fp_escalated_from"] = fp_escalated_from
                 conn.execute(
                     "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
                     "VALUES (?, ?, ?, ?, ?, ?, 0)",

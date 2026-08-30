@@ -140,14 +140,33 @@ def test_rebinding_fp_pair_does_not_suppress_same_domain_different_ip(config_sto
     assert len(found) == 1
 
 
-def test_threat_intel_fp_target_suppresses_only_that_exact_target(config_store, tmp_path):
-    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update({"threat_intel_fp_targets": ["youtube.com"]}))
+def test_threat_intel_fp_target_suppresses_at_or_below_marked_verdict(config_store, tmp_path):
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update(
+        {"threat_intel_fp_targets": [{"target": "youtube.com", "verdict": "high"}]}
+    ))
     det = _make_detector(config_store, tmp_path, [])
-    suppressed = det.record_threat_intel_alert("youtube.com", "domain", "high", "youtube.com flagged high", {})
-    assert suppressed is None
+    # Same verdict as when marked - still suppressed.
+    assert det.record_threat_intel_alert("youtube.com", "domain", "high", "youtube.com flagged high", {}) is None
+    # A different, unrelated target is never affected.
     found = det.record_threat_intel_alert("evil.example", "domain", "high", "evil.example flagged high", {})
     assert found is not None
     assert found["kind"] == "threat_intel:evil.example"
+
+
+def test_threat_intel_fp_target_still_alerts_on_escalation(config_store, tmp_path):
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update(
+        {"threat_intel_fp_targets": [{"target": "youtube.com", "verdict": "medium"}]}
+    ))
+    det = _make_detector(config_store, tmp_path, [])
+    # A better-or-equal verdict than the marked baseline stays suppressed.
+    assert det.record_threat_intel_alert("youtube.com", "domain", "low", "youtube.com flagged low", {}) is None
+    assert det.record_threat_intel_alert("youtube.com", "domain", "medium", "youtube.com flagged medium", {}) is None
+    # A strictly worse verdict still alerts, and the alert says it was previously
+    # excluded and how far it escalated - the necessary condition for this feature.
+    escalated = det.record_threat_intel_alert("youtube.com", "domain", "high", "youtube.com flagged high", {})
+    assert escalated is not None
+    assert "medium" in escalated["summary"] and "high" in escalated["summary"]
+    assert "false positive" in escalated["summary"]
 
 
 def test_local_tld_alert_suppressed_for_private_client(config_store, tmp_path):

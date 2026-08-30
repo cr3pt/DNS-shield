@@ -156,6 +156,7 @@ class RebindingFpIn(BaseModel):
 
 class ThreatIntelFpIn(BaseModel):
     target: str
+    verdict: str
 
 
 class ValueIn(BaseModel):
@@ -2199,31 +2200,34 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.get("/api/threat-intel-fp")
-    def list_threat_intel_fp(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> list[str]:
+    def list_threat_intel_fp(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> list[dict[str, str]]:
         return config_store.get("anomaly", "threat_intel_fp_targets", default=[]) or []
 
     @app.post("/api/threat-intel-fp")
-    def add_threat_intel_fp(body: ThreatIntelFpIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+    def add_threat_intel_fp(body: ThreatIntelFpIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
         target = body.target.strip().lower()
-        if not target:
-            raise HTTPException(status_code=400, detail="Empty target")
+        verdict = body.verdict.strip().lower()
+        if not target or not verdict:
+            raise HTTPException(status_code=400, detail="Empty target or verdict")
 
-        def _mutate(data: dict[str, Any]) -> list[str]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, str]]:
             targets = data.setdefault("anomaly", {}).setdefault("threat_intel_fp_targets", [])
-            if target not in targets:
-                targets.append(target)
+            for entry in targets:
+                if entry.get("target") == target:
+                    entry["verdict"] = verdict
+                    return targets
+            targets.append({"target": target, "verdict": verdict})
             return targets
 
         return config_store.mutate(_mutate)
 
     @app.delete("/api/threat-intel-fp/{target}")
-    def remove_threat_intel_fp(target: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+    def remove_threat_intel_fp(target: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
         target = target.strip().lower()
 
-        def _mutate(data: dict[str, Any]) -> list[str]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, str]]:
             targets = data.setdefault("anomaly", {}).setdefault("threat_intel_fp_targets", [])
-            if target in targets:
-                targets.remove(target)
+            targets[:] = [e for e in targets if e.get("target") != target]
             return targets
 
         return config_store.mutate(_mutate)
