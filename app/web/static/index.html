@@ -205,6 +205,9 @@
   .alerts-table-wrap { overflow-x: auto; }
   .alerts-table { table-layout: fixed; min-width: 54rem; }
   .alerts-table .alert-details-cell { overflow-wrap: break-word; }
+  .anomaly-group-count { margin-left: 0.4rem; }
+  .anomaly-group-child td { background: rgba(128,128,128,0.06); }
+  .anomaly-group-child td:first-child { padding-left: 1.5rem; }
   .toggle-btn { min-width: 5rem; text-align: center; }
     .url-cell { overflow-wrap: anywhere; word-break: break-all; }
   .icon-btn {
@@ -558,8 +561,6 @@
       <button type="button" class="subtab-btn" data-subtab="logging" data-i18n="nav.subtab.logging">Logging</button>
       <button type="button" class="subtab-btn" data-subtab="threat-intel" data-i18n="nav.subtab.threat-intel">Threat intelligence</button>
       <button type="button" class="subtab-btn" data-subtab="anomalies" data-i18n="nav.subtab.anomalies">Anomalies</button>
-    </div>
-    <div class="subtabs">
       <button type="button" class="subtab-btn" data-subtab="notifications" data-i18n="nav.subtab.notifications">Notifications</button>
       <button type="button" class="subtab-btn" data-subtab="import" data-i18n="nav.subtab.import">Import</button>
       <button type="button" class="subtab-btn" data-subtab="blocklists" data-i18n="nav.subtab.blocklists">Blocklists</button>
@@ -2266,6 +2267,8 @@ const I18N_PL = {
   "alerts.unacknowledge": "Cofnij potwierdzenie",
   "alerts.show_domains": "Pokaż domeny",
   "alerts.load_domains_failed": "Nie udało się załadować domen",
+  "alerts.group.expand": "Pokaż {n} zdarzeń",
+  "alerts.group.collapse": "Ukryj zdarzenia",
   "alerts.mark_fp": "Oznacz jako FP",
   "alerts.mark_fp_title.typosquat": "Nigdy więcej nie alarmuj dla dokładnie tej domeny wobec tej chronionej domeny",
   "alerts.mark_fp_title.rebinding": "Nigdy więcej nie alarmuj dla dokładnie tej domeny rozwiązującej się do dokładnie tego adresu",
@@ -4369,6 +4372,77 @@ function markFpButton(a, apiPath, payload, label, title) {
   return fpBtn;
 }
 
+const SEVERITY_RANK = { low: 0, medium: 1, high: 2 };
+
+function groupAnomalies(list) {
+  const order = [];
+  const map = new Map();
+  for (const a of list) {
+    const key = `${a.client}${a.kind}`;
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key).push(a);
+  }
+  return order.map((key) => map.get(key));
+}
+
+function renderAnomalyGroupRows(group) {
+  if (group.length === 1) {
+    return [renderAnomalyRow(group[0])];
+  }
+
+  // The API returns alerts newest-first, so the first item in the group is
+  // the most recent occurrence - used for the header row's own columns.
+  const latest = group[0];
+  const maxSeverity = group.reduce(
+    (worst, a) => (SEVERITY_RANK[a.severity] > SEVERITY_RANK[worst] ? a.severity : worst),
+    latest.severity
+  );
+
+  const childRows = group.map((a) => renderAnomalyRow(a));
+  for (const row of childRows) {
+    row.style.display = "none";
+    row.classList.add("anomaly-group-child");
+  }
+
+  let expanded = false;
+  const toggleBtn = el("button", { class: "secondary", text: t("alerts.group.expand", "Show {n} events").replace("{n}", group.length) });
+  toggleBtn.onclick = () => {
+    expanded = !expanded;
+    for (const row of childRows) row.style.display = expanded ? "" : "none";
+    toggleBtn.textContent = expanded
+      ? t("alerts.group.collapse", "Hide events")
+      : t("alerts.group.expand", "Show {n} events").replace("{n}", group.length);
+  };
+
+  let clientExtra;
+  if (latest.source === "threat_intel") {
+    const targetType = latest.details && latest.details.target_type === "ip" ? "ip" : "domain";
+    clientExtra = [enrichButton(latest.client, targetType)];
+  } else if (isIpAddress(latest.client)) {
+    clientExtra = [enrichButton(latest.client, "ip"), clientBlockButton(latest.client)];
+  } else {
+    clientExtra = [];
+  }
+
+  const headerRow = el("tr", { class: "anomaly-group-header" }, [
+    el("td", { text: fmtTime(latest.ts), "data-label": t("col.time", "Time") }),
+    addressCell(clientLabel(latest.client), clientExtra, latest.client, t("col.client", "Client")),
+    el("td", { "data-label": t("col.source", "Source") }, [alertSourceTag(latest.source)]),
+    el("td", { text: alertKindLabel(latest), "data-label": t("col.type", "Type") }),
+    el("td", { "data-label": t("col.severity", "Severity") }, [severityTag(maxSeverity)]),
+    el("td", { "data-label": t("col.details", "Details"), class: "alert-details-cell" }, [
+      el("span", { text: alertSummaryText(latest) }),
+      el("span", { class: "tag anomaly-group-count", text: `×${group.length}` }),
+    ]),
+    el("td", { "data-label": t("col.actions", "Actions") }, [el("div", { class: "row-actions" }, [toggleBtn])]),
+  ]);
+
+  return [headerRow, ...childRows];
+}
+
 function renderAnomalyRow(a) {
   const delBtn = el("button", { class: "danger", text: t("common.remove", "Remove") });
   delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
@@ -4459,8 +4533,10 @@ async function loadAnomalies() {
   const filtered = anomalies.filter((a) => activeSources.has(a.source || "anomaly"));
   const rows = document.getElementById("anomaly-rows");
   rows.innerHTML = "";
-  for (const a of filtered) {
-    rows.appendChild(renderAnomalyRow(a));
+  for (const group of groupAnomalies(filtered)) {
+    for (const row of renderAnomalyGroupRows(group)) {
+      rows.appendChild(row);
+    }
   }
   document.getElementById("anomaly-empty").style.display = filtered.length ? "none" : "block";
 
