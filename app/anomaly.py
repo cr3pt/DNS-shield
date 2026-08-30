@@ -151,6 +151,14 @@ class AnomalyDetector:
             if isinstance(p, dict)
         }
 
+    def _rebinding_fp_pairs(self) -> set[tuple[str, str]]:
+        pairs = self._config.get("anomaly", "rebinding_fp_pairs", default=[]) or []
+        return {
+            ((p.get("domain") or "").lower().rstrip("."), (p.get("ip") or "").strip())
+            for p in pairs
+            if isinstance(p, dict)
+        }
+
     def _init_schema(self) -> None:
         conn = self._connect()
         try:
@@ -591,6 +599,7 @@ class AnomalyDetector:
         now = time.time()
         found: list[dict[str, Any]] = []
         excluded = self._excluded_domains()
+        fp_pairs = self._rebinding_fp_pairs()
 
         with self._lock:
             conn = self._connect()
@@ -609,6 +618,8 @@ class AnomalyDetector:
                     if self._is_excluded(domain, excluded):
                         continue
                     ip = hit["rebinding_ip"]
+                    if (domain.lower().rstrip("."), (ip or "").strip()) in fp_pairs:
+                        continue
                     kind = f"rebinding:{domain}"
                     last = last_fired.get((client, kind))
                     if last is not None and now - last < cooldown_seconds:

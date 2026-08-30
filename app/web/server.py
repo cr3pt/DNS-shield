@@ -149,6 +149,11 @@ class TyposquatFpIn(BaseModel):
     protected: str
 
 
+class RebindingFpIn(BaseModel):
+    domain: str
+    ip: str
+
+
 class ValueIn(BaseModel):
     value: str
 
@@ -2154,6 +2159,37 @@ To restore into an EXISTING instance (data/config.db already exists):
         def _mutate(data: dict[str, Any]) -> list[dict[str, str]]:
             pairs = data.setdefault("anomaly", {}).setdefault("typosquat_fp_pairs", [])
             pairs[:] = [p for p in pairs if not (p.get("domain") == domain and p.get("protected") == protected)]
+            return pairs
+
+        return config_store.mutate(_mutate)
+
+    @app.get("/api/rebinding-fp")
+    def list_rebinding_fp(_: dict[str, Any] = Depends(require_permission("view_anomalies"))) -> list[dict[str, str]]:
+        return config_store.get("anomaly", "rebinding_fp_pairs", default=[]) or []
+
+    @app.post("/api/rebinding-fp")
+    def add_rebinding_fp(body: RebindingFpIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
+        domain = body.domain.strip().lower().rstrip(".")
+        ip = body.ip.strip()
+        if not domain or not ip:
+            raise HTTPException(status_code=400, detail="Empty domain or IP")
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, str]]:
+            pairs = data.setdefault("anomaly", {}).setdefault("rebinding_fp_pairs", [])
+            if not any(p.get("domain") == domain and p.get("ip") == ip for p in pairs):
+                pairs.append({"domain": domain, "ip": ip})
+            return pairs
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/rebinding-fp/{domain}/{ip}")
+    def remove_rebinding_fp(domain: str, ip: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
+        domain = domain.strip().lower().rstrip(".")
+        ip = ip.strip()
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, str]]:
+            pairs = data.setdefault("anomaly", {}).setdefault("rebinding_fp_pairs", [])
+            pairs[:] = [p for p in pairs if not (p.get("domain") == domain and p.get("ip") == ip)]
             return pairs
 
         return config_store.mutate(_mutate)

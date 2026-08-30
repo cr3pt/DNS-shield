@@ -1346,6 +1346,18 @@
     </section>
 
     <section>
+      <h2 data-i18n="rebindingfp.title">DNS rebinding false positives</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="rebindingfp.hint">
+        Pairs below never trigger a DNS rebinding alert again for that exact domain resolving to
+        that exact local/private address - the same domain resolving to a different local address
+        is still flagged. Useful for a domain you deliberately point at a local address via
+        split-horizon DNS. Add one with the "Mark as FP" button on a DNS rebinding alert in the
+        Alerts tab.
+      </p>
+      <div id="rebinding-fp-pairs"></div>
+    </section>
+
+    <section>
       <h2 data-i18n="alertrules.title">Alert rules (watched domains &amp; lists)</h2>
       <p class="hint" style="color:var(--muted);">
         <span data-i18n="alertrules.hint.main_pre">Flag a query the instant it happens, rather than waiting for a statistical pattern -
@@ -2255,7 +2267,8 @@ const I18N_PL = {
   "alerts.show_domains": "Pokaż domeny",
   "alerts.load_domains_failed": "Nie udało się załadować domen",
   "alerts.mark_fp": "Oznacz jako FP",
-  "alerts.mark_fp_title": "Nigdy więcej nie alarmuj dla dokładnie tej domeny wobec tej chronionej domeny",
+  "alerts.mark_fp_title.typosquat": "Nigdy więcej nie alarmuj dla dokładnie tej domeny wobec tej chronionej domeny",
+  "alerts.mark_fp_title.rebinding": "Nigdy więcej nie alarmuj dla dokładnie tej domeny rozwiązującej się do dokładnie tego adresu",
   "alerts.mark_fp_failed": "Nie udało się oznaczyć jako fałszywy alarm",
   "alerts.kind.high_blocked_ratio": "Wysoki odsetek blokowanych zapytań",
   "alerts.kind.domain_burst": "Seria losowo wyglądających domen (możliwe DGA)",
@@ -2433,6 +2446,8 @@ const I18N_PL = {
   "editor.anomaly_exclusions": "Domeny wykluczone z wykrywania anomalii",
   "editor.typosquat_fp": "Pary domen wykluczone z wykrywania typosquattingu",
   "editor.typosquat_fp_empty": "Jeszcze żadnych - użyj przycisku \"Oznacz jako FP\" na alercie typosquat w zakładce Alerty.",
+  "editor.rebinding_fp": "Pary domena/adres wykluczone z wykrywania DNS rebinding",
+  "editor.rebinding_fp_empty": "Jeszcze żadnych - użyj przycisku \"Oznacz jako FP\" na alercie DNS rebinding w zakładce Alerty.",
   "editor.watched_domains": "Obserwowane domeny (zawsze alarmują, zablokowane czy nie)",
 
   // --- settings: threat intelligence ---
@@ -2477,6 +2492,8 @@ const I18N_PL = {
   "anom.excluded": "Wykluczone z wykrywania anomalii",
   "typosquatfp.title": "Fałszywe alarmy typosquattingu",
   "typosquatfp.hint": "Poniższe pary nigdy więcej nie wywołają alertu typosquat dla dokładnie tej odpytywanej domeny wobec dokładnie tej chronionej domeny - inne domeny dopasowane do tej samej chronionej domeny nadal będą wykrywane. Dodaj parę przyciskiem \"Oznacz jako FP\" przy alercie typosquat w zakładce Alerty.",
+  "rebindingfp.title": "Fałszywe alarmy DNS rebinding",
+  "rebindingfp.hint": "Poniższe pary nigdy więcej nie wywołają alertu DNS rebinding dla dokładnie tej domeny rozwiązującej się do dokładnie tego lokalnego/prywatnego adresu - ta sama domena rozwiązująca się do innego lokalnego adresu nadal będzie wykrywana. Przydatne dla domeny, którą świadomie kierujesz na adres lokalny przez split-horizon DNS. Dodaj parę przyciskiem \"Oznacz jako FP\" przy alercie DNS rebinding w zakładce Alerty.",
 
   // --- settings: alert rules ---
   "alertrules.title": "Reguły alertów (obserwowane domeny i listy)",
@@ -4330,6 +4347,28 @@ function alertSummaryText(a) {
   return a.summary;
 }
 
+function markFpButton(a, apiPath, payload, label, title) {
+  const fpBtn = el("button", { class: "secondary", text: t("alerts.mark_fp", "Mark as FP") });
+  fpBtn.title = title;
+  fpBtn.onclick = async () => {
+    fpBtn.disabled = true;
+    try {
+      await api(apiPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      await api(`/api/anomalies/${a.id}`, { method: "DELETE" });
+      showToast(t("toast.marked_fp", "Marked as false positive") + `: ${label}`);
+      loadAnomalies();
+    } catch (err) {
+      fpBtn.disabled = false;
+      alert(t("alerts.mark_fp_failed", "Failed to mark as false positive") + ": " + (err && err.message ? err.message : err));
+    }
+  };
+  return fpBtn;
+}
+
 function renderAnomalyRow(a) {
   const delBtn = el("button", { class: "danger", text: t("common.remove", "Remove") });
   delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
@@ -4346,25 +4385,16 @@ function renderAnomalyRow(a) {
   }
 
   if ((a.kind || "").startsWith("typosquat:") && a.details && a.details.domain && a.details.protected_domain) {
-    const fpBtn = el("button", { class: "secondary", text: t("alerts.mark_fp", "Mark as FP") });
-    fpBtn.title = t("alerts.mark_fp_title", "Never alert again for this exact domain against this protected domain");
-    fpBtn.onclick = async () => {
-      fpBtn.disabled = true;
-      try {
-        await api("/api/typosquat-fp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ domain: a.details.domain, protected: a.details.protected_domain }),
-        });
-        await api(`/api/anomalies/${a.id}`, { method: "DELETE" });
-        showToast(t("toast.marked_fp", "Marked as false positive") + `: ${a.details.domain}`);
-        loadAnomalies();
-      } catch (err) {
-        fpBtn.disabled = false;
-        alert(t("alerts.mark_fp_failed", "Failed to mark as false positive") + ": " + (err && err.message ? err.message : err));
-      }
-    };
-    actions.unshift(fpBtn);
+    actions.unshift(markFpButton(
+      a, "/api/typosquat-fp", { domain: a.details.domain, protected: a.details.protected_domain }, a.details.domain,
+      t("alerts.mark_fp_title.typosquat", "Never alert again for this exact domain against this protected domain")
+    ));
+  }
+  if ((a.kind || "").startsWith("rebinding:") && a.details && a.details.domain && a.details.rebinding_ip) {
+    actions.unshift(markFpButton(
+      a, "/api/rebinding-fp", { domain: a.details.domain, ip: a.details.rebinding_ip }, a.details.domain,
+      t("alerts.mark_fp_title.rebinding", "Never alert again for this exact domain resolving to this exact address")
+    ));
   }
 
   const showDomainsBtn = el("button", { class: "secondary", text: t("alerts.show_domains", "Show domains") });
@@ -4457,16 +4487,15 @@ async function loadAnomalyExclusions() {
   container.appendChild(editor);
 }
 
-async function loadTyposquatFpPairs() {
-  const pairs = await api("/api/typosquat-fp");
+function buildFpPairEditor(pairs, apiPath, keys, titleText, emptyText) {
   const wrap = el("div", { class: "rule-editor" });
-  wrap.appendChild(el("div", { class: "title", text: t("editor.typosquat_fp", "Domain pairs excluded from typosquat detection") }));
+  wrap.appendChild(el("div", { class: "title", text: titleText }));
   const tags = el("div", { class: "rule-tags" });
   for (const p of pairs) {
-    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(`${p.domain} → ${p.protected}`)]);
+    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(`${p[keys[0]]} → ${p[keys[1]]}`)]);
     const rm = el("button", { type: "button", text: "×" });
     rm.onclick = async () => {
-      await api(`/api/typosquat-fp/${encodeURIComponent(p.domain)}/${encodeURIComponent(p.protected)}`, { method: "DELETE" });
+      await api(`${apiPath}/${encodeURIComponent(p[keys[0]])}/${encodeURIComponent(p[keys[1]])}`, { method: "DELETE" });
       refreshAll();
     };
     tag.appendChild(rm);
@@ -4474,9 +4503,31 @@ async function loadTyposquatFpPairs() {
   }
   wrap.appendChild(tags);
   if (!pairs.length) {
-    wrap.appendChild(el("p", { class: "muted", style: "font-size:0.8rem;margin:0.3rem 0 0;", text: t("editor.typosquat_fp_empty", "None yet - use \"Mark as FP\" on a typosquat alert in the Alerts tab.") }));
+    wrap.appendChild(el("p", { class: "muted", style: "font-size:0.8rem;margin:0.3rem 0 0;", text: emptyText }));
   }
+  return wrap;
+}
+
+async function loadTyposquatFpPairs() {
+  const pairs = await api("/api/typosquat-fp");
+  const wrap = buildFpPairEditor(
+    pairs, "/api/typosquat-fp", ["domain", "protected"],
+    t("editor.typosquat_fp", "Domain pairs excluded from typosquat detection"),
+    t("editor.typosquat_fp_empty", 'None yet - use "Mark as FP" on a typosquat alert in the Alerts tab.')
+  );
   const container = document.getElementById("typosquat-fp-pairs");
+  container.innerHTML = "";
+  container.appendChild(wrap);
+}
+
+async function loadRebindingFpPairs() {
+  const pairs = await api("/api/rebinding-fp");
+  const wrap = buildFpPairEditor(
+    pairs, "/api/rebinding-fp", ["domain", "ip"],
+    t("editor.rebinding_fp", "Domain/address pairs excluded from DNS rebinding detection"),
+    t("editor.rebinding_fp_empty", 'None yet - use "Mark as FP" on a DNS rebinding alert in the Alerts tab.')
+  );
+  const container = document.getElementById("rebinding-fp-pairs");
   container.innerHTML = "";
   container.appendChild(wrap);
 }
@@ -4802,6 +4853,7 @@ async function refreshAll() {
   await loadRewrites();
   await loadAnomalyExclusions();
   await loadTyposquatFpPairs();
+  await loadRebindingFpPairs();
   await loadAlertDomains();
   await loadAlertSources();
   await loadWebhooks();
