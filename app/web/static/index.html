@@ -18,6 +18,7 @@
     --danger: #ff5d75;
     --danger-text: #33040f;
     --warn: #ffb454;
+    --good: #22c55e;
     --input-bg: #0b1430;
   }
   :root[data-theme="slate"] {
@@ -31,6 +32,7 @@
     --danger: #f85149;
     --danger-text: #3d0c0a;
     --warn: #d29922;
+    --good: #3fb950;
     --input-bg: #0d1117;
   }
   :root[data-theme="forest"] {
@@ -44,6 +46,7 @@
     --danger: #f2555a;
     --danger-text: #33040a;
     --warn: #f0b429;
+    --good: #38bdf8;
     --input-bg: #081109;
   }
   :root[data-theme="plum"] {
@@ -57,6 +60,7 @@
     --danger: #ff6b81;
     --danger-text: #33040f;
     --warn: #ffb454;
+    --good: #4ade80;
     --input-bg: #130c22;
   }
     :root[data-theme="daylight"] {
@@ -71,6 +75,7 @@
     --danger: #e11d48;
     --danger-text: #ffffff;
     --warn: #b45309;
+    --good: #16a34a;
     --input-bg: #ffffff;
   }
   :root[data-theme="mist"] {
@@ -85,6 +90,7 @@
     --danger: #cf222e;
     --danger-text: #ffffff;
     --warn: #9a6700;
+    --good: #1a7f37;
     --input-bg: #ffffff;
   }
   :root[data-theme="meadow"] {
@@ -99,6 +105,7 @@
     --danger: #dc2626;
     --danger-text: #ffffff;
     --warn: #b45309;
+    --good: #0284c7;
     --input-bg: #ffffff;
   }
   :root[data-theme="lilac"] {
@@ -113,6 +120,7 @@
     --danger: #dc2626;
     --danger-text: #ffffff;
     --warn: #b45309;
+    --good: #16a34a;
     --input-bg: #ffffff;
   }
   * { box-sizing: border-box; }
@@ -2537,6 +2545,10 @@ const I18N_PL = {
   "stats.blocked_by": "Zablokowane przez",
   "card.total_queries": "Wszystkie zapytania",
   "card.blocked_queries": "Zablokowane zapytania",
+  "card.allowed_queries": "Dozwolone zapytania",
+  "trend.tooltip.total": "Wszystkie",
+  "trend.tooltip.blocked": "Zablokowane",
+  "trend.tooltip.allowed": "Dozwolone",
   "card.block_rate": "Odsetek blokowania",
   "card.blocklist_domains": "Domeny na liście blokad",
   "card.cache_entries": "Wpisy w cache",
@@ -3124,6 +3136,7 @@ function renderTrendLegend() {
   ]);
   legend.appendChild(item("var(--accent)", t("card.total_queries", "Total queries")));
   legend.appendChild(item("var(--danger)", t("card.blocked_queries", "Blocked queries")));
+  legend.appendChild(item("var(--good)", t("card.allowed_queries", "Allowed queries")));
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -3185,6 +3198,7 @@ function renderTrendChart(data) {
   const wrap = document.getElementById("trend-chart-wrap");
   wrap.innerHTML = "";
   if (!data.length) return;
+  data = data.map((d) => ({ ...d, allowed: Math.max(0, d.total - d.blocked) }));
 
   const W = 640, H = 200;
   const padL = 38, padR = 10, padT = 10, padB = 20;
@@ -3218,7 +3232,11 @@ function renderTrendChart(data) {
     svg.appendChild(label);
   }
 
-  function buildSeries(key, colorVar) {
+  function buildSeries(key, colorVar, opts) {
+    opts = opts || {};
+    const lineWidth = opts.lineWidth != null ? opts.lineWidth : 2;
+    const areaOpacity = opts.areaOpacity != null ? opts.areaOpacity : 0.12;
+    const lineOpacity = opts.lineOpacity != null ? opts.lineOpacity : 1;
     const points = data.map((d, i) => ({ x: xAt(i), y: yAt(d[key]) }));
     const p0 = points[0];
     const curveCmds = monotoneCurveCommands(points);
@@ -3229,14 +3247,15 @@ function renderTrendChart(data) {
 
     const area = svgEl("path", { d: areaPath });
     area.style.fill = colorVar;
-    area.style.fillOpacity = "0.12";
+    area.style.fillOpacity = String(areaOpacity);
     area.style.stroke = "none";
     svg.appendChild(area);
 
     const line = svgEl("path", { d: linePath.trim() });
     line.style.fill = "none";
     line.style.stroke = colorVar;
-    line.style.strokeWidth = "2";
+    line.style.strokeWidth = String(lineWidth);
+    line.style.strokeOpacity = String(lineOpacity);
     line.style.strokeLinecap = "round";
     line.style.strokeLinejoin = "round";
     svg.appendChild(line);
@@ -3248,21 +3267,25 @@ function renderTrendChart(data) {
     return dot;
   }
 
-  const totalDot = buildSeries("total", "var(--accent)");
+  // Total is drawn first, as a faint backdrop - the real comparison is
+  // blocked (red) vs allowed (good/green), both drawn on top of it.
+  const totalDot = buildSeries("total", "var(--accent)", { lineWidth: 1.25, areaOpacity: 0.06, lineOpacity: 0.5 });
   const blockedDot = buildSeries("blocked", "var(--danger)");
+  const allowedDot = buildSeries("allowed", "var(--good)");
 
   const hoverLine = svgEl("line", { y1: padT, y2: padT + plotH, class: "trend-hover-line" });
   hoverLine.style.opacity = "0";
   svg.appendChild(hoverLine);
 
-  const tooltipW = 108, tooltipH = 42;
+  const tooltipW = 118, tooltipH = 54;
   const tooltipGroup = svgEl("g");
   tooltipGroup.style.opacity = "0";
   const tooltipBg = svgEl("rect", { width: tooltipW, height: tooltipH, rx: 4, class: "trend-tooltip-bg" });
   const tLabel = svgEl("text", { class: "trend-tooltip-muted" });
   const tTotal = svgEl("text", { class: "trend-tooltip-text" });
   const tBlocked = svgEl("text", { class: "trend-tooltip-text" });
-  tooltipGroup.append(tooltipBg, tLabel, tTotal, tBlocked);
+  const tAllowed = svgEl("text", { class: "trend-tooltip-text" });
+  tooltipGroup.append(tooltipBg, tLabel, tTotal, tBlocked, tAllowed);
   svg.appendChild(tooltipGroup);
 
   function showHover(i) {
@@ -3277,10 +3300,14 @@ function renderTrendChart(data) {
     blockedDot.setAttribute("cx", x);
     blockedDot.setAttribute("cy", yAt(d.blocked));
     blockedDot.style.opacity = "1";
+    allowedDot.setAttribute("cx", x);
+    allowedDot.setAttribute("cy", yAt(d.allowed));
+    allowedDot.style.opacity = "1";
 
     tLabel.textContent = fmtTrendTooltipLabel(d.bucket_start, trendRange);
-    tTotal.textContent = "Total: " + d.total.toLocaleString();
-    tBlocked.textContent = "Blocked: " + d.blocked.toLocaleString();
+    tTotal.textContent = t("trend.tooltip.total", "Total") + ": " + d.total.toLocaleString();
+    tBlocked.textContent = t("trend.tooltip.blocked", "Blocked") + ": " + d.blocked.toLocaleString();
+    tAllowed.textContent = t("trend.tooltip.allowed", "Allowed") + ": " + d.allowed.toLocaleString();
 
     let tx = x + 8;
     if (tx + tooltipW > W - padR) tx = x - tooltipW - 8;
@@ -3293,6 +3320,8 @@ function renderTrendChart(data) {
     tTotal.setAttribute("y", ty + 26);
     tBlocked.setAttribute("x", tx + 7);
     tBlocked.setAttribute("y", ty + 38);
+    tAllowed.setAttribute("x", tx + 7);
+    tAllowed.setAttribute("y", ty + 50);
     tooltipGroup.style.opacity = "1";
   }
 
@@ -3300,6 +3329,7 @@ function renderTrendChart(data) {
     hoverLine.style.opacity = "0";
     totalDot.style.opacity = "0";
     blockedDot.style.opacity = "0";
+    allowedDot.style.opacity = "0";
     tooltipGroup.style.opacity = "0";
   }
 
