@@ -3083,6 +3083,54 @@ function svgEl(tag, attrs = {}) {
   return node;
 }
 
+function monotoneCurveCommands(points) {
+  // Monotone cubic (Fritsch-Carlson) interpolation: smooths the line like a
+  // spline would, but - unlike a plain Catmull-Rom curve - never overshoots
+  // above/below the two points bounding each segment. That overshoot is what
+  // makes a naive smoothed curve look worse than straight segments on bursty
+  // hourly data (a lone spike surrounded by near-zero buckets).
+  const n = points.length;
+  if (n < 2) return "";
+  if (n === 2) return `L${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}`;
+
+  const dx = [], slope = [];
+  for (let i = 0; i < n - 1; i++) {
+    const d = points[i + 1].x - points[i].x;
+    dx.push(d);
+    slope.push(d === 0 ? 0 : (points[i + 1].y - points[i].y) / d);
+  }
+
+  const m = new Array(n);
+  m[0] = slope[0];
+  m[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    m[i] = slope[i - 1] === 0 || slope[i] === 0 || (slope[i - 1] < 0) !== (slope[i] < 0)
+      ? 0
+      : (slope[i - 1] + slope[i]) / 2;
+  }
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / slope[i];
+    const b = m[i + 1] / slope[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const tau = 3 / Math.sqrt(s);
+      m[i] = tau * a * slope[i];
+      m[i + 1] = tau * b * slope[i];
+    }
+  }
+
+  let cmds = "";
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[i], p1 = points[i + 1];
+    const step = dx[i] / 3;
+    const cp1x = p0.x + step, cp1y = p0.y + m[i] * step;
+    const cp2x = p1.x - step, cp2y = p1.y - m[i + 1] * step;
+    cmds += `C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)} `;
+  }
+  return cmds.trim();
+}
+
 function renderTrendChart(data) {
   const wrap = document.getElementById("trend-chart-wrap");
   wrap.innerHTML = "";
@@ -3121,10 +3169,13 @@ function renderTrendChart(data) {
   }
 
   function buildSeries(key, colorVar) {
-    let linePath = "";
-    data.forEach((d, i) => { linePath += (i === 0 ? "M" : "L") + xAt(i).toFixed(1) + "," + yAt(d[key]).toFixed(1) + " "; });
+    const points = data.map((d, i) => ({ x: xAt(i), y: yAt(d[key]) }));
+    const p0 = points[0];
+    const curveCmds = monotoneCurveCommands(points);
+    const linePath = `M${p0.x.toFixed(1)},${p0.y.toFixed(1)} ${curveCmds}`.trim();
     const baseline = padT + plotH;
-    const areaPath = `M${xAt(0).toFixed(1)},${baseline} ` + linePath + `L${xAt(n - 1).toFixed(1)},${baseline} Z`;
+    const areaPath = `M${p0.x.toFixed(1)},${baseline} L${p0.x.toFixed(1)},${p0.y.toFixed(1)} ${curveCmds} `
+      + `L${points[n - 1].x.toFixed(1)},${baseline} Z`;
 
     const area = svgEl("path", { d: areaPath });
     area.style.fill = colorVar;
