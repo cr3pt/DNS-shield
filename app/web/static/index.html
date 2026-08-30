@@ -2007,6 +2007,7 @@ const I18N_PL = {
   "common.saving": "Zapisywanie...",
   "common.checking": "Sprawdzanie...",
   "common.loading": "Wczytywanie...",
+  "common.action_failed": "Operacja nie powiodła się",
 
   // --- settings: general hints ---
   "general.hint.web_ui": "Panel, który właśnie oglądasz - jego własny adres/port nasłuchu, logowanie i wygląd.",
@@ -2847,6 +2848,8 @@ function openEnrichmentWindow(result) {
   .safe-allow button:hover { border-color:currentColor; }
   .safe-allow button:disabled { opacity:0.5; cursor:wait; }
   .safe-allow button[data-done="1"] { background:rgba(255,255,255,0.12); cursor:default; }
+  .spinner { display:inline-block; width:0.85em; height:0.85em; margin-right:0.4em; border:2px solid rgba(255,255,255,0.35); border-top-color:currentColor; border-radius:50%; animation: spin 0.7s linear infinite; vertical-align:-0.15em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style></head>
 <body>
   <h1>${escapeHtml(result.target)}</h1>
@@ -2865,6 +2868,8 @@ function openEnrichmentWindow(result) {
         var target = btn.getAttribute("data-target");
         var blocked = btn.getAttribute("data-blocked") === "1";
         btn.disabled = true;
+        var original = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span>Saving...';
         var req = blocked
           ? window.opener.api("/api/rules/deny-client/" + encodeURIComponent(target), { method: "DELETE" })
           : window.opener.api("/api/rules/deny-client", {
@@ -2883,6 +2888,7 @@ function openEnrichmentWindow(result) {
           .catch(function (err) {
             alert("Failed to update block state: " + (err && err.message ? err.message : err));
             btn.disabled = false;
+            btn.innerHTML = original;
           });
       };
     })();
@@ -2892,6 +2898,8 @@ function openEnrichmentWindow(result) {
       btn.onclick = function () {
         var target = btn.getAttribute("data-target");
         btn.disabled = true;
+        var original = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span>Saving...';
         window.opener
           .api("/api/rules/deny/" + encodeURIComponent(target), { method: "DELETE" })
           .then(function () {
@@ -2909,6 +2917,7 @@ function openEnrichmentWindow(result) {
           .catch(function (err) {
             alert("Failed to add to allowlist: " + (err && err.message ? err.message : err));
             btn.disabled = false;
+            btn.innerHTML = original;
           });
       };
     })();
@@ -2962,17 +2971,17 @@ function clientBlockButton(client) {
   btn.onclick = async (e) => {
     e.stopPropagation();
     const blocked = isClientBlocked(client);
-    btn.disabled = true;
     try {
-      if (blocked) {
-        await api(`/api/rules/deny-client/${encodeURIComponent(client)}`, { method: "DELETE" });
-      } else {
-        await api("/api/rules/deny-client", {
+      await withSpinner(btn, () => {
+        if (blocked) {
+          return api(`/api/rules/deny-client/${encodeURIComponent(client)}`, { method: "DELETE" });
+        }
+        return api("/api/rules/deny-client", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ value: client }),
         });
-      }
+      }, t("common.saving", "Saving..."));
       refreshAll();
     } catch (err) {
       alert("Failed to update block state: " + err.message);
@@ -3363,9 +3372,15 @@ async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
   rows.innerHTML = "";
   sources.forEach((s, i) => {
     const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? "Disable" : "Enable" });
-    toggleBtn.onclick = async () => { await api(`${apiPath}/${i}/toggle`, { method: "POST" }); refreshAll(); };
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`${apiPath}/${i}`, { method: "DELETE" }); refreshAll(); };
+    toggleBtn.onclick = async () => {
+      try {
+        await withSpinner(toggleBtn, () => api(`${apiPath}/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+        refreshAll();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    const delBtn = ruleDeleteButton("Remove", `${apiPath}/${i}`);
     const domainsCell = el("td", {}, [document.createTextNode((counts[s.name] ?? "-").toString())]);
     if (formats[s.name]) {
       domainsCell.appendChild(el("div", { class: "muted", style: "font-size:0.72rem;margin-top:0.1rem;", text: formats[s.name] }));
@@ -3416,28 +3431,42 @@ async function loadBlocklistCatalog() {
   }
 }
 
+// Shared by the rule-list "Remove"/"Unblock" buttons below - they're all a
+// single DELETE call followed by refreshAll(), but previously gave zero
+// visual feedback while the request was in flight (looked unresponsive) and
+// swallowed errors silently on failure.
+function ruleDeleteButton(label, path, onDone) {
+  const btn = el("button", { class: "danger", text: label });
+  btn.onclick = async () => {
+    try {
+      await withSpinner(btn, () => api(path, { method: "DELETE" }), t("common.saving", "Saving..."));
+      (onDone || refreshAll)();
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    }
+  };
+  return btn;
+}
+
 async function loadRules() {
   const rules = await api("/api/rules");
   const allowRows = document.getElementById("allow-rows");
   allowRows.innerHTML = "";
   for (const domain of rules.allowlist) {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/rules/allow/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/allow/${encodeURIComponent(domain)}`);
     allowRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
   }
   const denyRows = document.getElementById("deny-rows");
   denyRows.innerHTML = "";
   for (const domain of rules.denylist) {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/rules/deny/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/deny/${encodeURIComponent(domain)}`);
     denyRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
   }
 
   const denyRegexRows = document.getElementById("deny-regex-rows");
   denyRegexRows.innerHTML = "";
   for (const pattern of rules.denylist_regex || []) {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/rules/deny-regex/${encodeURIComponent(pattern)}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/deny-regex/${encodeURIComponent(pattern)}`);
     denyRegexRows.appendChild(el("tr", {}, [el("td", { text: pattern }), el("td", {}, [delBtn])]));
   }
 
@@ -3445,8 +3474,7 @@ async function loadRules() {
   const blockedClientRows = document.getElementById("blocked-client-rows");
   blockedClientRows.innerHTML = "";
   for (const client of rules.blocked_clients || []) {
-    const delBtn = el("button", { class: "danger", text: "Unblock" });
-    delBtn.onclick = async () => { await api(`/api/rules/deny-client/${encodeURIComponent(client)}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Unblock", `/api/rules/deny-client/${encodeURIComponent(client)}`);
     blockedClientRows.appendChild(el("tr", {}, [el("td", { text: clientLabel(client) }), el("td", {}, [delBtn])]));
   }
   updateClientBlockButtons();
@@ -3454,8 +3482,7 @@ async function loadRules() {
   const denyAnswerIpRows = document.getElementById("deny-answer-ip-rows");
   denyAnswerIpRows.innerHTML = "";
   for (const value of rules.blocked_answer_ips || []) {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/rules/deny-answer-ip/${encodeURIComponent(value)}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/deny-answer-ip/${encodeURIComponent(value)}`);
     denyAnswerIpRows.appendChild(el("tr", {}, [el("td", { text: value }), el("td", {}, [delBtn])]));
   }
 
@@ -3475,8 +3502,7 @@ async function loadTyposquatDomains() {
   const rows = document.getElementById("typosquat-extra-rows");
   rows.innerHTML = "";
   for (const domain of data.extra || []) {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/typosquat-domains/${encodeURIComponent(domain)}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/typosquat-domains/${encodeURIComponent(domain)}`);
     rows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
   }
 }
@@ -3525,9 +3551,15 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
     const tbody = document.createElement("tbody");
     sources.forEach((s, si) => {
       const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? t("common.disable", "Disable") : t("common.enable", "Enable") });
-      toggleBtn.onclick = async () => { await api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}/toggle`, { method: "POST" }); refreshAll(); };
-      const delBtn = el("button", { class: "danger", text: t("common.remove", "Remove") });
-      delBtn.onclick = async () => { await api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}`, { method: "DELETE" }); refreshAll(); };
+      toggleBtn.onclick = async () => {
+        try {
+          await withSpinner(toggleBtn, () => api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+          refreshAll();
+        } catch (err) {
+          alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        }
+      };
+      const delBtn = ruleDeleteButton(t("common.remove", "Remove"), `/api/client-groups/${groupIndex}/blocklist-sources/${si}`);
       const domainsCell = el("td", {}, [document.createTextNode((counts[s.name] ?? "-").toString())]);
       if (formats[s.name]) {
         domainsCell.appendChild(el("div", { class: "muted", style: "font-size:0.72rem;margin-top:0.1rem;", text: formats[s.name] }));
@@ -3616,9 +3648,15 @@ async function loadClientGroups() {
 
   groups.forEach((g, i) => {
     const toggleBtn = el("button", { class: "secondary", text: g.enabled ? t("groups.disable_filtering", "Disable filtering") : t("groups.enable_filtering", "Enable filtering") });
-    toggleBtn.onclick = async () => { await api(`/api/client-groups/${i}/toggle`, { method: "POST" }); refreshAll(); };
-    const delBtn = el("button", { class: "danger", text: t("groups.delete_group", "Delete group") });
-    delBtn.onclick = async () => { await api(`/api/client-groups/${i}`, { method: "DELETE" }); refreshAll(); };
+    toggleBtn.onclick = async () => {
+      try {
+        await withSpinner(toggleBtn, () => api(`/api/client-groups/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+        refreshAll();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    const delBtn = ruleDeleteButton(t("groups.delete_group", "Delete group"), `/api/client-groups/${i}`);
 
     const header = el("div", { class: "row" }, [
       el("div", {}, [
@@ -3922,9 +3960,15 @@ function renderUpstreamRows(upstreams) {
     const disabled = entry.trim().startsWith("#");
     const address = entry.trim().replace(/^#+\s*/, "");
     const toggleBtn = el("button", { class: "secondary toggle-btn", text: disabled ? "Enable" : "Disable" });
-    toggleBtn.onclick = async () => { await api(`/api/settings/upstreams/${i}/toggle`, { method: "POST" }); refreshAll(); };
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/settings/upstreams/${i}`, { method: "DELETE" }); refreshAll(); };
+    toggleBtn.onclick = async () => {
+      try {
+        await withSpinner(toggleBtn, () => api(`/api/settings/upstreams/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+        refreshAll();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    const delBtn = ruleDeleteButton("Remove", `/api/settings/upstreams/${i}`);
     rows.appendChild(el("tr", {}, [
       el("td", { text: address, class: "url-cell" }),
       el("td", {}, [el("span", { class: "tag " + (disabled ? "blocked" : "allowed"), text: disabled ? "disabled" : "enabled" })]),
@@ -3953,8 +3997,7 @@ async function loadDomainUpstreams() {
   const rows = document.getElementById("domain-upstream-rows");
   rows.innerHTML = "";
   rules.forEach((r, i) => {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/domain-upstreams/${i}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/domain-upstreams/${i}`);
     rows.appendChild(el("tr", {}, [
       el("td", { text: r.name || "-" }),
       el("td", { text: (r.domains || []).join(", ") }),
@@ -3969,8 +4012,7 @@ async function loadRewrites() {
   const rows = document.getElementById("rewrite-rows");
   rows.innerHTML = "";
   rewrites.forEach((r, i) => {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/rewrites/${i}`, { method: "DELETE" }); refreshAll(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/rewrites/${i}`);
     rows.appendChild(el("tr", {}, [
       el("td", { text: r.name }),
       el("td", { text: r.type }),
@@ -4000,7 +4042,14 @@ async function loadWebhooks() {
       : (w.url_set ? w.url_preview : "(not configured)");
 
     const toggleBtn = el("button", { class: "secondary", text: w.enabled ? "Disable" : "Enable" });
-    toggleBtn.onclick = async () => { await api(`/api/settings/notifications/webhooks/${i}/toggle`, { method: "POST" }); loadWebhooks(); };
+    toggleBtn.onclick = async () => {
+      try {
+        await withSpinner(toggleBtn, () => api(`/api/settings/notifications/webhooks/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+        loadWebhooks();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
 
     const testBtn = el("button", { class: "secondary", text: "Test" });
     testBtn.onclick = async () => {
@@ -4015,8 +4064,7 @@ async function loadWebhooks() {
       setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2000);
     };
 
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/settings/notifications/webhooks/${i}`, { method: "DELETE" }); loadWebhooks(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/settings/notifications/webhooks/${i}`, loadWebhooks);
 
     rows.appendChild(el("tr", {}, [
       el("td", { text: w.name || "-" }),
@@ -4080,30 +4128,36 @@ function queryLogFilterParams() {
 function renderQueryLogRow(q) {
   const blockBtn = el("button", { class: "secondary", text: q.blocked ? "Unblock" : "Block" });
   blockBtn.onclick = async () => {
-    if (q.blocked) {
-      await api(`/api/rules/deny/${encodeURIComponent(q.domain)}`, { method: "DELETE" });
-      await api("/api/rules/allow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain: q.domain }),
-      });
-    } else {
-      await api("/api/rules/deny", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain: q.domain }),
-      });
+    try {
+      await withSpinner(blockBtn, async () => {
+        if (q.blocked) {
+          await api(`/api/rules/deny/${encodeURIComponent(q.domain)}`, { method: "DELETE" });
+          await api("/api/rules/allow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ domain: q.domain }),
+          });
+        } else {
+          await api("/api/rules/deny", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ domain: q.domain }),
+          });
+        }
+      }, t("common.saving", "Saving..."));
+      refreshAll();
+    } catch (err) {
+      alert("Failed to update block state: " + (err && err.message ? err.message : err));
     }
-    refreshAll();
   };
   const hideBtn = el("button", { class: "secondary", text: "Hide" });
   hideBtn.title = "Stop logging this domain going forward";
   hideBtn.onclick = async () => {
-    await api("/api/log-ignore/domains", {
+    await withSpinner(hideBtn, () => api("/api/log-ignore/domains", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ domain: q.domain }),
-    });
+    }), t("common.saving", "Saving..."));
     document
       .getElementById("query-log-rows")
       .querySelectorAll(`tr[data-domain="${CSS.escape(q.domain)}"]`)
@@ -4588,17 +4642,30 @@ function renderAnomalyGroupRows(group) {
 }
 
 function renderAnomalyRow(a) {
-  const delBtn = el("button", { class: "danger", text: t("common.remove", "Remove") });
-  delBtn.onclick = async () => { await api(`/api/anomalies/${a.id}`, { method: "DELETE" }); loadAnomalies(); };
+  const delBtn = ruleDeleteButton(t("common.remove", "Remove"), `/api/anomalies/${a.id}`, loadAnomalies);
 
   const actions = [delBtn];
   if (a.acknowledged) {
     const unackBtn = el("button", { class: "secondary", text: t("alerts.unacknowledge", "Unacknowledge") });
-    unackBtn.onclick = async () => { await api(`/api/anomalies/${a.id}/unacknowledge`, { method: "POST" }); loadAnomalies(); };
+    unackBtn.onclick = async () => {
+      try {
+        await withSpinner(unackBtn, () => api(`/api/anomalies/${a.id}/unacknowledge`, { method: "POST" }), t("common.saving", "Saving..."));
+        loadAnomalies();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
     actions.unshift(unackBtn);
   } else {
     const ackBtn = el("button", { class: "secondary", text: t("alerts.acknowledge", "Acknowledge") });
-    ackBtn.onclick = async () => { await api(`/api/anomalies/${a.id}/acknowledge`, { method: "POST" }); loadAnomalies(); };
+    ackBtn.onclick = async () => {
+      try {
+        await withSpinner(ackBtn, () => api(`/api/anomalies/${a.id}/acknowledge`, { method: "POST" }), t("common.saving", "Saving..."));
+        loadAnomalies();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
     actions.unshift(ackBtn);
   }
 
@@ -4751,8 +4818,12 @@ function buildFpPairEditor(pairs, apiPath, keys, titleText, emptyText, deleteKey
     const rm = el("button", { type: "button", text: "×" });
     rm.onclick = async () => {
       const path = deleteKeys.map((k) => encodeURIComponent(p[k])).join("/");
-      await api(`${apiPath}/${path}`, { method: "DELETE" });
-      refreshAll();
+      try {
+        await withSpinner(rm, () => api(`${apiPath}/${path}`, { method: "DELETE" }), t("common.saving", "Saving..."));
+        refreshAll();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
     };
     tag.appendChild(rm);
     tags.appendChild(tag);
@@ -5383,8 +5454,7 @@ async function loadPasskeys() {
   const rows = document.getElementById("passkey-rows");
   rows.innerHTML = "";
   passkeys.forEach((p) => {
-    const delBtn = el("button", { class: "danger", text: "Remove" });
-    delBtn.onclick = async () => { await api(`/api/account/passkeys/${p.id}`, { method: "DELETE" }); loadPasskeys(); };
+    const delBtn = ruleDeleteButton("Remove", `/api/account/passkeys/${p.id}`, loadPasskeys);
     rows.appendChild(el("tr", {}, [
       el("td", { text: p.name || "-" }),
       el("td", { text: new Date(p.created_at * 1000).toLocaleString() }),
@@ -5446,8 +5516,12 @@ async function loadTokens() {
     const revokeBtn = el("button", { class: "danger", text: "Revoke" });
     revokeBtn.onclick = async () => {
       if (!confirm(`Revoke the token "${t.name}"? Anything using it will stop working immediately.`)) return;
-      await api(`/api/account/tokens/${t.id}`, { method: "DELETE" });
-      loadTokens();
+      try {
+        await withSpinner(revokeBtn, () => api(`/api/account/tokens/${t.id}`, { method: "DELETE" }), t("common.saving", "Saving..."));
+        loadTokens();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
     };
     rows.appendChild(el("tr", {}, [
       el("td", { text: t.name }),
@@ -5500,7 +5574,7 @@ async function loadUsers() {
     delBtn.onclick = async () => {
       if (!confirm(`Delete user "${u.username}"?`)) return;
       try {
-        await api("/api/users/" + encodeURIComponent(u.username), { method: "DELETE" });
+        await withSpinner(delBtn, () => api("/api/users/" + encodeURIComponent(u.username), { method: "DELETE" }), t("common.saving", "Saving..."));
         loadUsers();
       } catch (err) {
         alert("Failed to delete user: " + (err && err.message ? err.message : err));
