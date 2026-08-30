@@ -1960,11 +1960,11 @@ function showToast(message, opts = {}) {
 // re-parses every configured list server-side before responding, which can
 // take a while - this gives the button a spinner for that wait instead of
 // leaving the UI looking unresponsive.
-async function withSpinner(button, fn) {
+async function withSpinner(button, fn, label) {
   if (!button) return fn();
   const original = button.innerHTML;
   button.disabled = true;
-  button.innerHTML = `<span class="spinner"></span>${t("common.adding", "Adding...")}`;
+  button.innerHTML = `<span class="spinner"></span>${label || t("common.adding", "Adding...")}`;
   try {
     return await fn();
   } finally {
@@ -2005,6 +2005,8 @@ const I18N_PL = {
   // --- common ---
   "common.adding": "Dodawanie...",
   "common.saving": "Zapisywanie...",
+  "common.checking": "Sprawdzanie...",
+  "common.loading": "Wczytywanie...",
 
   // --- settings: general hints ---
   "general.hint.web_ui": "Panel, który właśnie oglądasz - jego własny adres/port nasłuchu, logowanie i wygląd.",
@@ -2925,22 +2927,18 @@ function enrichButton(target, type) {
     e.stopPropagation();
     if (!enrichmentAvailable) return;
     btn.dataset.busy = "1";
-    btn.disabled = true;
-    const original = btn.textContent;
-    btn.textContent = "...";
     try {
-      const result = await api("/api/enrich", {
+      const result = await withSpinner(btn, () => api("/api/enrich", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target, type }),
-      });
+      }), t("common.checking", "Checking..."));
       openEnrichmentWindow(result);
     } catch (err) {
       alert(t("common.enrich_failed", "Enrichment failed") + ": " + err.message);
     } finally {
       delete btn.dataset.busy;
       btn.disabled = !enrichmentAvailable;
-      btn.textContent = original;
     }
   };
   return btn;
@@ -4205,6 +4203,8 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
   button { padding:0.35rem 0.8rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.8rem; white-space:nowrap; }
   button:disabled { opacity:0.5; cursor:not-allowed; }
   #copy-domains-btn { margin-top:1rem; }
+  .spinner { display:inline-block; width:0.85em; height:0.85em; margin-right:0.4em; border:2px solid rgba(255,255,255,0.35); border-top-color:currentColor; border-radius:50%; animation: spin 0.7s linear infinite; vertical-align:-0.15em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style></head>
 <body>
   <h1>${escapeHtml(a.client)}</h1>
@@ -4232,8 +4232,8 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
       ebtn.onclick = async () => {
         const domain = ebtn.dataset.domain;
         ebtn.disabled = true;
-        const original = ebtn.textContent;
-        ebtn.textContent = "...";
+        const original = ebtn.innerHTML;
+        ebtn.innerHTML = '<span class="spinner"></span>Checking...';
         try {
           const result = await window.opener.api("/api/enrich", {
             method: "POST",
@@ -4245,7 +4245,7 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
           alert("Enrichment failed: " + (err && err.message ? err.message : err));
         } finally {
           ebtn.disabled = false;
-          ebtn.textContent = original;
+          ebtn.innerHTML = original;
         }
       };
     });
@@ -4254,6 +4254,8 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
       xbtn.onclick = async () => {
         const domain = xbtn.dataset.domain;
         xbtn.disabled = true;
+        const original = xbtn.innerHTML;
+        xbtn.innerHTML = '<span class="spinner"></span>Excluding...';
         try {
           await window.opener.api("/api/anomaly-exclusions", {
             method: "POST",
@@ -4264,6 +4266,7 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
           if (window.opener.refreshAll) window.opener.refreshAll();
         } catch (err) {
           xbtn.disabled = false;
+          xbtn.innerHTML = original;
           alert("Failed to exclude domain: " + (err && err.message ? err.message : err));
         }
       };
@@ -4303,6 +4306,8 @@ function openFindDomainWindow() {
   .badge.no { background:rgba(45,212,191,0.15); color:#2dd4bf; }
   .actions { display:flex; gap:0.5rem; margin-top:1rem; }
   #error { color:#ff5d75; font-size:0.85rem; margin:0.5rem 0; display:none; }
+  .spinner { display:inline-block; width:0.85em; height:0.85em; margin-right:0.4em; border:2px solid rgba(255,255,255,0.35); border-top-color:currentColor; border-radius:50%; animation: spin 0.7s linear infinite; vertical-align:-0.15em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style></head>
 <body>
   <h1>Find domain</h1>
@@ -4334,7 +4339,9 @@ function openFindDomainWindow() {
       errorEl.style.display = "none";
       resultEl.classList.remove("open");
       const submitBtn = form.querySelector("button[type=submit]");
+      const submitOriginal = submitBtn.innerHTML;
       submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span>Searching...';
       try {
         const r = await window.opener.api("/api/domain-lookup?domain=" + encodeURIComponent(domain));
         let html = '<h2 style="font-size:0.95rem;margin:0.5rem 0;"><code>' + esc(r.domain) + "</code></h2>";
@@ -4359,8 +4366,8 @@ function openFindDomainWindow() {
         } else {
           enrichBtn.onclick = async () => {
             enrichBtn.disabled = true;
-            const original = enrichBtn.textContent;
-            enrichBtn.textContent = "...";
+            const original = enrichBtn.innerHTML;
+            enrichBtn.innerHTML = '<span class="spinner"></span>Checking...';
             try {
               const enrichResult = await window.opener.api("/api/enrich", {
                 method: "POST",
@@ -4372,7 +4379,7 @@ function openFindDomainWindow() {
               alert("Enrichment failed: " + (err && err.message ? err.message : err));
             } finally {
               enrichBtn.disabled = false;
-              enrichBtn.textContent = original;
+              enrichBtn.innerHTML = original;
             }
           };
         }
@@ -4381,6 +4388,7 @@ function openFindDomainWindow() {
         errorEl.style.display = "block";
       } finally {
         submitBtn.disabled = false;
+        submitBtn.innerHTML = submitOriginal;
       }
     });
   <\/script>
@@ -4489,14 +4497,15 @@ function markFpButton(a, apiPath, payload, label, title) {
   const fpBtn = el("button", { class: "secondary", text: t("alerts.mark_fp", "Mark as FP") });
   fpBtn.title = title;
   fpBtn.onclick = async () => {
-    fpBtn.disabled = true;
     try {
-      await api(apiPath, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      await api(`/api/anomalies/${a.id}`, { method: "DELETE" });
+      await withSpinner(fpBtn, async () => {
+        await api(apiPath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        await api(`/api/anomalies/${a.id}`, { method: "DELETE" });
+      }, t("common.saving", "Saving..."));
       showToast(t("toast.marked_fp", "Marked as false positive") + `: ${label}`);
       loadAnomalies();
     } catch (err) {
@@ -4627,13 +4636,12 @@ function renderAnomalyRow(a) {
     detailsActionBtn.classList.add("enrich-btn");
     detailsActionBtn.onclick = async () => {
       if (!enrichmentAvailable) return;
-      detailsActionBtn.disabled = true;
       try {
-        const result = await api("/api/enrich", {
+        const result = await withSpinner(detailsActionBtn, () => api("/api/enrich", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ target: a.client, type: targetType }),
-        });
+        }), t("common.checking", "Checking..."));
         openEnrichmentWindow(result);
       } catch (err) {
         alert(t("common.enrich_failed", "Enrichment failed") + ": " + (err && err.message ? err.message : err));
@@ -4644,17 +4652,14 @@ function renderAnomalyRow(a) {
   } else {
     const showDomainsBtn = el("button", { class: "secondary", text: t("alerts.show_domains", "Show domains") });
     showDomainsBtn.onclick = async () => {
-      showDomainsBtn.disabled = true;
       try {
-        const [result, excluded] = await Promise.all([
+        const [result, excluded] = await withSpinner(showDomainsBtn, () => Promise.all([
           api(`/api/anomalies/${a.id}/domains`),
           api("/api/anomaly-exclusions").catch(() => []),
-        ]);
+        ]), t("common.loading", "Loading..."));
         openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable, excluded);
       } catch (err) {
         alert(t("alerts.load_domains_failed", "Failed to load domains") + ": " + err.message);
-      } finally {
-        showDomainsBtn.disabled = false;
       }
     };
     detailsActionBtn = showDomainsBtn;

@@ -11,7 +11,11 @@ import requests
 logger = logging.getLogger("dnsshield.enrichment")
 
 _SEVERITY_ORDER = ["safe", "low", "medium", "high", "critical"]
-_TIMEOUT = 20.0
+# Per-source HTTP timeout. Sources run concurrently (one thread each), so the
+# worst-case wall-clock time for a whole enrich() call is bounded by this,
+# not by the number of sources - keep it tight enough that one slow/unreachable
+# source doesn't make every manual "Enrich" click feel stuck.
+_TIMEOUT = 10.0
 
 _session = requests.Session()
 
