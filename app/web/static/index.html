@@ -4586,6 +4586,13 @@ function groupAnomalies(list) {
   return order.map((key) => map.get(key));
 }
 
+// loadAnomalies() fully rebuilds #anomaly-rows on every refresh (e.g. after
+// acknowledging/deleting a single event within a group), which would
+// otherwise reset every group back to collapsed - making it look like the
+// other, untouched events in the group vanished too. Persist which group
+// keys are expanded across those rebuilds.
+const expandedAnomalyGroupKeys = new Set();
+
 function renderAnomalyGroupRows(group) {
   if (group.length === 1) {
     return [renderAnomalyRow(group[0])];
@@ -4594,21 +4601,29 @@ function renderAnomalyGroupRows(group) {
   // The API returns alerts newest-first, so the first item in the group is
   // the most recent occurrence - used for the header row's own columns.
   const latest = group[0];
+  const groupKey = `${latest.client}${latest.kind}`;
   const maxSeverity = group.reduce(
     (worst, a) => (SEVERITY_RANK[a.severity] > SEVERITY_RANK[worst] ? a.severity : worst),
     latest.severity
   );
 
   const childRows = group.map((a) => renderAnomalyRow(a));
+  let expanded = expandedAnomalyGroupKeys.has(groupKey);
   for (const row of childRows) {
-    row.style.display = "none";
+    row.style.display = expanded ? "" : "none";
     row.classList.add("anomaly-group-child");
   }
 
-  let expanded = false;
-  const toggleBtn = el("button", { class: "secondary", text: t("alerts.group.expand", "Show {n} events").replace("{n}", group.length) });
+  const toggleBtn = el("button", {
+    class: "secondary",
+    text: expanded
+      ? t("alerts.group.collapse", "Hide events")
+      : t("alerts.group.expand", "Show {n} events").replace("{n}", group.length),
+  });
   toggleBtn.onclick = () => {
     expanded = !expanded;
+    if (expanded) expandedAnomalyGroupKeys.add(groupKey);
+    else expandedAnomalyGroupKeys.delete(groupKey);
     for (const row of childRows) row.style.display = expanded ? "" : "none";
     toggleBtn.textContent = expanded
       ? t("alerts.group.collapse", "Hide events")
