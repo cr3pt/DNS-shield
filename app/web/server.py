@@ -350,6 +350,8 @@ class EnrichmentSettingsIn(BaseModel):
     urlhaus_api_key: str | None = None
     rdap_enabled: bool | None = None
     crtsh_enabled: bool | None = None
+    ipinfo_enabled: bool | None = None
+    ipinfo_api_key: str | None = None
     public_enabled: bool | None = None
     local_enabled: bool | None = None
     local_url: str | None = None
@@ -1654,6 +1656,9 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "urlhaus_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("urlhaus_api_key")),
                 "rdap_enabled": bool(snap.get("enrichment", {}).get("rdap_enabled", False)),
                 "crtsh_enabled": bool(snap.get("enrichment", {}).get("crtsh_enabled", False)),
+                "ipinfo_enabled": bool(snap.get("enrichment", {}).get("ipinfo_enabled", False)),
+                "ipinfo_api_key_set": bool(snap.get("enrichment", {}).get("ipinfo_api_key")),
+                "ipinfo_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("ipinfo_api_key")),
                 "public_enabled": bool(snap.get("enrichment", {}).get("public_enabled", False)),
                 "local_enabled": bool(snap.get("enrichment", {}).get("local_enabled", False)),
                 "local_url": snap.get("enrichment", {}).get("local_url", "") or "",
@@ -1769,6 +1774,7 @@ To restore into an EXISTING instance (data/config.db already exists):
             "greynoise_api_key",
             "shodan_api_key",
             "urlhaus_api_key",
+            "ipinfo_api_key",
             "local_api_key",
         }
         data_in = body.model_dump(exclude_unset=True)
@@ -1792,6 +1798,9 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "urlhaus_api_key_preview": _masked_key_preview(enr.get("urlhaus_api_key")),
                 "rdap_enabled": bool(enr.get("rdap_enabled", False)),
                 "crtsh_enabled": bool(enr.get("crtsh_enabled", False)),
+                "ipinfo_enabled": bool(enr.get("ipinfo_enabled", False)),
+                "ipinfo_api_key_set": bool(enr.get("ipinfo_api_key")),
+                "ipinfo_api_key_preview": _masked_key_preview(enr.get("ipinfo_api_key")),
                 "public_enabled": bool(enr.get("public_enabled", False)),
                 "local_enabled": bool(enr.get("local_enabled", False)),
                 "local_url": enr.get("local_url", "") or "",

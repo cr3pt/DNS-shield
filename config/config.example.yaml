@@ -108,6 +108,8 @@ enrichment:
   urlhaus_api_key: ""
   rdap_enabled: false
   crtsh_enabled: false
+  ipinfo_enabled: false
+  ipinfo_api_key: ""  # optional - works without a token at a low rate limit
   local_enabled: false
   local_url: ""
   local_api_key: ""

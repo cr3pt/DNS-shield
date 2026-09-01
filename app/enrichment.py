@@ -28,6 +28,7 @@ THREAT_INTEL_HOSTNAMES = frozenset({
     "urlhaus-api.abuse.ch",
     "crt.sh",
     "rdap.org",
+    "ipinfo.io",
 })
 
 
@@ -324,15 +325,48 @@ def query_urlhaus(target: str, target_type: str, api_key: str) -> dict[str, Any]
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
+def _rdap_event_date(data: dict[str, Any], action: str) -> str | None:
+    return next(
+        (ev.get("eventDate") for ev in data.get("events", []) if ev.get("eventAction") == action),
+        None,
+    )
+
+
+def _rdap_entity_name(data: dict[str, Any], role: str) -> str | None:
+    """Pull a human-readable name for the entity with the given RDAP role
+    (e.g. "registrar") out of its vCard - registrant name/email is almost
+    always redacted for privacy, but the registrar itself is public."""
+    for entity in data.get("entities", []) or []:
+        if role not in (entity.get("roles") or []):
+            continue
+        vcard = entity.get("vcardArray")
+        if isinstance(vcard, list) and len(vcard) > 1:
+            for field in vcard[1]:
+                if isinstance(field, list) and len(field) >= 4 and field[0] == "fn":
+                    return field[3]
+        handle = entity.get("handle")
+        if handle:
+            return str(handle)
+    return None
+
+
 def query_rdap(domain: str) -> dict[str, Any]:
+    """Full WHOIS-equivalent domain lookup via RDAP (the modern, structured
+    replacement for the WHOIS protocol - same registry data, no need to parse
+    free-text WHOIS responses)."""
     url = f"https://rdap.org/domain/{quote(domain, safe='')}"
     try:
         resp = _session.get(url, headers={"Accept": "application/rdap+json"}, timeout=_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-        registration_date = next(
-            (ev.get("eventDate") for ev in data.get("events", []) if ev.get("eventAction") == "registration"),
-            None,
+
+        registration_date = _rdap_event_date(data, "registration")
+        expiration_date = _rdap_event_date(data, "expiration")
+        last_changed_date = _rdap_event_date(data, "last changed")
+        registrar = _rdap_entity_name(data, "registrar")
+        statuses = data.get("status") or []
+        nameservers = sorted(
+            (ns.get("ldhName") or "").lower() for ns in data.get("nameservers", []) if ns.get("ldhName")
         )
 
         age_days: int | None = None
@@ -344,15 +378,24 @@ def query_rdap(domain: str) -> dict[str, Any]:
                 age_days = None
 
         if age_days is None:
-            verdict, summary = "safe", "No registration date on record"
+            verdict, age_note = "safe", "no registration date on record"
         elif age_days < 7:
-            verdict, summary = "high", f"Registered {age_days} day(s) ago - very recently registered"
+            verdict, age_note = "high", f"registered {age_days} day(s) ago - very recently registered"
         elif age_days < 30:
-            verdict, summary = "medium", f"Registered {age_days} day(s) ago - recently registered"
+            verdict, age_note = "medium", f"registered {age_days} day(s) ago - recently registered"
         elif age_days < 90:
-            verdict, summary = "low", f"Registered {age_days} day(s) ago"
+            verdict, age_note = "low", f"registered {age_days} day(s) ago"
         else:
-            verdict, summary = "safe", f"Registered {age_days} day(s) ago"
+            verdict, age_note = "safe", f"registered {age_days} day(s) ago"
+
+        summary_parts = [age_note.capitalize()]
+        if registrar:
+            summary_parts.append(f"registrar: {registrar}")
+        if expiration_date:
+            summary_parts.append(f"expires: {expiration_date[:10]}")
+        if nameservers:
+            summary_parts.append(f"{len(nameservers)} nameserver(s)")
+        summary = ", ".join(summary_parts)
 
         score = {"safe": 0, "low": 20, "medium": 45, "high": 75}[verdict]
         return {
@@ -361,13 +404,76 @@ def query_rdap(domain: str) -> dict[str, Any]:
             "verdict": verdict,
             "score": score,
             "summary": summary,
-            "details": {"age_days": age_days, "registration_date": registration_date},
+            "details": {
+                "age_days": age_days,
+                "registration_date": registration_date,
+                "expiration_date": expiration_date,
+                "last_changed_date": last_changed_date,
+                "registrar": registrar,
+                "status": statuses,
+                "nameservers": nameservers,
+            },
             "link": f"https://who.is/whois/{quote(domain, safe='')}",
         }
     except requests.HTTPError as exc:
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
     except Exception as exc:
         logger.warning("RDAP lookup failed for %s: %s", domain, exc)
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+
+def query_ipinfo(ip: str, api_key: str) -> dict[str, Any]:
+    """IP geolocation/ASN/ownership lookup (city, region, country, org/ISP,
+    hostname) - purely informational, not a reputation signal, so it never
+    contributes to the overall verdict."""
+    url = f"https://ipinfo.io/{quote(ip, safe='')}/json"
+    try:
+        resp = _session.get(
+            url, params={"token": api_key} if api_key else None, timeout=_TIMEOUT
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("bogon"):
+            return {
+                "configured": True,
+                "ok": True,
+                "verdict": "safe",
+                "score": 0,
+                "summary": "Private/reserved IP address - no geolocation data",
+                "details": data,
+                "link": f"https://ipinfo.io/{quote(ip, safe='')}",
+            }
+
+        city = data.get("city") or ""
+        region = data.get("region") or ""
+        country = data.get("country") or ""
+        org = data.get("org") or ""
+        location = ", ".join(part for part in (city, region, country) if part) or "unknown location"
+        summary = f"{location}" + (f" - {org}" if org else "")
+
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": "safe",
+            "score": 0,
+            "summary": summary,
+            "details": {
+                "city": data.get("city"),
+                "region": data.get("region"),
+                "country": data.get("country"),
+                "loc": data.get("loc"),
+                "org": data.get("org"),
+                "postal": data.get("postal"),
+                "timezone": data.get("timezone"),
+                "hostname": data.get("hostname"),
+            },
+            "link": f"https://ipinfo.io/{quote(ip, safe='')}",
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:
+        logger.warning("ipinfo lookup failed for %s: %s", ip, exc)
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
@@ -467,10 +573,15 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
 
         shodan_key = config_store.get("enrichment", "shodan_api_key", default="") or ""
         _register("shodan", shodan_key, lambda: query_shodan(target, shodan_key))
+
+        ipinfo_enabled = bool(config_store.get("enrichment", "ipinfo_enabled", default=False))
+        ipinfo_key = config_store.get("enrichment", "ipinfo_api_key", default="") or ""
+        _register_toggle("ipinfo", ipinfo_enabled, lambda: query_ipinfo(target, ipinfo_key))
     else:
         sources["abuseipdb"] = None
         sources["greynoise"] = None
         sources["shodan"] = None
+        sources["ipinfo"] = None
 
     if target_type == "domain":
         rdap_enabled = bool(config_store.get("enrichment", "rdap_enabled", default=False))

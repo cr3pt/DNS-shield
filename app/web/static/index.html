@@ -1203,7 +1203,23 @@
           gated behind "Enable public lookups" above since they're still third-party calls.
           Domain age flags a domain registered very recently, a common phishing/typosquat
           signal; crt.sh just reports how many certificates and distinct subdomain names are on
-          record for the domain, for your own reference.
+          record for the domain, for your own reference. The domain-age check now also pulls
+          the full record - registrar, expiration date, and nameservers - not just the age.
+        </p>
+
+        <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-ipinfo-enabled">
+          <label for="s-enrich-ipinfo-enabled" data-i18n="ti.ipinfo">IP geolocation/ownership lookup (ipinfo.io)</label>
+        </div>
+        <div class="field">
+          <label><span data-i18n="ti.ipinfo_key">ipinfo.io API token (optional)</span> <span id="ipinfo-key-status" class="muted"></span></label>
+          <input type="password" id="s-enrich-ipinfo-key" placeholder="leave blank to keep current" autocomplete="off">
+        </div>
+        <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.ipinfo">
+          IP-only. Reports city/region/country, ASN, and the owning organization/ISP for a
+          client or destination address - purely informational, not a reputation signal, so it
+          never affects the overall verdict. Works without a token at a low rate limit; add a
+          free ipinfo.io token above for higher limits.
         </p>
 
         <div class="field checkbox">
@@ -2051,7 +2067,10 @@ const I18N_PL = {
   "ti.hint.overview": "Napędza przycisk \"Enrich\" w Logach/Statystykach - sprawdzenie reputacji domeny/IP, które uruchamia się wyłącznie po kliknięciu, nigdy automatycznie. Linia statusu zapisanego klucza pokazuje jego pierwszy i ostatni znak (np. <code>a***********f</code>), więc możesz rozpoznać, który klucz jest zapisany, bez wysyłania go w pełni z powrotem do przeglądarki. Sprawdzenie, które wypadnie wystarczająco źle, może dodać wpis w zakładce Alerty (patrz niżej) - samo sprawdzenie jest zawsze uruchamiane wyłącznie przez kliknięcie Enrich gdzieś w panelu.",
   "ti.hint.enable_public": "Domyślnie wyłączone. To jedyna rzecz w DNS-shield, która łączy się poza Twoją własną siecią - zapisanie klucza API poniżej <strong>nie</strong> włącza tego samo z siebie, a Enrich będzie zgłaszał każdą usługę poniżej jako wyłączoną, dopóki to pole też nie zostanie zaznaczone.",
   "ti.hint.key_blank": "Pozostaw klucz pusty, aby pominąć daną usługę. AbuseIPDB, GreyNoise i Shodan obsługują tylko sprawdzanie adresów IP; dla domen są pomijane niezależnie od ustawień.",
-  "ti.hint.rdap_crtsh": "Obie usługi działają tylko dla domen i nie wymagają klucza (darmowe usługi publiczne, bez konta) - nadal jednak wymagają włączenia \"Włącz publiczne sprawdzenia\" powyżej, bo to wciąż wywołania do zewnętrznych usług. Wiek domeny oznacza domenę zarejestrowaną bardzo niedawno, częsty sygnał phishingu/typosquattingu; crt.sh po prostu informuje, ile certyfikatów i odrębnych nazw subdomen jest zarejestrowanych dla danej domeny, dla Twojej własnej wiedzy.",
+  "ti.hint.rdap_crtsh": "Obie usługi działają tylko dla domen i nie wymagają klucza (darmowe usługi publiczne, bez konta) - nadal jednak wymagają włączenia \"Włącz publiczne sprawdzenia\" powyżej, bo to wciąż wywołania do zewnętrznych usług. Wiek domeny oznacza domenę zarejestrowaną bardzo niedawno, częsty sygnał phishingu/typosquattingu; crt.sh po prostu informuje, ile certyfikatów i odrębnych nazw subdomen jest zarejestrowanych dla danej domeny, dla Twojej własnej wiedzy. Sprawdzenie wieku domeny pobiera teraz pełny rekord - rejestratora, datę wygaśnięcia i serwery nazw - a nie tylko wiek.",
+  "ti.ipinfo": "Sprawdzenie geolokalizacji/właściciela IP (ipinfo.io)",
+  "ti.ipinfo_key": "Token API ipinfo.io (opcjonalny)",
+  "ti.hint.ipinfo": "Tylko dla adresów IP. Zwraca miasto/region/kraj, ASN oraz organizację/dostawcę internetu (ISP) będącego właścicielem adresu klienta lub docelowego - to czysto informacyjne dane, nie sygnał reputacyjny, więc nigdy nie wpływają na ogólny werdykt. Działa bez tokenu przy niskim limicie zapytań; dodaj darmowy token ipinfo.io powyżej dla wyższych limitów.",
   "ti.hint.local_service": "Wskaż tutaj infrastrukturę, którą sam prowadzisz, zamiast (lub obok) usług publicznych powyżej - nie podlega przełącznikowi powyżej, bo to nie jest wywołanie do zewnętrznej usługi. DNS-shield wysyła POST-em <code>{\"target\": \"&lt;domena-lub-ip&gt;\", \"type\": \"domain\"|\"ip\"}</code> jako JSON pod adres URL poniżej i oczekuje w odpowiedzi <code>{\"verdict\": \"safe\"|\"low\"|\"medium\"|\"high\"|\"critical\", \"score\": 0-100, \"summary\": \"...\"}</code> (score/summary opcjonalne).",
   "ti.hint.auto_enrich": "Uruchamia Enrich raz dla domeny, przy pierwszym zapytaniu jakie DNS-shield kiedykolwiek dla niej zobaczy - nigdy przy powtórnych zapytaniach i nigdy więcej niż limit sprawdzeń poniżej na jedno uruchomienie, więc nagły napływ nowych domen (urządzenie łączące się po raz pierwszy, telefon przywracający aplikacje) nie wyczerpie od razu darmowego limitu API; zamiast tego nadrabia zaległości w kolejnych kilku sprawdzeniach. Potrzebuje włączonego \"Włącz publiczne sprawdzenia\" powyżej (lub lokalnej usługi reputacji), żeby cokolwiek faktycznie wywołać.",
 
@@ -2770,7 +2789,7 @@ function openEnrichmentWindow(result) {
       if (!src.configured) {
         const hint = name === "local"
           ? "Not set up - enable it and add a URL in Settings -> Threat intelligence."
-          : name === "rdap" || name === "crtsh"
+          : name === "rdap" || name === "crtsh" || name === "ipinfo"
           ? "Not enabled - turn it on in Settings -> Threat intelligence."
           : "Not configured - add an API key in Settings -> Threat intelligence.";
         return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">${hint}</p></div>`;
@@ -3849,6 +3868,7 @@ async function loadSettings() {
   document.getElementById("s-greynoise-key").value = "";
   document.getElementById("s-shodan-key").value = "";
   document.getElementById("s-urlhaus-key").value = "";
+  document.getElementById("s-enrich-ipinfo-key").value = "";
   document.getElementById("s-enrich-local-key").value = "";
   const enr = s.enrichment || {};
   const keyStatusText = (set, preview) => (set ? `(configured: ${preview}) ` : "(not set)");
@@ -3858,10 +3878,12 @@ async function loadSettings() {
   document.getElementById("greynoise-key-status").textContent = keyStatusText(enr.greynoise_api_key_set, enr.greynoise_api_key_preview);
   document.getElementById("shodan-key-status").textContent = keyStatusText(enr.shodan_api_key_set, enr.shodan_api_key_preview);
   document.getElementById("urlhaus-key-status").textContent = keyStatusText(enr.urlhaus_api_key_set, enr.urlhaus_api_key_preview);
+  document.getElementById("ipinfo-key-status").textContent = keyStatusText(enr.ipinfo_api_key_set, enr.ipinfo_api_key_preview);
   document.getElementById("local-key-status").textContent = keyStatusText(enr.local_api_key_set, enr.local_api_key_preview);
   document.getElementById("s-enrich-public-enabled").checked = !!enr.public_enabled;
   document.getElementById("s-enrich-rdap-enabled").checked = !!enr.rdap_enabled;
   document.getElementById("s-enrich-crtsh-enabled").checked = !!enr.crtsh_enabled;
+  document.getElementById("s-enrich-ipinfo-enabled").checked = !!enr.ipinfo_enabled;
   document.getElementById("s-enrich-local-enabled").checked = !!enr.local_enabled;
   document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
   document.getElementById("s-enrich-alert-enabled").checked = enr.alert_enabled !== false;
@@ -3873,7 +3895,7 @@ async function loadSettings() {
   const publicReady = !!enr.public_enabled && (
     enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set ||
     enr.greynoise_api_key_set || enr.shodan_api_key_set || enr.urlhaus_api_key_set ||
-    enr.rdap_enabled || enr.crtsh_enabled
+    enr.rdap_enabled || enr.crtsh_enabled || enr.ipinfo_enabled
   );
   const localReady = !!enr.local_enabled && !!enr.local_url;
   enrichmentAvailable = publicReady || localReady;
@@ -5659,6 +5681,7 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
     public_enabled: document.getElementById("s-enrich-public-enabled").checked,
     rdap_enabled: document.getElementById("s-enrich-rdap-enabled").checked,
     crtsh_enabled: document.getElementById("s-enrich-crtsh-enabled").checked,
+    ipinfo_enabled: document.getElementById("s-enrich-ipinfo-enabled").checked,
     local_enabled: document.getElementById("s-enrich-local-enabled").checked,
     local_url: document.getElementById("s-enrich-local-url").value.trim(),
     alert_enabled: document.getElementById("s-enrich-alert-enabled").checked,
@@ -5673,6 +5696,7 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
   const greynoise = document.getElementById("s-greynoise-key").value.trim();
   const shodan = document.getElementById("s-shodan-key").value.trim();
   const urlhaus = document.getElementById("s-urlhaus-key").value.trim();
+  const ipinfoKey = document.getElementById("s-enrich-ipinfo-key").value.trim();
   const localKey = document.getElementById("s-enrich-local-key").value.trim();
   if (vt) body.virustotal_api_key = vt;
   if (abuse) body.abuseipdb_api_key = abuse;
@@ -5680,6 +5704,7 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
   if (greynoise) body.greynoise_api_key = greynoise;
   if (shodan) body.shodan_api_key = shodan;
   if (urlhaus) body.urlhaus_api_key = urlhaus;
+  if (ipinfoKey) body.ipinfo_api_key = ipinfoKey;
   if (localKey) body.local_api_key = localKey;
   await withDelayedSpinner(e.submitter, async () => {
     await api("/api/settings/enrichment", {
