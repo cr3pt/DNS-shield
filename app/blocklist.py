@@ -383,7 +383,10 @@ class BlocklistManager:
                 return candidate
         return None
 
-    def _client_mac(self, client_ip: str) -> str | None:
+    def mac_for(self, client_ip: str) -> str | None:
+        """MAC address for a client IP, from the router's ARP table - only
+        populated for real LAN peers (DNS-shield needs to run on the host
+        network to see the kernel's ARP table at all)."""
         return self._mac_resolver.mac_for(client_ip) if self._mac_resolver is not None else None
 
     def _client_hostname(self, client_ip: str) -> str | None:
@@ -396,7 +399,7 @@ class BlocklistManager:
         for group in groups:
             for pattern in group.get("match", []) or []:
                 if client_matches(
-                    client_ip, pattern, mac=self._client_mac(client_ip), hostname=self._client_hostname(client_ip)
+                    client_ip, pattern, mac=self.mac_for(client_ip), hostname=self._client_hostname(client_ip)
                 ):
                     return group
         return None
@@ -412,7 +415,7 @@ class BlocklistManager:
             return False
         for pattern in self._config.get("blocked_clients", default=[]) or []:
             if client_matches(
-                client_ip, pattern, mac=self._client_mac(client_ip), hostname=self._client_hostname(client_ip)
+                client_ip, pattern, mac=self.mac_for(client_ip), hostname=self._client_hostname(client_ip)
             ):
                 return True
         return False

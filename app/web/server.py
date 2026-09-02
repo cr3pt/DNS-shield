@@ -2275,6 +2275,7 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "blocked": ip_source is not None,
                 "block_reason": f"Malicious IP list: {ip_source}" if ip_source else None,
             }
+            result["mac_address"] = blocklist.mac_for(result["target"])
         else:
             result["local_blocklist"] = blocklist.lookup_domain(result["target"])
         maybe_alert_on_verdict(result, config_store, anomaly)

@@ -2775,6 +2775,13 @@ function openEnrichmentWindow(result) {
       if (lb.local_tld) localStatusRows.push(`<p>Local TLD: .${escapeHtml(lb.local_tld)}</p>`);
     }
   }
+  if (result.type === "ip") {
+    localStatusRows.push(
+      result.mac_address
+        ? `<p>MAC address: <code>${escapeHtml(result.mac_address)}</code> <span class="muted">(from this box's ARP table - only populated for a real LAN peer)</span></p>`
+        : `<p class="muted">No MAC address on record - not currently in this box's ARP table (only populated for a real LAN peer DNS-shield has seen traffic from).</p>`
+    );
+  }
   const localStatusHtml = `<div class="local-status">
       <h2>DNS-shield local status</h2>
       ${localStatusRows.length ? localStatusRows.join("") : '<p class="muted">Not on any local blocklist, allowlist, alert rule, or typosquat/local-TLD match.</p>'}
