@@ -19,6 +19,31 @@ _doh_session.mount("https://", _doh_adapter)
 _doh_session.mount("http://", _doh_adapter)
 
 
+def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
+    """Split a "host[:port]" upstream entry into (host, port).
+
+    A plain colon-split breaks on IPv6 literals, which contain colons
+    themselves - "2606:4700:4700::1111:53" is ambiguous between "port 53 on
+    that /64" and "no port on ...::1111:53". Bracket notation ([addr]:port,
+    the same convention curl/browsers use) resolves that; a bare IPv6
+    literal without brackets is accepted too, just without a custom port,
+    since there'd be no way to tell where the address ends.
+    """
+    entry = entry.strip()
+    if entry.startswith("["):
+        closing = entry.find("]")
+        if closing != -1:
+            host = entry[1:closing]
+            rest = entry[closing + 1 :]
+            if rest.startswith(":") and rest[1:]:
+                return host, int(rest[1:])
+            return host, default_port
+    if entry.count(":") > 1:
+        return entry, default_port
+    host, _, port_str = entry.partition(":")
+    return host, int(port_str) if port_str else default_port
+
+
 def forward(data: bytes, upstream: str, timeout: float) -> bytes:
     if upstream.startswith("dot://"):
         return _forward_dot(data, upstream[len("dot://") :], timeout)
@@ -30,10 +55,13 @@ def forward(data: bytes, upstream: str, timeout: float) -> bytes:
 
 
 def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
-    host, _, port_str = upstream.partition(":")
-    port = int(port_str) if port_str else 53
+    host, port = _split_host_port(upstream, 53)
+    # _split_host_port() never returns a colon in a hostname or IPv4 host -
+    # a colon here means this really is an IPv6 literal, which needs AF_INET6
+    # (an AF_INET socket can't send to one at all).
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
 
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+    with socket.socket(family, socket.SOCK_DGRAM) as sock:
         sock.settimeout(timeout)
         sock.sendto(data, (host, port))
         resp, _ = sock.recvfrom(65535)
@@ -51,8 +79,7 @@ def _forward_tcp(data: bytes, host: str, port: int, timeout: float) -> bytes:
 
 
 def _forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
-    host, _, port_str = hostport.partition(":")
-    port = int(port_str) if port_str else 853
+    host, port = _split_host_port(hostport, 853)
 
     context = ssl.create_default_context()
     with socket.create_connection((host, port), timeout=timeout) as raw_sock:
@@ -99,9 +126,7 @@ def hostname_of(upstream: str) -> str | None:
             break
     entry = entry.split("/", 1)[0]
 
-    host = entry
-    if entry.count(":") == 1:
-        host, _, _port = entry.partition(":")
+    host, _port = _split_host_port(entry, 0)
     host = host.lower()
     if not host:
         return None
