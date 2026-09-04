@@ -1896,12 +1896,18 @@
       </div>
     </div>
     <p class="muted" id="reanalyze-status"></p>
+    <div id="anomaly-bulk-bar" style="display:none; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.6rem;">
+      <span id="anomaly-bulk-count" class="tag"></span>
+      <button type="button" class="secondary" id="anomaly-bulk-acknowledge" data-i18n="alerts.bulk.acknowledge">Acknowledge selected</button>
+      <button type="button" class="danger" id="anomaly-bulk-delete" data-i18n="alerts.bulk.delete">Delete selected</button>
+      <button type="button" class="secondary" id="anomaly-bulk-deselect" data-i18n="alerts.bulk.deselect_all">Deselect all</button>
+    </div>
     <div class="alerts-table-wrap">
     <table class="card-table alerts-table">
       <colgroup>
-        <col style="width:6.5rem;"><col style="width:13rem;"><col style="width:7rem;"><col style="width:11rem;"><col style="width:5.5rem;"><col><col style="width:9.5rem;">
+        <col style="width:2rem;"><col style="width:6.5rem;"><col style="width:13rem;"><col style="width:7rem;"><col style="width:11rem;"><col style="width:5.5rem;"><col><col style="width:9.5rem;">
       </colgroup>
-      <thead><tr><th data-i18n="col.time">Time</th><th data-i18n="col.client">Client</th><th data-i18n="col.source">Source</th><th data-i18n="col.type">Type</th><th data-i18n="col.severity">Severity</th><th data-i18n="col.details">Details</th><th></th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="anomaly-select-all"></th><th data-i18n="col.time">Time</th><th data-i18n="col.client">Client</th><th data-i18n="col.source">Source</th><th data-i18n="col.type">Type</th><th data-i18n="col.severity">Severity</th><th data-i18n="col.details">Details</th><th></th></tr></thead>
       <tbody id="anomaly-rows"></tbody>
     </table>
     </div>
@@ -2314,6 +2320,11 @@ const I18N_PL = {
   "alerts.load_domains_failed": "Nie udało się załadować domen",
   "alerts.group.expand": "Pokaż {n} zdarzeń",
   "alerts.group.collapse": "Ukryj zdarzenia",
+  "alerts.bulk.selected_count": "Zaznaczono: {n}",
+  "alerts.bulk.acknowledge": "Potwierdź zaznaczone",
+  "alerts.bulk.delete": "Usuń zaznaczone",
+  "alerts.bulk.deselect_all": "Odznacz wszystko",
+  "alerts.bulk.delete_confirm": "Usunąć {n} zaznaczonych alertów? Tej operacji nie można cofnąć.",
   "alerts.mark_fp": "Oznacz jako FP",
   "alerts.mark_fp_title.typosquat": "Nigdy więcej nie alarmuj dla dokładnie tej domeny wobec tej chronionej domeny",
   "alerts.mark_fp_title.rebinding": "Nigdy więcej nie alarmuj dla dokładnie tej domeny rozwiązującej się do dokładnie tego adresu",
@@ -4601,6 +4612,36 @@ function markFpButton(a, apiPath, payload, label, title) {
 
 const SEVERITY_RANK = { low: 0, medium: 1, high: 2 };
 
+// Bulk-select state for the Alerts table - a set of selected anomaly ids,
+// persisted across loadAnomalies() rebuilds (mirrors expandedAnomalyGroupKeys
+// below) so ticking a few boxes then acting on one row elsewhere doesn't
+// silently lose the rest of the selection.
+const selectedAlertIds = new Set();
+let currentAlertIds = [];
+
+function alertSelectCheckbox(id) {
+  const cb = el("input", { type: "checkbox" });
+  cb.checked = selectedAlertIds.has(id);
+  cb.onchange = () => {
+    if (cb.checked) selectedAlertIds.add(id);
+    else selectedAlertIds.delete(id);
+    updateAlertBulkBar();
+  };
+  return cb;
+}
+
+function updateAlertBulkBar() {
+  const bar = document.getElementById("anomaly-bulk-bar");
+  const count = selectedAlertIds.size;
+  bar.style.display = count ? "flex" : "none";
+  document.getElementById("anomaly-bulk-count").textContent = t("alerts.bulk.selected_count", "{n} selected").replace("{n}", count);
+
+  const selectAll = document.getElementById("anomaly-select-all");
+  const visibleSelected = currentAlertIds.filter((id) => selectedAlertIds.has(id)).length;
+  selectAll.checked = currentAlertIds.length > 0 && visibleSelected === currentAlertIds.length;
+  selectAll.indeterminate = visibleSelected > 0 && visibleSelected < currentAlertIds.length;
+}
+
 function groupAnomalies(list) {
   const order = [];
   const map = new Map();
@@ -4643,6 +4684,28 @@ function renderAnomalyGroupRows(group) {
     row.classList.add("anomaly-group-child");
   }
 
+  const groupIds = group.map((a) => a.id);
+  const childCheckboxes = childRows.map((row) => row.querySelector("input[type=checkbox]"));
+  const groupSelectCb = el("input", { type: "checkbox" });
+  const refreshGroupSelectCb = () => {
+    const selectedCount = groupIds.filter((id) => selectedAlertIds.has(id)).length;
+    groupSelectCb.checked = selectedCount === groupIds.length;
+    groupSelectCb.indeterminate = selectedCount > 0 && selectedCount < groupIds.length;
+  };
+  refreshGroupSelectCb();
+  // A child's own checkbox already updates selectedAlertIds via alertSelectCheckbox()'s
+  // onchange - listen alongside it (not instead of it) just to keep this group's header
+  // checkbox in sync without waiting for the next full loadAnomalies() rebuild.
+  for (const cb of childCheckboxes) cb.addEventListener("change", refreshGroupSelectCb);
+  groupSelectCb.onchange = () => {
+    for (const id of groupIds) {
+      if (groupSelectCb.checked) selectedAlertIds.add(id);
+      else selectedAlertIds.delete(id);
+    }
+    for (const cb of childCheckboxes) cb.checked = groupSelectCb.checked;
+    updateAlertBulkBar();
+  };
+
   const toggleBtn = el("button", {
     class: "secondary",
     text: expanded
@@ -4670,6 +4733,7 @@ function renderAnomalyGroupRows(group) {
   }
 
   const headerRow = el("tr", { class: "anomaly-group-header" }, [
+    el("td", {}, [groupSelectCb]),
     el("td", { text: fmtTime(latest.ts), "data-label": t("col.time", "Time") }),
     addressCell(clientLabel(latest.client), clientExtra, latest.client, t("col.client", "Client")),
     el("td", { "data-label": t("col.source", "Source") }, [alertSourceTag(latest.source)]),
@@ -4787,6 +4851,7 @@ function renderAnomalyRow(a) {
   }
 
   return el("tr", {}, [
+    el("td", {}, [alertSelectCheckbox(a.id)]),
     el("td", { text: fmtTime(a.ts), "data-label": t("col.time", "Time") }),
     addressCell(clientLabel(a.client), clientExtra, a.client, t("col.client", "Client")),
     el("td", { "data-label": t("col.source", "Source") }, [alertSourceTag(a.source)]),
@@ -4820,6 +4885,11 @@ async function loadAnomalies() {
   const anomalies = await api(`/api/anomalies?include_acknowledged=${showAcknowledged}`);
   const activeSources = new Set(activeAlertSourceFilters());
   const filtered = anomalies.filter((a) => activeSources.has(a.source || "anomaly"));
+  currentAlertIds = filtered.map((a) => a.id);
+  const currentIdSet = new Set(currentAlertIds);
+  for (const id of [...selectedAlertIds]) {
+    if (!currentIdSet.has(id)) selectedAlertIds.delete(id);
+  }
   const rows = document.getElementById("anomaly-rows");
   rows.innerHTML = "";
   for (const group of groupAnomalies(filtered)) {
@@ -4828,6 +4898,7 @@ async function loadAnomalies() {
     }
   }
   document.getElementById("anomaly-empty").style.display = filtered.length ? "none" : "block";
+  updateAlertBulkBar();
 
   const countInfo = await api("/api/anomalies/count");
   const badge = document.getElementById("anomaly-count-badge");
@@ -4954,6 +5025,51 @@ async function loadAlertSourcePicker() {
 }
 
 document.getElementById("anomaly-show-acknowledged").addEventListener("change", loadAnomalies);
+
+document.getElementById("anomaly-select-all").addEventListener("change", (e) => {
+  if (e.target.checked) {
+    for (const id of currentAlertIds) selectedAlertIds.add(id);
+  } else {
+    for (const id of currentAlertIds) selectedAlertIds.delete(id);
+  }
+  loadAnomalies();
+});
+
+document.getElementById("anomaly-bulk-deselect").addEventListener("click", () => {
+  selectedAlertIds.clear();
+  loadAnomalies();
+});
+
+document.getElementById("anomaly-bulk-acknowledge").addEventListener("click", async (e) => {
+  const ids = [...selectedAlertIds];
+  if (!ids.length) return;
+  try {
+    await withSpinner(e.target, () => Promise.all(
+      ids.map((id) => api(`/api/anomalies/${id}/acknowledge`, { method: "POST" }))
+    ), t("common.saving", "Saving..."));
+    selectedAlertIds.clear();
+    loadAnomalies();
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    loadAnomalies();
+  }
+});
+
+document.getElementById("anomaly-bulk-delete").addEventListener("click", async (e) => {
+  const ids = [...selectedAlertIds];
+  if (!ids.length) return;
+  if (!confirm(t("alerts.bulk.delete_confirm", "Delete {n} selected alert(s)? This can't be undone.").replace("{n}", ids.length))) return;
+  try {
+    await withSpinner(e.target, () => Promise.all(
+      ids.map((id) => api(`/api/anomalies/${id}`, { method: "DELETE" }))
+    ), t("common.saving", "Saving..."));
+    selectedAlertIds.clear();
+    loadAnomalies();
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    loadAnomalies();
+  }
+});
 
 (() => {
   let saved;
