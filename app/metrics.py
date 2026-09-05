@@ -33,6 +33,7 @@ def render_metrics(
         _line(buf, "dnsshield_cache_entries", "Number of entries currently held in the DNS answer cache.", "gauge", cache_stats.get("entries", 0))
         _line(buf, "dnsshield_cache_hits_total", "Total DNS answer cache hits since process start.", "counter", cache_stats.get("hits", 0))
         _line(buf, "dnsshield_cache_misses_total", "Total DNS answer cache misses since process start.", "counter", cache_stats.get("misses", 0))
+        _line(buf, "dnsshield_cache_stale_hits_total", "Total DNS answer cache hits served stale (upstream unreachable) since process start.", "counter", cache_stats.get("stale_hits", 0))
 
     if anomaly is not None:
         _line(buf, "dnsshield_anomalies_unacknowledged", "Number of detected anomalies not yet acknowledged.", "gauge", anomaly.unacknowledged_count())

@@ -201,6 +201,7 @@ class DnsSettingsIn(BaseModel):
     upstream_timeout_seconds: float | None = None
     upstream_strategy: str | None = None
     upstream_stats_window_minutes: float | None = None
+    query_case_randomization_enabled: bool | None = None
     block_mode: str | None = None
     blocked_ipv4: str | None = None
     blocked_ipv6: str | None = None
@@ -210,6 +211,11 @@ class DnsSettingsIn(BaseModel):
     cache_max_entries: int | None = None
     cache_min_ttl_seconds: int | None = None
     cache_max_ttl_seconds: int | None = None
+    cache_serve_stale_enabled: bool | None = None
+    cache_stale_grace_seconds: int | None = None
+    cache_prefetch_enabled: bool | None = None
+    cache_prefetch_before_expiry_seconds: int | None = None
+    cache_prefetch_min_hits: int | None = None
     resolve_client_names: bool | None = None
     client_name_resolver: str | None = None
     client_name_cache_seconds: int | None = None

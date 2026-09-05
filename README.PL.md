@@ -1901,13 +1901,20 @@ obsłużą reset wynikający z wyczyszczenia logu albo z przycięcia po
 30-dniowej retencji - jako reset licznika, nie ujemną prędkość),
 `dnsshield_blocklist_domains` / `dnsshield_allowlist_domains`,
 `dnsshield_cache_entries` / `dnsshield_cache_hits_total` /
-`dnsshield_cache_misses_total`, `dnsshield_anomalies_unacknowledged` oraz
-`dnsshield_uptime_seconds`. Dwa mierniki `dnsshield_dnssec_*_cached` to
-jedyny wyjątek od reguły "agreguje się we wszystkich procesach roboczych"
-opisanej wyżej - cache DNSSEC jest utrzymywany osobno w każdym procesie,
-więc przy więcej niż jednym procesie roboczym DNS wartości te odzwierciedlają
-wyłącznie ten konkretny proces, który akurat obsługuje panel webowy (ten
-sam, który tworzy `create_app`), a nie sumę ze wszystkich procesów.
+`dnsshield_cache_misses_total` / `dnsshield_cache_stale_hits_total`,
+`dnsshield_anomalies_unacknowledged` oraz `dnsshield_uptime_seconds`.
+Rodziny `dnsshield_dnssec_*_cached` i `dnsshield_cache_*` to wyjątek od
+reguły "agreguje się we wszystkich procesach roboczych" opisanej wyżej -
+zarówno cache DNSSEC, jak i cache odpowiedzi DNS, są utrzymywane osobno w
+każdym procesie, więc przy więcej niż jednym procesie roboczym DNS
+wartości te odzwierciedlają wyłącznie ten konkretny proces, który akurat
+obsługuje panel webowy (ten sam, który tworzy `create_app`), a nie sumę ze
+wszystkich procesów.
+
+Gotowy dashboard Grafany dla tych metryk jest w
+`grafana/dnsshield-dashboard.json` - zaimportuj go w Grafanie (Dashboards
+-> New -> Import, wgraj plik JSON) wskazując dowolne źródło danych
+Prometheus zbierające `GET /metrics`.
 
 ### Sprawdzanie kondycji
 

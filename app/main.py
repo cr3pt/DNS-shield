@@ -55,9 +55,10 @@ def _run_dns_worker(worker_id: int, num_workers: int, data_dir: Path, log_level:
     blocklist.start()
 
     stats = Stats(data_dir / "stats.db", config_store)
-    cache = DNSCache(config_store)
+    cache = DNSCache(config_store, persist_path=data_dir / f"dns_cache_worker_{worker_id}.pkl")
     upstream_stats = UpstreamStats(config_store)
     dnssec_cache = DnssecCache()
+    atexit.register(cache.save)
 
     start_dns_servers(
         config_store,
@@ -133,7 +134,8 @@ def main() -> None:
     )
     blocklist.start()
 
-    cache = DNSCache(config_store)
+    cache = DNSCache(config_store, persist_path=DATA_DIR / "dns_cache.pkl")
+    atexit.register(cache.save)
     upstream_stats = UpstreamStats(config_store)
     dnssec_cache = DnssecCache()
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")

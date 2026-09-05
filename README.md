@@ -1698,13 +1698,19 @@ database, and Prometheus's own `rate()`/`increase()` handle a reset from
 clearing the log or 30-day retention pruning the normal way - as a
 counter reset, not a negative rate), `dnsshield_blocklist_domains` /
 `dnsshield_allowlist_domains`, `dnsshield_cache_entries` /
-`dnsshield_cache_hits_total` / `dnsshield_cache_misses_total`,
-`dnsshield_anomalies_unacknowledged`, and `dnsshield_uptime_seconds`.
-The two `dnsshield_dnssec_*_cached` gauges are the one exception to the
-"aggregates across workers" property above - the DNSSEC cache is
-per-process, so with more than one DNS worker these only reflect
-whichever process the web UI happens to be (the same one that owns
-`create_app`), not a sum across all of them.
+`dnsshield_cache_hits_total` / `dnsshield_cache_misses_total` /
+`dnsshield_cache_stale_hits_total`, `dnsshield_anomalies_unacknowledged`,
+and `dnsshield_uptime_seconds`. The `dnsshield_dnssec_*_cached` and
+`dnsshield_cache_*` families are the exception to the "aggregates across
+workers" property above - both the DNSSEC cache and the DNS answer cache
+are per-process, so with more than one `DNSSHIELD_DNS_WORKERS` these only
+reflect whichever process the web UI happens to be (the same one that
+owns `create_app`), not a sum across all of them.
+
+A ready-made Grafana dashboard for these metrics ships in
+`grafana/dnsshield-dashboard.json` - import it in Grafana (Dashboards ->
+New -> Import, upload the JSON) against any Prometheus datasource
+scraping `GET /metrics`.
 
 ### Health check
 

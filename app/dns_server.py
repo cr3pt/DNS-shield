@@ -3,13 +3,14 @@ from __future__ import annotations
 import ipaddress
 import logging
 import queue
+import random
 import ssl
 import threading
 import time
 
 import socket
 
-from dnslib import AAAA, EDNS0, QTYPE, RCODE, RR, A, DNSHeader, DNSRecord
+from dnslib import AAAA, EDNS0, QTYPE, RCODE, RR, A, DNSHeader, DNSQuestion, DNSRecord
 from dnslib.server import DNSServer
 from dnslib.server import TCPServer as _DNSLibTCPServer
 from dnslib.server import UDPServer as _DNSLibUDPServer
@@ -86,16 +87,25 @@ class FilteringResolver:
                     if self._cache is not None:
                         self._cache.put(request, response)
 
-                for candidate_ip in self._answer_ips(response):
-                    matched_pattern = self._blocklist.answer_ip_blocked(candidate_ip)
-                    if matched_pattern is not None:
+                for cname in self._answer_cnames(response):
+                    cname_reason = self._blocklist.block_reason(cname, client_ip)
+                    if cname_reason is not None:
                         response = self._blocked_reply(request)
                         blocked = True
-                        reason = f"Blocked destination IP ({matched_pattern})"
-                        rebinding_ip = None
+                        reason = f"CNAME cloaking: {cname} ({cname_reason})"
                         break
-                    if rebinding_ip is None and self._is_rebinding_candidate(qname, candidate_ip):
-                        rebinding_ip = candidate_ip
+
+                if not blocked:
+                    for candidate_ip in self._answer_ips(response):
+                        matched_pattern = self._blocklist.answer_ip_blocked(candidate_ip)
+                        if matched_pattern is not None:
+                            response = self._blocked_reply(request)
+                            blocked = True
+                            reason = f"Blocked destination IP ({matched_pattern})"
+                            rebinding_ip = None
+                            break
+                        if rebinding_ip is None and self._is_rebinding_candidate(qname, candidate_ip):
+                            rebinding_ip = candidate_ip
 
                 if rebinding_ip is not None and not blocked:
                     rebinding_action = self._config.get("dns", "rebinding_action", default="alert")
@@ -148,6 +158,10 @@ class FilteringResolver:
     @staticmethod
     def _answer_ips(response: DNSRecord) -> list[str]:
         return [str(rr.rdata) for rr in response.rr if rr.rtype in (QTYPE.A, QTYPE.AAAA)]
+
+    @staticmethod
+    def _answer_cnames(response: DNSRecord) -> list[str]:
+        return [str(rr.rdata).rstrip(".").lower() for rr in response.rr if rr.rtype == QTYPE.CNAME]
 
     def _blocked_reply(self, request: DNSRecord) -> DNSRecord:
         reply = request.reply()
@@ -205,11 +219,26 @@ class FilteringResolver:
     def _dnssec_enabled(self) -> bool:
         return self._dnssec_cache is not None and bool(self._config.get("dns", "dnssec_enabled", default=False))
 
+    def _case_randomization_enabled(self) -> bool:
+        return bool(self._config.get("dns", "query_case_randomization_enabled", default=False))
+
+    @staticmethod
+    def _randomize_case(name: str) -> str:
+        return "".join(random.choice((c.upper(), c.lower())) if c.isalpha() else c for c in name)
+
     def _prepare_upstream_data(self, request: DNSRecord) -> bytes:
-        if not self._dnssec_enabled():
+        dnssec = self._dnssec_enabled()
+        case_random = self._case_randomization_enabled()
+        if not dnssec and not case_random:
             return request.pack()
-        outgoing = DNSRecord(DNSHeader(id=request.header.id, rd=request.header.rd), q=request.q)
-        outgoing.add_ar(EDNS0(flags="do", udp_len=_DNSSEC_UDP_SIZE))
+
+        q = request.q
+        qname = self._randomize_case(str(q.qname)) if case_random else q.qname
+        outgoing = DNSRecord(
+            DNSHeader(id=request.header.id, rd=request.header.rd), q=DNSQuestion(qname, q.qtype, q.qclass)
+        )
+        if dnssec:
+            outgoing.add_ar(EDNS0(flags="do", udp_len=_DNSSEC_UDP_SIZE))
         return outgoing.pack()
 
     def _record_dnssec(self, qname: str, response: DNSRecord) -> None:
@@ -227,7 +256,10 @@ class FilteringResolver:
         if strategy == "race" and len(upstreams) > 1:
             return self._forward_race(request, data, upstreams, timeout, qname)
 
-        if self._upstream_stats is not None:
+        if strategy == "random":
+            upstreams = list(upstreams)
+            random.shuffle(upstreams)
+        elif self._upstream_stats is not None:
             upstreams = self._upstream_stats.rank(upstreams, strategy)
 
         for upstream in upstreams:
@@ -245,9 +277,22 @@ class FilteringResolver:
                 logger.warning("upstream %s failed: %s", upstream, exc)
                 continue
 
+        stale = self._stale_fallback(request)
+        if stale is not None:
+            logger.info("serving stale cache entry for %s after upstream failure", qname)
+            return stale
+
         reply = request.reply()
         reply.header.rcode = RCODE.SERVFAIL
         return reply
+
+    def _stale_fallback(self, request: DNSRecord) -> DNSRecord | None:
+        if self._cache is None:
+            return None
+        if not bool(self._config.get("dns", "cache_serve_stale_enabled", default=True)):
+            return None
+        grace = float(self._config.get("dns", "cache_stale_grace_seconds", default=3600))
+        return self._cache.get_stale(request, grace)
 
     def _forward_race(
         self, request: DNSRecord, data: bytes, upstreams: list[str], timeout: float, qname: str = ""
@@ -277,9 +322,44 @@ class FilteringResolver:
                 return parsed
             logger.warning("upstream %s failed (race mode): %s", upstream, exc)
 
+        stale = self._stale_fallback(request)
+        if stale is not None:
+            logger.info("serving stale cache entry for %s after upstream failure (race mode)", qname)
+            return stale
+
         reply = request.reply()
         reply.header.rcode = RCODE.SERVFAIL
         return reply
+
+    def save_cache(self) -> None:
+        if self._cache is not None:
+            self._cache.save()
+
+    def maintain_cache(self) -> None:
+        if self._cache is None:
+            return
+        grace = float(self._config.get("dns", "cache_stale_grace_seconds", default=3600))
+        self._cache.purge_expired(grace)
+
+        if not bool(self._config.get("dns", "cache_prefetch_enabled", default=False)):
+            return
+        threshold = float(self._config.get("dns", "cache_prefetch_before_expiry_seconds", default=10))
+        min_hits = int(self._config.get("dns", "cache_prefetch_min_hits", default=2))
+        for key in self._cache.expiring_soon(threshold, min_hits):
+            self._cache.mark_prefetching(key)
+            threading.Thread(target=self._prefetch_one, args=(key,), daemon=True).start()
+
+    def _prefetch_one(self, key: tuple[str, int, int]) -> None:
+        qname, qtype, _qclass = key
+        try:
+            sub_request = DNSRecord.question(qname, qtype=QTYPE.get(qtype, "A"))
+            response = self._forward(sub_request, qname, "")
+            if response.header.rcode == RCODE.NOERROR:
+                self._cache.put(sub_request, response)
+        except Exception as exc:
+            logger.debug("prefetch of %s failed: %s", qname, exc)
+        finally:
+            self._cache.clear_prefetching(key)
 
 
 class QuietLogger:
@@ -420,4 +500,31 @@ def start_dns_servers(
     for server in servers:
         server.start_thread()
     logger.info("DNS server listening on %s:%d (udp+tcp)%s", address, port, " [SO_REUSEPORT]" if reuse_port else "")
+
+    if cache is not None:
+        start_cache_maintenance(resolver)
+
     return servers
+
+
+def start_cache_maintenance(
+    resolver: FilteringResolver, interval_seconds: float = 5.0, save_interval_seconds: float = 300.0
+) -> threading.Thread:
+    def loop() -> None:
+        last_save = time.monotonic()
+        while True:
+            time.sleep(interval_seconds)
+            try:
+                resolver.maintain_cache()
+            except Exception:
+                logger.exception("cache maintenance tick failed")
+            if time.monotonic() - last_save >= save_interval_seconds:
+                try:
+                    resolver.save_cache()
+                except Exception:
+                    logger.exception("cache persistence save failed")
+                last_save = time.monotonic()
+
+    thread = threading.Thread(target=loop, daemon=True, name="dnsshield-cache-maintenance")
+    thread.start()
+    return thread

@@ -7,6 +7,7 @@ dns:
   upstream_timeout_seconds: 3.0
   upstream_strategy: "in_order"
   upstream_stats_window_minutes: 15
+  query_case_randomization_enabled: false
   block_mode: "nxdomain"
   blocked_ipv4: "0.0.0.0"
   blocked_ipv6: "::"
@@ -28,6 +29,11 @@ dns:
   cache_max_entries: 10000
   cache_min_ttl_seconds: 0
   cache_max_ttl_seconds: 3600
+  cache_serve_stale_enabled: true
+  cache_stale_grace_seconds: 3600
+  cache_prefetch_enabled: false
+  cache_prefetch_before_expiry_seconds: 10
+  cache_prefetch_min_hits: 2
   resolve_client_names: false
   client_name_resolver: ""
   client_name_cache_seconds: 3600
