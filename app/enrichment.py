@@ -28,7 +28,7 @@ THREAT_INTEL_HOSTNAMES = frozenset({
     "generativelanguage.googleapis.com",
 })
 
-_AI_MODEL = "gemini-2.0-flash"
+_AI_MODELS = ("gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash")
 
 
 def _severity_max(a: str, b: str) -> str:
@@ -529,15 +529,26 @@ def query_ai(target: str, target_type: str, api_key: str) -> dict[str, Any]:
         "are not reasonably confident about a fact, say you're unsure instead of guessing. "
         "Plain text only, no markdown."
     )
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{_AI_MODEL}:generateContent"
-    try:
-        resp = _session.post(
-            url,
-            params={"key": api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=_TIMEOUT,
-        )
-        resp.raise_for_status()
+    last_404: requests.HTTPError | None = None
+    for model in _AI_MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        try:
+            resp = _session.post(
+                url,
+                params={"key": api_key},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=_TIMEOUT,
+            )
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                last_404 = exc
+                continue
+            return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+        except Exception as exc:
+            logger.warning("AI lookup failed for %s: %s", target, exc)
+            return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
         data = resp.json()
         candidates = data.get("candidates") or []
         if not candidates:
@@ -556,13 +567,14 @@ def query_ai(target: str, target_type: str, api_key: str) -> dict[str, Any]:
             "verdict": "safe",
             "score": 0,
             "summary": text,
-            "details": {"model": _AI_MODEL},
+            "details": {"model": model},
         }
-    except requests.HTTPError as exc:
-        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
-    except Exception as exc:
-        logger.warning("AI lookup failed for %s: %s", target, exc)
-        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+    return {
+        "configured": True,
+        "ok": False,
+        "error": _http_error_message(last_404) if last_404 is not None else "no supported Gemini model found",
+    }
 
 
 def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:

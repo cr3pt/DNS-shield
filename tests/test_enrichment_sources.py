@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from app.enrichment import enrich, query_ai, query_ipinfo, query_rdap
+import requests
+
+from app.enrichment import _AI_MODELS, enrich, query_ai, query_ipinfo, query_rdap
 
 
 def _fake_response(payload):
@@ -151,6 +153,47 @@ def test_query_ai_handles_empty_text():
 
     assert result["ok"] is False
     assert "empty" in result["error"]
+
+
+def _http_error_response(status_code):
+    resp = MagicMock()
+    err_response = MagicMock()
+    err_response.status_code = status_code
+    resp.raise_for_status.side_effect = requests.HTTPError(response=err_response)
+    return resp
+
+
+def test_query_ai_falls_back_to_next_model_when_one_is_retired():
+    responses = [_http_error_response(404) for _ in range(len(_AI_MODELS) - 1)]
+    responses.append(_fake_response(_gemini_response("Owned by Example Corp.")))
+
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.post.side_effect = responses
+        result = query_ai("example.com", "domain", "fake-key")
+
+    assert result["ok"] is True
+    assert result["details"]["model"] == _AI_MODELS[-1]
+    assert mock_session.post.call_count == len(_AI_MODELS)
+
+
+def test_query_ai_reports_error_when_every_model_is_retired():
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.post.return_value = _http_error_response(404)
+        result = query_ai("example.com", "domain", "fake-key")
+
+    assert result["ok"] is False
+    assert "no data on record" in result["error"]
+    assert mock_session.post.call_count == len(_AI_MODELS)
+
+
+def test_query_ai_does_not_retry_on_non_404_errors():
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.post.return_value = _http_error_response(429)
+        result = query_ai("example.com", "domain", "fake-key")
+
+    assert result["ok"] is False
+    assert "rate limited" in result["error"]
+    assert mock_session.post.call_count == 1
 
 
 def test_enrich_ai_source_disabled_without_public_lookups(config_store):
