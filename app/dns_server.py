@@ -126,8 +126,6 @@ class FilteringResolver:
         except ValueError:
             return False
         if addr.is_unspecified:
-            # 0.0.0.0 / :: are sinkhole/null-route answers (our own block page or an
-            # upstream filtering resolver's block response), not a real rebinding target.
             return False
         if not addr.is_private:
             return False
@@ -285,7 +283,6 @@ class FilteringResolver:
 
 
 class QuietLogger:
-
     def log_pass(self, *args, **kwargs):
         pass
 
@@ -333,9 +330,6 @@ def reuse_port_supported() -> bool:
 def _make_dot_server_class(ssl_context: ssl.SSLContext):
     class _DoTServer(_DNSLibTCPServer):
         def finish_request(self, request, client_address):
-            # Wrapping the socket here (not in get_request()) means the TLS handshake
-            # runs inside the per-connection thread ThreadingMixIn already spawned, so a
-            # slow/hanging client can't block the accept loop for other connections.
             try:
                 tls_request = ssl_context.wrap_socket(request, server_side=True)
             except (ssl.SSLError, OSError) as exc:

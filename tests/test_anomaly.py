@@ -23,14 +23,10 @@ def test_shannon_entropy_of_random_looking_string_is_higher():
 
 
 def test_looks_like_dga_respects_min_length():
-    # Short label never counts, however random it looks.
     assert _looks_like_dga("ab", min_label_length=5, min_entropy=1.0) is False
 
 
 def test_looks_like_dga_flags_high_entropy_registrable_label():
-    # _looks_like_dga evaluates the registrable (second-level) label of the
-    # domain, not an arbitrary subdomain - matching real DGA domains, which
-    # are registered directly under a public suffix.
     assert _looks_like_dga("www.x7q9z2w4b1.com", min_label_length=5, min_entropy=3.0) is True
     assert _looks_like_dga("www.wwwwwwwwww.com", min_label_length=5, min_entropy=3.0) is False
 
@@ -50,7 +46,7 @@ def test_ptr_name_to_ip_v4():
     assert _ptr_name_to_ip("5.1.168.192.in-addr.arpa") == "192.168.1.5"
     assert _ptr_name_to_ip("5.1.168.192.in-addr.arpa.") == "192.168.1.5"
     assert _ptr_name_to_ip("not.a.ptr.name") is None
-    assert _ptr_name_to_ip("1.2.3.in-addr.arpa") is None  # wrong label count
+    assert _ptr_name_to_ip("1.2.3.in-addr.arpa") is None
 
 
 def test_ptr_name_to_ip_v6():
@@ -60,7 +56,7 @@ def test_ptr_name_to_ip_v6():
 
 
 def test_is_private_ptr_target():
-    assert _is_private_ptr_target("5.1.168.192.in-addr.arpa") is True  # 192.168.1.5
+    assert _is_private_ptr_target("5.1.168.192.in-addr.arpa") is True
     assert _is_private_ptr_target("8.8.8.8.in-addr.arpa") is False
     assert _is_private_ptr_target("garbage") is False
 
@@ -145,9 +141,7 @@ def test_threat_intel_fp_target_suppresses_at_or_below_marked_verdict(config_sto
         {"threat_intel_fp_targets": [{"target": "youtube.com", "verdict": "high"}]}
     ))
     det = _make_detector(config_store, tmp_path, [])
-    # Same verdict as when marked - still suppressed.
     assert det.record_threat_intel_alert("youtube.com", "domain", "high", "youtube.com flagged high", {}) is None
-    # A different, unrelated target is never affected.
     found = det.record_threat_intel_alert("evil.example", "domain", "high", "evil.example flagged high", {})
     assert found is not None
     assert found["kind"] == "threat_intel:evil.example"
@@ -158,11 +152,8 @@ def test_threat_intel_fp_target_still_alerts_on_escalation(config_store, tmp_pat
         {"threat_intel_fp_targets": [{"target": "youtube.com", "verdict": "medium"}]}
     ))
     det = _make_detector(config_store, tmp_path, [])
-    # A better-or-equal verdict than the marked baseline stays suppressed.
     assert det.record_threat_intel_alert("youtube.com", "domain", "low", "youtube.com flagged low", {}) is None
     assert det.record_threat_intel_alert("youtube.com", "domain", "medium", "youtube.com flagged medium", {}) is None
-    # A strictly worse verdict still alerts, and the alert says it was previously
-    # excluded and how far it escalated - the necessary condition for this feature.
     escalated = det.record_threat_intel_alert("youtube.com", "domain", "high", "youtube.com flagged high", {})
     assert escalated is not None
     assert "medium" in escalated["summary"] and "high" in escalated["summary"]

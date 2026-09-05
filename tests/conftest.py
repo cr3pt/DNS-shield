@@ -4,10 +4,6 @@ from app.config import ConfigStore
 
 
 class FakeStats:
-    """Minimal stand-in for app.stats.Stats, providing just the *_hits_since /
-    max_query_id methods AnomalyDetector's per-check methods call. Hits are
-    plain dicts matching the shape Stats itself returns."""
-
     def __init__(self, hits=None):
         self._hits = hits or []
 

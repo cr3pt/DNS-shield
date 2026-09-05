@@ -19,10 +19,6 @@ class OIDCError(Exception):
 
 
 class PendingSSOStore:
-    """Tracks in-flight OIDC authorization requests, keyed by the unguessable
-    `state` value so the callback can recover the nonce it must check the
-    ID token against, and reject any request whose state we didn't issue."""
-
     def __init__(self, ttl_seconds: float = _STATE_TTL_SECONDS):
         self._ttl = ttl_seconds
         self._entries: dict[str, dict[str, Any]] = {}

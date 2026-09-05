@@ -38,8 +38,6 @@ def render_metrics(
         _line(buf, "dnsshield_anomalies_unacknowledged", "Number of detected anomalies not yet acknowledged.", "gauge", anomaly.unacknowledged_count())
 
     if dnssec_cache is not None:
-        # NOTE: per-process only - does not aggregate across DNSSHIELD_DNS_WORKERS, unlike the
-        # stats.db-derived counters above which all workers share via the same SQLite database.
         counts = dnssec_cache.counts()
         _line(buf, "dnsshield_dnssec_secure_cached", "Domains currently cached as DNSSEC-secure (this process only).", "gauge", counts.get("secure", 0))
         _line(buf, "dnsshield_dnssec_insecure_cached", "Domains currently cached as DNSSEC-insecure (this process only).", "gauge", counts.get("insecure", 0))

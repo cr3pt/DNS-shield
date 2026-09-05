@@ -53,8 +53,6 @@ def test_network_error_timeout():
 
 
 def test_network_error_ssl_before_generic_connection_error():
-    # SSLError subclasses ConnectionError - must be reported as a TLS issue,
-    # not a generic network error.
     msg = _network_error_message(requests.exceptions.SSLError())
     assert "TLS" in msg or "certificate" in msg
 

@@ -17,8 +17,6 @@ def test_ip_matches_ipv6():
 
 
 def test_ip_matches_falls_back_to_string_equality_on_garbage():
-    # Neither side parses as an IP/network - the function shouldn't raise,
-    # it should just compare the raw strings.
     assert ip_matches("not-an-ip", "not-an-ip") is True
     assert ip_matches("not-an-ip", "also-not-an-ip") is False
 

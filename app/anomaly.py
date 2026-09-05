@@ -161,10 +161,6 @@ class AnomalyDetector:
         }
 
     def _threat_intel_fp_baseline(self) -> dict[str, str]:
-        """Maps each excluded threat-intel target to the verdict it had when it was
-        marked a false positive, so a later, strictly worse verdict for that same
-        target can still alert (with a note that it was previously excluded)
-        instead of being silently swallowed forever."""
         entries = self._config.get("anomaly", "threat_intel_fp_targets", default=[]) or []
         return {
             (e.get("target") or "").strip().lower(): (e.get("verdict") or "").strip().lower()
@@ -482,9 +478,6 @@ class AnomalyDetector:
     def record_threat_intel_alert(
         self, target: str, target_type: str, verdict: str, summary: str, details: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """Called from the Enrich endpoint when a lookup comes back with a bad-enough
-        verdict, so it shows up in the same Alerts list as anomaly/alert-rule hits
-        instead of only ever being visible in the one-off popup that triggered it."""
         severity = _THREAT_INTEL_SEVERITY_MAP.get(verdict)
         if severity is None:
             return None
@@ -494,9 +487,6 @@ class AnomalyDetector:
         if baseline_verdict is not None:
             if _VERDICT_RANK.get(verdict, 0) <= _VERDICT_RANK.get(baseline_verdict, 0):
                 return None
-            # Worse than the verdict it had when marked a false positive - still
-            # worth surfacing, but the alert must say so rather than looking like
-            # a fresh, unexplained hit on a target the user already dismissed.
             fp_escalated_from = baseline_verdict
             summary = f'{summary} (previously marked as a false positive at "{baseline_verdict}" - now escalated to "{verdict}")'
 

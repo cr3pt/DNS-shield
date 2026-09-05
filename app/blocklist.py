@@ -168,7 +168,6 @@ def describe_ip_format(format_counts: dict[str, int]) -> str:
 
 
 class BlocklistManager:
-
     def __init__(self, config_store, cache_dir: Path, mac_resolver=None, client_names=None):
         self._config = config_store
         self._cache_dir = cache_dir
@@ -196,13 +195,6 @@ class BlocklistManager:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-        # Short-lived per-URL fetch cache: every settings change that touches blocklists
-        # (add/remove/toggle a domain, source, or alert rule) calls refresh(), which used to
-        # re-download every single subscribed list from the network on every call, even when
-        # nothing about that list had changed since the last refresh a few seconds earlier.
-        # Skipping a re-fetch within this window keeps refresh() fast for the common case of
-        # editing one small setting, while still being far shorter than any sane
-        # refresh_interval_hours so scheduled background refreshes are unaffected.
         self._fetch_cache: dict[tuple[str, Any], tuple[float, set[str], dict[str, int], set[str]]] = {}
         self._fetch_cache_lock = threading.Lock()
 
@@ -338,9 +330,6 @@ class BlocklistManager:
         return None
 
     def lookup_domain(self, qname: str) -> dict[str, Any]:
-        """Aggregate lookup used by the "Find domain" dashboard feature: is this
-        domain currently blocked (and why), on the allowlist, watched by an alert
-        rule, flagged as a typosquat, or under a local TLD."""
         qname = qname.rstrip(".").lower()
         reason = self.block_reason(qname)
         alert = self.alert_match(qname)
@@ -384,9 +373,6 @@ class BlocklistManager:
         return None
 
     def mac_for(self, client_ip: str) -> str | None:
-        """MAC address for a client IP, from the router's ARP table - only
-        populated for real LAN peers (DNS-shield needs to run on the host
-        network to see the kernel's ARP table at all)."""
         return self._mac_resolver.mac_for(client_ip) if self._mac_resolver is not None else None
 
     def _client_hostname(self, client_ip: str) -> str | None:

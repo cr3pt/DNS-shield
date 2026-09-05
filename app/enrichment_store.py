@@ -69,8 +69,6 @@ class EnrichmentStore:
                 conn.close()
 
     def known_targets(self, target_type: str | None = None) -> set[str]:
-        """All targets ever recorded - used to seed the auto-enrich "already
-        checked" set at startup so a restart doesn't re-enrich everything."""
         conn = self._connect()
         try:
             if target_type is not None:

@@ -11,10 +11,6 @@ import requests
 logger = logging.getLogger("dnsshield.enrichment")
 
 _SEVERITY_ORDER = ["safe", "low", "medium", "high", "critical"]
-# Per-source HTTP timeout. Sources run concurrently (one thread each), so the
-# worst-case wall-clock time for a whole enrich() call is bounded by this,
-# not by the number of sources - keep it tight enough that one slow/unreachable
-# source doesn't make every manual "Enrich" click feel stuck.
 _TIMEOUT = 10.0
 
 _session = requests.Session()
@@ -54,8 +50,6 @@ def _http_error_message(exc: requests.HTTPError) -> str:
 
 
 def _network_error_message(exc: Exception) -> str:
-    # Order matters: requests.exceptions.SSLError subclasses ConnectionError, so it
-    # must be checked first or it'd always be reported as a plain network error.
     if isinstance(exc, requests.Timeout):
         return "timed out - the service didn't respond in time"
     if isinstance(exc, requests.exceptions.SSLError):
@@ -65,12 +59,8 @@ def _network_error_message(exc: Exception) -> str:
     if isinstance(exc, requests.exceptions.TooManyRedirects):
         return "too many redirects - the service's response looked wrong"
     if isinstance(exc, ValueError):
-        # resp.json() raises a ValueError subclass (json.JSONDecodeError, or
-        # requests' own JSONDecodeError on newer versions) when the body isn't JSON.
         return "the service returned an invalid (non-JSON) response"
     if isinstance(exc, (KeyError, TypeError, IndexError, AttributeError)):
-        # The response was valid JSON but not shaped the way this integration
-        # expects - most often the service changed its API.
         return "the service returned an unexpected response format"
     return str(exc)
 
@@ -333,9 +323,6 @@ def _rdap_event_date(data: dict[str, Any], action: str) -> str | None:
 
 
 def _rdap_entity_name(data: dict[str, Any], role: str) -> str | None:
-    """Pull a human-readable name for the entity with the given RDAP role
-    (e.g. "registrar") out of its vCard - registrant name/email is almost
-    always redacted for privacy, but the registrar itself is public."""
     for entity in data.get("entities", []) or []:
         if role not in (entity.get("roles") or []):
             continue
@@ -351,9 +338,6 @@ def _rdap_entity_name(data: dict[str, Any], role: str) -> str | None:
 
 
 def query_rdap(domain: str) -> dict[str, Any]:
-    """Full WHOIS-equivalent domain lookup via RDAP (the modern, structured
-    replacement for the WHOIS protocol - same registry data, no need to parse
-    free-text WHOIS responses)."""
     url = f"https://rdap.org/domain/{quote(domain, safe='')}"
     try:
         resp = _session.get(url, headers={"Accept": "application/rdap+json"}, timeout=_TIMEOUT)
@@ -423,9 +407,6 @@ def query_rdap(domain: str) -> dict[str, Any]:
 
 
 def query_ipinfo(ip: str, api_key: str) -> dict[str, Any]:
-    """IP geolocation/ASN/ownership lookup (city, region, country, org/ISP,
-    hostname) - purely informational, not a reputation signal, so it never
-    contributes to the overall verdict."""
     url = f"https://ipinfo.io/{quote(ip, safe='')}/json"
     try:
         resp = _session.get(
@@ -628,9 +609,6 @@ _VERDICT_RANK = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 def maybe_alert_on_verdict(result: dict[str, Any], config_store, anomaly) -> None:
-    """Turn a bad-enough enrich() result into an Alerts-tab entry, shared by
-    both the manual Enrich endpoint and the auto-enrich background worker so
-    the two never diverge in what counts as "bad enough"."""
     if anomaly is None:
         return
     enr_cfg = config_store.get("enrichment", default={}) or {}

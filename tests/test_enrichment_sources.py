@@ -40,7 +40,7 @@ def test_query_rdap_extracts_full_whois_style_record():
         result = query_rdap("example.com")
 
     assert result["ok"] is True
-    assert result["verdict"] == "safe"  # registered decades ago
+    assert result["verdict"] == "safe"
     assert result["details"]["registrar"] == "Example Registrar Inc."
     assert result["details"]["expiration_date"] == "2099-08-13T04:00:00Z"
     assert result["details"]["nameservers"] == ["ns1.example.com", "ns2.example.com"]

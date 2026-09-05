@@ -33,8 +33,6 @@ def test_embedded_brand_name_is_flagged_as_embedded():
 
 
 def test_legitimate_compound_domains_are_not_flagged():
-    # Contain a protected brand name as a substring, but not as a distinct
-    # hyphen/edge-bounded token - must not be flagged.
     for qname in (
         "firebaselogging.googleapis.com",
         "lcprd1.samsungcloudsolution.net",
@@ -45,9 +43,6 @@ def test_legitimate_compound_domains_are_not_flagged():
 
 
 def test_short_protected_label_does_not_match_unrelated_short_domains():
-    # Regression: "x" (from x.com) and "ups" (from ups.com) are short enough
-    # that almost any short candidate label lands within edit distance 2,
-    # which used to produce false positives like wp.pl -> x.com / ups.com.
     assert _match("wp.pl") is None
 
 
@@ -65,9 +60,6 @@ def test_plain_two_label_typo_is_caught():
 
 
 def test_multi_label_cctld_suffix_is_handled():
-    # "com.pl" is a registered multi-label suffix, so the registrable part of
-    # "sub.allegro-sklep.com.pl" is "allegro-sklep.com.pl" and the
-    # second-level label is "allegro-sklep" - not "com" or "sub".
     for qname in ("allegro-sklep.com.pl", "sub.allegro-sklep.com.pl"):
         result = _match(qname)
         assert result is not None, f"expected {qname} to be flagged"

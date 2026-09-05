@@ -1978,10 +1978,6 @@ function showToast(message, opts = {}) {
   }, duration);
 }
 
-// Adding a list (blocklist/allowlist/watch-list source) re-fetches and
-// re-parses every configured list server-side before responding, which can
-// take a while - this gives the button a spinner for that wait instead of
-// leaving the UI looking unresponsive.
 async function withSpinner(button, fn, label) {
   if (!button) return fn();
   const original = button.innerHTML;
@@ -1995,9 +1991,6 @@ async function withSpinner(button, fn, label) {
   }
 }
 
-// Like withSpinner, but only switches the button to its spinner/loading state if the
-// operation is still running after delayMs - avoids a flicker on the common case where a
-// settings save completes almost instantly, while still giving feedback on a slow one.
 async function withDelayedSpinner(button, fn, delayMs = 1000) {
   if (!button) return fn();
   const original = button.innerHTML;
@@ -2016,22 +2009,13 @@ async function withDelayedSpinner(button, fn, delayMs = 1000) {
   }
 }
 
-// --- i18n ---------------------------------------------------------------
-// Every translatable element carries data-i18n="<key>" (innerHTML) and/or
-// data-i18n-ph="<key>" (placeholder attribute). I18N_PL maps those keys to
-// Polish text; the English original is captured live from the DOM the
-// first time applyI18n() runs, so there's no separate English dictionary
-// to keep in sync. Dynamic, JS-generated strings use t(key, englishText)
-// directly instead.
 const I18N_PL = {
-  // --- common ---
   "common.adding": "Dodawanie...",
   "common.saving": "Zapisywanie...",
   "common.checking": "Sprawdzanie...",
   "common.loading": "Wczytywanie...",
   "common.action_failed": "Operacja nie powiodła się",
 
-  // --- settings: general hints ---
   "general.hint.web_ui": "Panel, który właśnie oglądasz - jego własny adres/port nasłuchu, logowanie i wygląd.",
   "general.hint.https": "Jeśli nie ustawisz ścieżki do certyfikatu/klucza, DNS-shield wygeneruje i będzie ponownie używać własnego, samopodpisanego certyfikatu (przechowywanego w woluminie danych) - przeglądarka pokaże ostrzeżenie bezpieczeństwa przy pierwszym połączeniu, bo certyfikat nie pochodzi od zaufanego urzędu, ale połączenie i tak jest szyfrowane. Podaj własne ścieżki do pliku certyfikatu/klucza, jeśli masz prawdziwy (np. z klienta ACME reverse proxy, zamontowany do kontenera). W obu przypadkach wymaga ponownego uruchomienia kontenera.",
   "general.hint.lockout": "Blokuje dalsze próby logowania z danego adresu IP po tylu nieudanych próbach z rzędu, na tyle minut - działa natychmiast, bez potrzeby restartu.",
@@ -2044,16 +2028,13 @@ const I18N_PL = {
   "general.hint.backup_desc": "Pobiera plik .zip z pełną migawką wszystkiego w konfiguracji tej instancji - listy blokujące, reguły dozwól/blokuj, grupy klientów, ustawienia DNS/panelu, niestandardowe rekordy DNS - jako zwykły plik YAML, z którego można później przywrócić (plik README.txt w archiwum wyjaśnia jak). Budowany w całości w pamięci i wysyłany prosto do przeglądarki - to nigdy nie dotyka dysku na serwerze poza tym, co już jest w config.db, i nigdy nie opuszcza Twojej sieci.",
   "general.hint.backup_security": "Plik zawiera wszelkie klucze API wywiadu zagrożeń w postaci jawnego tekstu oraz hash bcrypt hasła każdego użytkownika (tak samo jak data/config.backup.yaml już na dysku) - przechowuj ten plik tak, jak przechowywałbyś hasło, nie w miejscu publicznie dostępnym.",
 
-  // --- settings: users hints ---
   "users.hint.title": "Administratorzy widzą i zarządzają wszystkim. Konto \"użytkownika\" służy głównie do odczytu i jest ograniczone do tego, co przyznasz poniżej: dla jakich adresów IP/CIDR i/lub grup klientów widzi wyniki, czy widzi wyniki Enrich z wywiadu zagrożeń oraz wykryte anomalie, oraz czy może samodzielnie zablokować lub dodać do listy dozwolonych domenę/hosta. Niezalogowani odwiedzający widzą tylko publiczny widok Statystyk (trend zapytań + najczęściej blokowane domeny).",
   "users.hint.admin_ignores_perms": "Pola roli/uprawnień powyżej są ignorowane dla kont administratora - administrator zawsze widzi i robi wszystko.",
 
-  // --- settings: sso hints ---
   "sso.hint.title": "Pozwól ludziom logować się przez zewnętrznego dostawcę tożsamości - Authentik, Keycloak, Authelia, Okta, Google Workspace lub dowolny inny obsługujący standard OpenID Connect - zamiast (lub obok) lokalnego hasła DNS-shield. Pierwsze udane logowanie danej tożsamości automatycznie tworzy jej konto DNS-shield, chyba że wyłączysz to poniżej.",
   "sso.hint.redirect_uri": "Adres URI przekierowania do zarejestrowania u dostawcy tożsamości to",
   "sso.hint.redirect_uri_tail": ". Konta utworzone przez SSO otrzymują losowe, bezużyteczne hasło lokalne - zalogować może je tylko dostawca tożsamości.",
 
-  // --- settings: dns hints ---
   "dns.hint.overview": "Podstawowe zachowanie resolvera - adres nasłuchu, tryb blokowania, buforowanie oraz przełączniki nazw hostów klientów/listy blokującej regex.",
   "dns.hint.listener_restart": "Adres/port nasłuchu wymaga ponownego uruchomienia kontenera (docker compose restart). Wszystko inne na tej stronie działa natychmiast.",
   "dns.hint.upstream_strategy": "Sama lista serwerów nadrzędnych jest zarządzana poniżej, w sekcji \"Serwery DNS nadrzędne\" - to ustawienie decyduje tylko, który z nich jest próbowany jako pierwszy.",
@@ -2065,11 +2046,9 @@ const I18N_PL = {
   "dns.hint.per_domain_routing": "Kieruj konkretne domeny do konkretnych resolverów niezależnie od klienta (np. domeny wewnętrzne/firmowe) - ma priorytet nad wszystkim innym.",
   "dns.hint.custom_records": "Odpowiadaj na nazwę hosta wybranym przez Ciebie adresem IP, całkowicie lokalnie - bez zapytania nadrzędnego, bez udziału list blokujących. Zwykła nazwa pasuje do siebie i swoich subdomen; nazwa z symbolem wieloznacznym (<code>*</code> dla dowolnych znaków, <code>?</code> dla jednego) pasuje tylko do tego, co faktycznie obejmuje wzorzec - np. <code>*.internal.example</code> pasuje do <code>vpn.internal.example</code>, ale nie do samego <code>internal.example</code>. Tylko A/AAAA.",
 
-  // --- settings: logging hints ---
   "logging.hint.retention": "Jak długo wpisy pozostają w dzienniku zapytań, zanim zostaną automatycznie usunięte, co godzinę. Zmniejsz tę wartość, jeśli dziennik zajmuje więcej miejsca na dysku niż byś chciał; nigdy nie wpływa to na rozwiązywanie nazw/blokowanie, tylko na to, jak daleko wstecz można przeglądać.",
   "logging.hint.excluded": "Domeny/klienci poniżej są rozwiązywane i blokowane całkowicie normalnie - po prostu nigdy nie są zapisywane w dzienniku zapytań. Przydatne dla hałaśliwego ruchu w tle (NTP, telemetria, którą już zdecydowałeś się dopuścić), który inaczej zagrzebałby to, co faktycznie chcesz widzieć.",
 
-  // --- settings: threat intel hints ---
   "ti.hint.overview": "Napędza przycisk \"Enrich\" w Logach/Statystykach - sprawdzenie reputacji domeny/IP, które uruchamia się wyłącznie po kliknięciu, nigdy automatycznie. Linia statusu zapisanego klucza pokazuje jego pierwszy i ostatni znak (np. <code>a***********f</code>), więc możesz rozpoznać, który klucz jest zapisany, bez wysyłania go w pełni z powrotem do przeglądarki. Sprawdzenie, które wypadnie wystarczająco źle, może dodać wpis w zakładce Alerty (patrz niżej) - samo sprawdzenie jest zawsze uruchamiane wyłącznie przez kliknięcie Enrich gdzieś w panelu.",
   "ti.hint.enable_public": "Domyślnie wyłączone. To jedyna rzecz w DNS-shield, która łączy się poza Twoją własną siecią - zapisanie klucza API poniżej <strong>nie</strong> włącza tego samo z siebie, a Enrich będzie zgłaszał każdą usługę poniżej jako wyłączoną, dopóki to pole też nie zostanie zaznaczone.",
   "ti.hint.key_blank": "Pozostaw klucz pusty, aby pominąć daną usługę. AbuseIPDB, GreyNoise i Shodan obsługują tylko sprawdzanie adresów IP; dla domen są pomijane niezależnie od ustawień.",
@@ -2080,36 +2059,30 @@ const I18N_PL = {
   "ti.hint.local_service": "Wskaż tutaj infrastrukturę, którą sam prowadzisz, zamiast (lub obok) usług publicznych powyżej - nie podlega przełącznikowi powyżej, bo to nie jest wywołanie do zewnętrznej usługi. DNS-shield wysyła POST-em <code>{\"target\": \"&lt;domena-lub-ip&gt;\", \"type\": \"domain\"|\"ip\"}</code> jako JSON pod adres URL poniżej i oczekuje w odpowiedzi <code>{\"verdict\": \"safe\"|\"low\"|\"medium\"|\"high\"|\"critical\", \"score\": 0-100, \"summary\": \"...\"}</code> (score/summary opcjonalne).",
   "ti.hint.auto_enrich": "Uruchamia Enrich raz dla domeny, przy pierwszym zapytaniu jakie DNS-shield kiedykolwiek dla niej zobaczy - nigdy przy powtórnych zapytaniach i nigdy więcej niż limit sprawdzeń poniżej na jedno uruchomienie, więc nagły napływ nowych domen (urządzenie łączące się po raz pierwszy, telefon przywracający aplikacje) nie wyczerpie od razu darmowego limitu API; zamiast tego nadrabia zaległości w kolejnych kilku sprawdzeniach. Potrzebuje włączonego \"Włącz publiczne sprawdzenia\" powyżej (lub lokalnej usługi reputacji), żeby cokolwiek faktycznie wywołać.",
 
-  // --- settings: anomalies hints ---
   "anom.hint.overview": "Sprawdzenie w tle Twojego własnego dziennika zapytań, całkowicie lokalne - bez usługi chmurowej, bez ML, tylko proste progi per-klient sprawdzane cyklicznie. Wykrywa m.in. klienta nagle bombardującego wiele zablokowanych domen (skompromitowana aplikacja/urządzenie), nagły skok liczby różnych domen w krótkim oknie (typowe dla malware DGA przechodzącego przez kandydackie domeny C2) lub niezwykle wysoki odsetek zapytań klienta będących blokowanymi. Domyślnie wyłączone; włączenie nic nie kosztuje poza okresowym zapytaniem i nigdy nie zmienia sposobu odpowiadania na żadne zapytanie - tylko odczytuje dziennik i zapisuje tutaj alert.",
   "anom.hint.domain_burst": "Skok liczby różnych domen uruchamia alert tylko wtedy, gdy spora część tych domen wygląda też na <em>wygenerowaną losowo</em> (entropia Shannona etykiety domeny, np. \"kq7xzpqm3f.info\"), a nie na prawdziwe słowa - to właśnie zapobiega uruchamianiu alertu przy zwykłym ruchu o dużej liczbie różnych domen, jak strona ładująca trzydzieści różnych, prawdziwych domen reklamowo-śledzących, co nie jest faktycznie podejrzane.",
   "anom.hint.tunneling": "DNS tunneling wykorzystuje DNS jako ukryty kanał danych, kodując dane w długim strumieniu odrębnych, niemal losowych subdomen jednej domeny (np. <code>k3f9a...92mz.tunnel.example.com</code>, jedna unikalna subdomena na zapytanie). Alert uruchamia się, gdy klient odpytuje wiele odrębnych subdomen <em>tej samej</em> domeny w danym oknie i większość z nich wygląda na zakodowane dane (długie + wysoka entropia), a nie na typową garstkę subdomen prawdziwej strony.",
   "anom.hint.ptr_scan": "Uruchamia się, gdy klient wysyła wiele odrębnych zapytań odwrotnego DNS (PTR) dla lokalnych/prywatnych adresów IP w jednym oknie - pojedyncze zapytania (NAS sprawdzający swoją bramę, router przeglądający sieć LAN) są normalne, ale klient przechodzący kolejno przez zakres prywatny wygląda, jakby wyliczał, co jest w Twojej sieci.",
   "anom.hint.excluded": "Domeny poniżej (i ich subdomeny) nigdy nie wywołują alertu obserwowanej domeny, typosquattingu, DNS rebinding ani lokalnego TLD - przydatne dla znanej, dobrej domeny, która akurat wygląda podejrzanie dla jednego z tych sprawdzeń. Nie wpływa na sprawdzenia ilościowe powyżej (skoki zapytań, odsetek blokowania, DNS tunneling, skanowanie PTR), które oznaczają ogólne zachowanie klienta, a nie pojedynczą domenę. Najszybszy sposób dodania to przycisk \"Wyklucz\" obok domeny w wyskakującym okienku \"Pokaż domeny\" alertu.",
 
-  // --- settings: alert rules hints ---
   "alertrules.hint.main_pre": "Oznacz zapytanie natychmiast, gdy nastąpi, zamiast czekać na wzorzec statystyczny - zapytanie o domenę poniżej (lub z subskrybowanej listy obserwowanej) zawsze wywołuje alert, niezależnie od tego, czy jest faktycznie blokowane. Sprawdzane mniej więcej co",
   "alertrules.hint.main_post": "sekund. Czysto obserwacyjne: to nigdy nie zmienia sposobu rozwiązania zapytania, a każde trafienie przechodzi przez ten sam mechanizm cooldownu/powiadomień co anomalie powyżej.",
   "alertrules.hint.watch_lists": "Subskrybowane listy domen do obserwowania, te same formaty/automatyczne wykrywanie co w sekcji Listy blokujące.",
   "alertrules.hint.or_watch": "Albo obserwuj listę, której w ogóle nie ma w Listach blokujących:",
 
-  // --- settings: notifications hints ---
   "notif.hint.email": "Wysyła e-mail bezpośrednio na serwer SMTP, który skonfigurujesz poniżej, gdy zostaną wykryte nowe anomalie - to nie usługa chmurowa firm trzecich, to dokładnie to, co robi każdy klient pocztowy: Twój własny serwer pocztowy lub Twoje własne konto u dowolnego dostawcy. Domyślnie wyłączone; nic nigdy nie jest wysyłane, dopóki nie włączysz tego tutaj i nie ustawisz co najmniej jednego odbiorcy.",
   "notif.hint.webhook": "Wysyła krótkie podsumowanie nowych anomalii bezpośrednio na Discord, Slack lub bota Telegram - bez pośrednika, DNS-shield sam wysyła żądanie HTTP pod dowolny podany przez Ciebie adres URL webhooka lub token bota. Dodaj ich dowolnie wiele, każdy z własną minimalną ważnością.",
   "notif.hint.browser": "Natywne powiadomienie przeglądarki (przez własne uprawnienie Notification przeglądarki - nic nigdzie nie jest wysyłane), gdy pojawi się nowa anomalia, dopóki ta karta panelu jest gdzieś otwarta. Bez komponentu serwerowego: Twoja przeglądarka sama odpytuje panel i lokalnie decyduje, czy pokazać powiadomienie, osobno dla każdej przeglądarki/urządzenia, na którym to włączysz.",
 
-  // --- settings: import hints ---
   "import.hint.restore": "Prześlij plik .zip z Ustawienia -> Ogólne -> Pobierz kopię zapasową. W przeciwieństwie do dwóch importerów poniżej, to natywna konfiguracja samego DNS-shield, więc nie ma nic do konwertowania ani scalania - <strong>całkowicie zastępuje Twoją bieżącą konfigurację</strong> dokładnie tym, co było w tej kopii zapasowej: listy blokujące, reguły dozwól/blokuj, grupy klientów, ustawienia DNS/panelu, niestandardowe rekordy DNS oraz Twoje logowanie do panelu. Nieodwracalne, chyba że wcześniej zrobiłeś też kopię zapasową konfiguracji, którą właśnie nadpiszesz.",
   "import.hint.adguard": "Prześlij plik AdGuardHome.yaml, aby zaimportować jego filtry, filtry dozwolonych, reguły użytkownika, serwery nadrzędne, tryb blokowania oraz adresy IP/CIDR per klient. Zastępuje to Twoje obecne listy blokujące i grupy klientów tymi z AdGuard, ale zachowuje wszystko inne (w tym Twoje logowanie do panelu). Kontrola rodzicielska, bezpieczne przeglądanie, DHCP, TLS oraz hasło do AdGuard nigdy nie są importowane.",
   "import.hint.pihole1": "Prześlij plik <code>gravity.db</code> - własną bazę SQLite Pi-hole, zawartą w kopii zapasowej \"Teleporter\" lub skopiowaną bezpośrednio z <code>/etc/pihole/gravity.db</code> na hoście Pi-hole. Importuje adresy URL subskrypcji list blokujących (i, w nowszych wersjach gravity.db, list dozwolonych), włączone domeny dozwól/blokuj, włączone wzorce regex-deny (mapowane na własną eksperymentalną listę blokującą regex DNS-shield, która zostaje dla Ciebie włączona) oraz adresy IP klientów jako grupy klientów.",
   "import.hint.pihole2": "Nie ma tego w gravity.db, więc nie jest importowane w ten sposób: serwery DNS nadrzędne, adres/port nasłuchu, tryb blokowania (znajdują się w setupVars.conf/pihole.toml Pi-hole, innym pliku), wpisy regex ALLOW (brak odpowiednika w DNS-shield), przypisania list do grup klientów oraz Twoje logowanie do panelu. Wynik importu dokładnie pokazuje, co zostało przeniesione, a co nie.",
 
-  // --- settings: blocklists hints ---
   "blocklists.hint.suggested": "Znane publiczne listy blokujące - Unified Hosts od StevenBlack, własny filtr DNS AdGuard oraz kilka poleconych (\"zaznaczonych\") list z <a href=\"https://firebog.net\" target=\"_blank\" rel=\"noopener\">Firebog</a>. Dodanie jednej po prostu wypełnia za Ciebie powyższy formularz i pobiera ją jak każde inne źródło - format jest wykrywany automatycznie w obu przypadkach, a potem możesz ją Wyłączyć lub Usunąć tak samo jak każdą wpisaną ręcznie. Wpis znika z tej listy po dodaniu, bo nie ma już nic więcej do zasugerowania.",
   "blocklists.hint.allow_sources": "Ten sam format co listy blokujące, ale żadna domena pobrana tutaj nigdy nie jest blokowana - ma pierwszeństwo przed listami blokującymi powyżej.",
   "blocklists.hint.refresh_schedule": "Jak często każde włączone źródło listy blokującej/dozwolonej powyżej jest ponownie pobierane w tle. \"Odśwież teraz\" obok Listy blokujące zawsze pobiera natychmiast, niezależnie od tego ustawienia.",
 
-  // --- settings: own lists hints ---
   "ownlists.hint.allowlist": "Zawsze rozwiązywana normalnie, nawet jeśli pasuje do listy blokującej - ma priorytet nad listami blokującymi, ale wpis na liście blokowanych nadal wygrywa nad tym.",
   "ownlists.hint.denylist": "Zawsze blokowana, nawet jeśli nie znajduje się na żadnej liście blokującej - i nawet jeśli ta sama domena jest też na liście dozwolonych powyżej.",
   "ownlists.hint.regex": "Blokuje każdą nazwę zapytania pasującą do jednego z tych wyrażeń regularnych Pythona - np. <code>^ads?[0-9]*\\.</code> wyłapuje subdomeny ad/ad1/ads2 we wszystkich domenach naraz, czego zwykły wpis domeny/subdomeny na liście blokowanych powyżej nie potrafi wyrazić. Domyślnie wyłączone - przełącz \"Włącz listę blokującą regex\" w Ustawienia -> DNS - ponieważ każdy włączony wzorzec tutaj jest sprawdzany przy każdym pojedynczym zapytaniu, trzymaj listę krótką. Wzorce są kompilowane raz i buforowane w pamięci, nie kompilowane ponownie przy każdym zapytaniu, ale samo dopasowywanie to wciąż realna praca CPU na zapytanie - to jest przeznaczone dla garstki starannie dobranych reguł, nie dla pełnej listy.",
@@ -2136,7 +2109,6 @@ const I18N_PL = {
   "common.name_ph": "Nazwa",
   "nav.find_domain": "Znajdź domenę",
 
-  // --- settings: notifications ---
   "notif.email_title": "Powiadomienia e-mail",
   "notif.enable_email": "Włącz powiadomienia e-mail",
   "notif.smtp_host": "Host SMTP",
@@ -2162,7 +2134,6 @@ const I18N_PL = {
   "notif.browser_title": "Powiadomienia w przeglądarce",
   "notif.browser_enable": "Powiadamiaj mnie w tej przeglądarce o nowych anomaliach",
 
-  // --- settings: import ---
   "import.restore_title": "Przywróć z kopii zapasowej",
   "import.restore_btn": "Przywróć",
   "import.adguard_title": "Import z AdGuard Home",
@@ -2186,7 +2157,6 @@ const I18N_PL = {
   "tag.enabled": "włączone",
   "tag.disabled": "wyłączone",
 
-  // --- settings: own lists ---
   "ownlists.allowlist": "Lista dozwolonych (nigdy nie blokowane)",
   "ownlists.denylist": "Lista blokowanych (zawsze blokowane)",
   "ownlists.regex_denylist": "Lista blokowanych (regex)",
@@ -2198,7 +2168,6 @@ const I18N_PL = {
   "ownlists.typosquat_title": "Ochrona przed typosquattingiem",
   "ownlists.builtin_protected": "Wbudowane chronione domeny",
 
-  // --- settings: clients ---
   "clients.blocked_title": "Zablokowani klienci (brak komunikacji)",
   "clients.block_btn": "Zablokuj",
   "clients.groups_title": "Grupy klientów",
@@ -2207,7 +2176,6 @@ const I18N_PL = {
   "clients.filter_this_group": "Filtruj tę grupę",
   "clients.add_group": "Dodaj grupę",
 
-  // --- client groups (JS-rendered) ---
   "groups.disable_filtering": "Wyłącz filtrowanie",
   "groups.enable_filtering": "Włącz filtrowanie",
   "groups.delete_group": "Usuń grupę",
@@ -2233,31 +2201,24 @@ const I18N_PL = {
   "day.sat": "Sob",
   "day.sun": "Nd",
 
-  // --- settings: cleans ---
   "cleans.dns_cache": "Pamięć podręczna odpowiedzi DNS",
   "cleans.clear_cache": "Wyczyść pamięć podręczną",
   "cleans.purge_queries": "Usuń wszystkie zarejestrowane zapytania",
 
-  // --- settings: audit log ---
   "auditlog.client_ip": "Adres IP klienta",
   "auditlog.hint": "Każda udana zmiana ustawień/konfiguracji dokonana przez API, od najnowszej - kto ją wykonał, jaki endpoint wywołał i z jakiego adresu. Logowanie i wylogowanie są też rejestrowane; rutynowe odczyty (ładowanie strony, odpytywanie statystyk) nie są. Tutaj tylko do odczytu; przechowywane tak samo długo jak dziennik zapytań (Ustawienia -> Logowanie -> retencja).",
 
-  // --- settings: clients hints ---
   "clients.hint.blocked": "Każde zapytanie z tych adresów IP/CIDR jest blokowane, dla każdej domeny - silniejsze niż wpis na liście blokowanych domen i ma priorytet nad grupami klientów poniżej. Zwykle wypełniane przyciskiem \"Zablokuj hosta\" obok adresu klienta w Logach, Statystykach lub wyskakującym okienku Enrich; możesz też dodać ręcznie tutaj. Akceptuje też <code>mac:AA:BB:CC:DD:EE:FF</code> (dopasowywane do tabeli ARP routera - wypełniane prawdziwymi wpisami LAN tylko gdy DNS-shield działa w trybie sieci hosta) oraz <code>host:name</code> (dopasowywane do rozwiązanej nazwy hosta klienta, wymaga włączonego rozwiązywania nazw klientów w ustawieniach DNS).",
   "clients.hint.groups": "Nadpisania per klient. Wygrywa pierwsza pasująca grupa; niepasujący klienci otrzymują globalną politykę powyżej. Wzorce dopasowania akceptują IP/CIDR, <code>mac:AA:BB:CC:DD:EE:FF</code> lub <code>host:name</code> (symbole wieloznaczne jak <code>host:*.kids</code> dopasowują sufiks nazwy hosta).",
 
-  // --- settings: cleans hints ---
   "cleans.hint.dns_cache": "Tylko w pamięci, respektuje TTL każdej odpowiedzi - czyszczona automatycznie przy restarcie.",
   "cleans.hint.query_log": "Nieodwracalne - usuwa każdy już zapisany wiersz, niezależnie od retencji. Nie wpływa to na rozwiązywanie nazw/blokowanie; czyści tylko historię, nie politykę.",
 
-  // --- alerts tab hints ---
   "alerts.hint.overview": "Tutaj trafia wszystko, co oznaczy DNS-shield: lokalne wykrywanie anomalii, trafienia reguł alertów (obserwowana domena/lista) oraz sprawdzenia wywiadu zagrożeń, które wypadły wystarczająco źle - skonfiguruj każde z nich w Ustawienia -> Anomalie / Threat intelligence. \"Sprawdź teraz\" uruchamia heurystyki anomalii dla bieżącego okna; \"Przeanalizuj ponownie\" zamiast tego cofa się w wybrany zakres historyczny, sprawdzając go tak, jakby detektor działał przez cały ten czas - przydatne po zmianie progów lub po prostu do audytu historii, dla której nie miałeś wtedy włączonego wykrywania. Zakresy 7 dni lub dłuższe skanują dużo danych i mogą trochę potrwać; nie wysyła żadnych powiadomień o tym, co znajdzie (to retrospektywny audyt, nie zdarzenie na żywo).",
 
-  // --- stats tab hints ---
   "stats.hint.top_queried": "Wszystkie zapytania, blokowane i dozwolone.",
   "stats.hint.blocked_by": "Która lista blokująca/reguła odpowiada za najwięcej blokad.",
 
-  // --- settings: blocklists ---
   "blocklists.title": "Listy blokujące",
   "blocklists.refresh_now": "Odśwież teraz",
   "blocklists.suggested": "Sugerowane listy",
@@ -2284,7 +2245,6 @@ const I18N_PL = {
   "range.last_14d": "Ostatnie 14 dni",
   "range.last_30d": "Ostatnie 30 dni",
 
-  // --- logs tab ---
   "logs.query_log": "Log zapytań",
   "logs.ph.domain": "Domena zawiera...",
   "logs.ph.client": "Klient (IP lub nazwa) zawiera...",
@@ -2302,7 +2262,6 @@ const I18N_PL = {
   "logs.of": "z",
   "logs.matching_queries": "pasujących zapytań",
 
-  // --- alerts tab ---
   "alerts.title": "Alerty",
   "alerts.show_acknowledged": "Pokaż potwierdzone",
   "alerts.check_now": "Sprawdź teraz",
@@ -2358,7 +2317,6 @@ const I18N_PL = {
   "common.confirm": "Potwierdź",
   "common.cancel": "Anuluj",
 
-  // --- settings: general ---
   "general.web_ui": "Panel webowy",
   "field.listen_address": "Adres nasłuchu",
   "field.listen_port": "Port nasłuchu",
@@ -2389,7 +2347,6 @@ const I18N_PL = {
   "general.2fa_off_hint": "Domyślnie wyłączone - dodaje drugi krok logowania (kod z aplikacji uwierzytelniającej).",
   "field.password": "Hasło",
 
-  // --- settings: users ---
   "users.title": "Użytkownicy",
   "users.username": "Nazwa użytkownika",
   "users.allowed": "Dozwolone",
@@ -2410,7 +2367,6 @@ const I18N_PL = {
   "users.summary.read_only": "tylko odczyt",
   "users.summary.nothing_yet": "jeszcze nic",
 
-  // --- settings: sso ---
   "sso.title": "Logowanie jednokrotne (OIDC)",
   "sso.enable": "Włącz logowanie jednokrotne",
   "sso.issuer_url": "Adres URL wystawcy (Issuer URL)",
@@ -2423,7 +2379,6 @@ const I18N_PL = {
   "sso.default_role": "Rola dla automatycznie tworzonych kont",
   "sso.save": "Zapisz ustawienia SSO",
 
-  // --- settings: dns ---
   "common.add": "Dodaj",
   "dns.listener": "Nasłuch",
   "dns.upstream_timeout": "Limit czasu upstreamu (sekundy)",
@@ -2494,12 +2449,10 @@ const I18N_PL = {
   "common.save": "Zapisz",
   "common.domain_ph": "domena",
 
-  // --- settings: logging ---
   "logging.retention": "Przechowywanie logu zapytań",
   "logging.retention_days": "Przechowywanie logu zapytań (dni)",
   "logging.excluded": "Wykluczone z logu",
 
-  // --- rule editors (shared titles) ---
   "editor.group_allow": "Dozwolone (nigdy nieblokowane dla tej grupy)",
   "editor.group_deny": "Blokowane (zawsze blokowane dla tej grupy)",
   "editor.ignored_domains": "Ignorowane domeny (nigdy nielogowane)",
@@ -2513,7 +2466,6 @@ const I18N_PL = {
   "editor.rebinding_fp_empty": "Jeszcze żadnych - użyj przycisku \"Oznacz jako FP\" na alercie DNS rebinding w zakładce Alerty.",
   "editor.watched_domains": "Obserwowane domeny (zawsze alarmują, zablokowane czy nie)",
 
-  // --- settings: threat intelligence ---
   "ti.enable_public": "Włącz publiczne sprawdzenia",
   "ti.vt_key": "Klucz API VirusTotal",
   "ti.abuseipdb_key": "Klucz API AbuseIPDB",
@@ -2536,7 +2488,6 @@ const I18N_PL = {
   "severity.medium_above": "Średnia i wyższe",
   "severity.high_above": "Wysoka i wyższe",
 
-  // --- settings: anomalies ---
   "anom.local_detection": "Lokalne wykrywanie anomalii",
   "anom.enable": "Włącz lokalne wykrywanie anomalii",
   "anom.check_every": "Sprawdzaj co (minuty)",
@@ -2560,7 +2511,6 @@ const I18N_PL = {
   "threatintelfp.title": "Fałszywe alarmy threat intel",
   "threatintelfp.hint": "Poniższe cele są wykluczone przy werdykcie, jaki miały w momencie oznaczenia - przydatne dla domeny/IP, które sprawdziłeś i uznałeś za fałszywy alarm jednej ze skonfigurowanych usług. Jeśli przyszłe sprawdzenie oceni ten sam cel wyraźnie gorzej niż wtedy (np. medium &rarr; high), alert i tak się pojawi - wykluczenie obejmuje tylko werdykty na poziomie oznaczenia lub lepsze, a opis alertu sam poinformuje, że cel był wcześniej wykluczony i jak bardzo eskalował od tego czasu. Nie wpływa na sam popup Enrich, który nadal pokaże to, co zgłaszają usługi. Dodaj cel przyciskiem \"Oznacz jako FP\" przy alercie threat-intel w zakładce Alerty; ponowne oznaczenie przy nowym, gorszym werdykcie podnosi próg wykluczenia do tego poziomu.",
 
-  // --- settings: alert rules ---
   "alertrules.title": "Reguły alertów (obserwowane domeny i listy)",
   "alertrules.watch_lists": "Listy obserwowane",
   "alertrules.add_from_blocklists": "-- dodaj listę już obecną w Blocklists --",
@@ -2569,7 +2519,6 @@ const I18N_PL = {
   "alertrules.check_interval": "Interwał sprawdzania (sekundy)",
   "alertrules.save": "Zapisz ustawienia reguł alertów",
 
-  // --- stats tab ---
   "stats.query_trend": "Trend zapytań",
   "stats.top_blocked": "Najczęściej blokowane domeny",
   "stats.top_queried": "Najczęściej odpytywane domeny",
@@ -2589,7 +2538,6 @@ const I18N_PL = {
   "status.dns_listening_on": "DNS nasłuchuje na",
   "status.uptime": "czas działania",
 
-  // --- top nav / tabs ---
   "nav.logs": "Logi",
   "nav.anomalies": "Alerty",
   "nav.stats": "Statystyki",
@@ -2624,7 +2572,6 @@ const I18N_PL = {
   "pause.resume": "Wznów blokowanie",
   "pause.paused-until": "Blokowanie wstrzymane do ręcznego wznowienia",
   "pause.paused-in": "Blokowanie wstrzymane - wznowienie za ",
-  // --- account: language switcher ---
   "account.language.h2": "Język panelu",
   "account.language.hint": "Domyślnie panel dopasowuje się do języka Twojej przeglądarki. Wymuś tutaj konkretny język dla tego konta, niezależnie od przeglądarki.",
   "account.language.auto": "Automatycznie (wg przeglądarki)",
@@ -3191,11 +3138,6 @@ function svgEl(tag, attrs = {}) {
 }
 
 function monotoneCurveCommands(points) {
-  // Monotone cubic (Fritsch-Carlson) interpolation: smooths the line like a
-  // spline would, but - unlike a plain Catmull-Rom curve - never overshoots
-  // above/below the two points bounding each segment. That overshoot is what
-  // makes a naive smoothed curve look worse than straight segments on bursty
-  // hourly data (a lone spike surrounded by near-zero buckets).
   const n = points.length;
   if (n < 2) return "";
   if (n === 2) return `L${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}`;
@@ -3311,8 +3253,6 @@ function renderTrendChart(data) {
     return dot;
   }
 
-  // Total is drawn first, as a faint backdrop - the real comparison is
-  // blocked (red) vs allowed (good/green), both drawn on top of it.
   const totalDot = buildSeries("total", "var(--accent)", { lineWidth: 1.25, areaOpacity: 0.06, lineOpacity: 0.5 });
   const blockedDot = buildSeries("blocked", "var(--danger)");
   const allowedDot = buildSeries("allowed", "var(--good)");
@@ -3468,10 +3408,6 @@ async function loadBlocklistCatalog() {
   }
 }
 
-// Shared by the rule-list "Remove"/"Unblock" buttons below - they're all a
-// single DELETE call followed by refreshAll(), but previously gave zero
-// visual feedback while the request was in flight (looked unresponsive) and
-// swallowed errors silently on failure.
 function ruleDeleteButton(label, path, onDone) {
   const btn = el("button", { class: "danger", text: label });
   btn.onclick = async () => {
@@ -4612,10 +4548,6 @@ function markFpButton(a, apiPath, payload, label, title) {
 
 const SEVERITY_RANK = { low: 0, medium: 1, high: 2 };
 
-// Bulk-select state for the Alerts table - a set of selected anomaly ids,
-// persisted across loadAnomalies() rebuilds (mirrors expandedAnomalyGroupKeys
-// below) so ticking a few boxes then acting on one row elsewhere doesn't
-// silently lose the rest of the selection.
 const selectedAlertIds = new Set();
 let currentAlertIds = [];
 
@@ -4656,11 +4588,6 @@ function groupAnomalies(list) {
   return order.map((key) => map.get(key));
 }
 
-// loadAnomalies() fully rebuilds #anomaly-rows on every refresh (e.g. after
-// acknowledging/deleting a single event within a group), which would
-// otherwise reset every group back to collapsed - making it look like the
-// other, untouched events in the group vanished too. Persist which group
-// keys are expanded across those rebuilds.
 const expandedAnomalyGroupKeys = new Set();
 
 function renderAnomalyGroupRows(group) {
@@ -4668,8 +4595,6 @@ function renderAnomalyGroupRows(group) {
     return [renderAnomalyRow(group[0])];
   }
 
-  // The API returns alerts newest-first, so the first item in the group is
-  // the most recent occurrence - used for the header row's own columns.
   const latest = group[0];
   const groupKey = `${latest.client}${latest.kind}`;
   const maxSeverity = group.reduce(
@@ -4693,9 +4618,6 @@ function renderAnomalyGroupRows(group) {
     groupSelectCb.indeterminate = selectedCount > 0 && selectedCount < groupIds.length;
   };
   refreshGroupSelectCb();
-  // A child's own checkbox already updates selectedAlertIds via alertSelectCheckbox()'s
-  // onchange - listen alongside it (not instead of it) just to keep this group's header
-  // checkbox in sync without waiting for the next full loadAnomalies() rebuild.
   for (const cb of childCheckboxes) cb.addEventListener("change", refreshGroupSelectCb);
   groupSelectCb.onchange = () => {
     for (const id of groupIds) {
@@ -4796,10 +4718,6 @@ function renderAnomalyRow(a) {
     ));
   }
 
-  // "Show domains" assumes a client + time window it queried domains in, which
-  // doesn't exist for a threat-intel alert (it's a single target's reputation,
-  // not a burst of activity) - it would only ever open an empty popup. Offer a
-  // direct Enrich re-check there instead, since that's what's actually useful.
   let detailsActionBtn;
   if ((a.kind || "").startsWith("threat_intel:") && a.client) {
     const targetType = a.details && a.details.target_type === "ip" ? "ip" : "domain";

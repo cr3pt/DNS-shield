@@ -20,21 +20,6 @@ _doh_session.mount("http://", _doh_adapter)
 
 
 def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
-    """Split a "host[:port]" upstream entry into (host, port).
-
-    A plain colon-split breaks on IPv6 literals, which contain colons
-    themselves - "2606:4700:4700::1111:53" is ambiguous between "port 53 on
-    that /64" and "no port on ...::1111:53". Bracket notation ([addr]:port,
-    the same convention curl/browsers use) resolves that; a bare IPv6
-    literal without brackets is accepted too, just without a custom port,
-    since there'd be no way to tell where the address ends.
-
-    A non-numeric port falls back to default_port rather than raising -
-    this runs on every single DNS query via hostname_of()/block_reason(),
-    unguarded by a try/except unlike the actual forward() call sites, so a
-    typo in a hand-edited upstream entry must never be able to take down
-    resolution for every query.
-    """
     entry = entry.strip()
     if entry.startswith("["):
         closing = entry.find("]")
@@ -62,9 +47,6 @@ def forward(data: bytes, upstream: str, timeout: float) -> bytes:
 
 def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
     host, port = _split_host_port(upstream, 53)
-    # _split_host_port() never returns a colon in a hostname or IPv4 host -
-    # a colon here means this really is an IPv6 literal, which needs AF_INET6
-    # (an AF_INET socket can't send to one at all).
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
 
     with socket.socket(family, socket.SOCK_DGRAM) as sock:

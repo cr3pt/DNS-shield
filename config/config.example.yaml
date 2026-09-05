@@ -78,19 +78,16 @@ web:
 
 users: []
 
-# Single sign-on: let people authenticate through an external OpenID Connect
-# provider (Authentik, Keycloak, Authelia, Okta, Google Workspace, ...)
-# instead of, or alongside, a local password. Off by default.
 sso:
   enabled: false
-  issuer: ""            # e.g. https://idp.example.com/application/o/dns-shield
+  issuer: ""
   client_id: ""
   client_secret: ""
   scopes: "openid email profile"
   button_label: "Single Sign-On"
   username_claim: "preferred_username"
-  auto_provision: true   # create a local account on first successful sign-in
-  default_role: "user"   # role given to accounts auto-created this way
+  auto_provision: true
+  default_role: "user"
 
 logging:
   level: "INFO"
@@ -109,21 +106,15 @@ enrichment:
   rdap_enabled: false
   crtsh_enabled: false
   ipinfo_enabled: false
-  ipinfo_api_key: ""  # optional - works without a token at a low rate limit
+  ipinfo_api_key: ""
   local_enabled: false
   local_url: ""
   local_api_key: ""
-  # Add an entry to the Alerts tab whenever an Enrich lookup (from anywhere
-  # in the dashboard) comes back at or above this severity.
   alert_enabled: true
-  alert_min_severity: "medium"  # low | medium | high
-  # Automatically run Enrich the first time a domain is ever queried, instead
-  # of only when you click the button yourself. Off by default - needs
-  # public_enabled (or a local reputation service) above to do anything.
-  # Only the domain's very first query triggers a lookup; repeats never do.
+  alert_min_severity: "medium"
   auto_enrich_enabled: false
-  auto_enrich_interval_seconds: 30  # how often the background check runs
-  auto_enrich_max_per_check: 5      # new domains looked up per check, to protect API quotas
+  auto_enrich_interval_seconds: 30
+  auto_enrich_max_per_check: 5
 
 anomaly:
   enabled: false
@@ -141,10 +132,6 @@ anomaly:
   dns_tunneling_min_entropy: 3.0
   ptr_scan_threshold: 15
   cooldown_minutes: 60
-  # Domains (and their subdomains) that never raise a watched-domain,
-  # typosquat, rebinding, or local-TLD alert. Doesn't affect the
-  # volumetric checks above. Editable from the Alerts tab's "Show
-  # domains" popup (Exclude button) or Settings -> Anomalies directly.
   excluded_domains: []
 
 alert_rules:

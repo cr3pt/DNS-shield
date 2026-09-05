@@ -47,8 +47,6 @@ def hash_backup_code(code: str) -> str:
 
 
 class PendingTotpStore:
-    """Short-lived tokens for the 'password verified, TOTP code still needed' login step."""
-
     def __init__(self, ttl_seconds: float = _PENDING_LOGIN_TTL_SECONDS):
         self._ttl = ttl_seconds
         self._pending: dict[str, dict] = {}

@@ -16,8 +16,6 @@ def test_split_host_port_bare_host_uses_default_port():
 
 
 def test_split_host_port_bare_ipv6_literal_uses_default_port():
-    # No brackets means there's no way to tell where the address ends, so a
-    # bare IPv6 literal never gets a custom port - same as a bare hostname.
     assert _split_host_port("2606:4700:4700::1111", 53) == ("2606:4700:4700::1111", 53)
 
 
@@ -58,10 +56,6 @@ def test_hostname_of_doh_url_with_custom_port():
 
 
 def test_split_host_port_never_raises_on_malformed_port():
-    # hostname_of() runs on every single DNS query via block_reason(), with
-    # no try/except around it (unlike the actual forward() call sites) - a
-    # typo in a hand-edited upstream entry must degrade gracefully instead
-    # of taking down resolution for every query.
     assert _split_host_port("dns.example.com:notaport", 53) == ("dns.example.com", 53)
     assert _split_host_port("[::1]:notaport", 853) == ("::1", 853)
     assert _split_host_port("dns.example.com:", 53) == ("dns.example.com", 53)
@@ -74,9 +68,6 @@ def test_hostname_of_never_raises_on_malformed_port():
 
 
 def test_block_reason_survives_malformed_upstream_entry(config_store, tmp_path):
-    # block_reason() runs on every DNS query and calls protected_hostnames()
-    # -> hostname_of() with zero exception handling around it - a typo'd
-    # upstream entry must not be able to take down resolution entirely.
     config_store.mutate(lambda d: d.setdefault("enrichment", {}).update({"public_enabled": True}))
     config_store.mutate(lambda d: d.setdefault("dns", {}).update(
         {"upstreams": ["dns.example.com:notaport", "1.1.1.1:53"]}

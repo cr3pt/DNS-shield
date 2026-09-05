@@ -145,10 +145,6 @@ class UserStore:
         return self._config.mutate(_mutate)
 
     def find_or_create_sso(self, username: str, default_role: str) -> dict[str, Any]:
-        """Look up a user provisioned by SSO, or create one on first successful
-        login. The account gets an unusable random password hash - password
-        login stays impossible for it, only the SSO flow (or a later manual
-        password reset by an admin) can authenticate it."""
         username = (username or "").strip()
         if not username:
             raise ValueError("The identity provider did not return a usable username")

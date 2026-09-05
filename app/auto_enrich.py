@@ -13,11 +13,6 @@ _SKIP_QTYPES = {"PTR"}
 
 
 class AutoEnricher:
-    """Background worker that runs a threat-intel lookup the first time
-    DNS-shield ever sees a query for a given domain, so genuinely new
-    threats get checked without hammering free-tier API quotas on every
-    single query. Off by default (enrichment.auto_enrich_enabled)."""
-
     def __init__(self, config_store, stats, enrichment_store, anomaly=None, on_result: Callable[[dict[str, Any]], None] | None = None):
         self._config = config_store
         self._stats = stats
@@ -79,10 +74,6 @@ class AutoEnricher:
             domain = hit["domain"]
             is_candidate = hit.get("qtype") not in _SKIP_QTYPES and domain not in self._known_domains
             if is_candidate and checked_this_round >= max_per_check:
-                # Leave this hit (and everything after it) for the next poll
-                # instead of advancing the cursor past a domain we never
-                # actually checked - a burst of new domains falls behind
-                # rather than silently losing the ones past the rate cap.
                 break
             last_processed_id = hit["id"]
             if not is_candidate:

@@ -66,8 +66,6 @@ def generate_passkey_id() -> str:
 
 
 class PendingChallengeStore:
-    """Short-lived server-side memory of a WebAuthn ceremony's challenge, keyed by an opaque token."""
-
     def __init__(self, ttl_seconds: float = _CHALLENGE_TTL_SECONDS):
         self._ttl = ttl_seconds
         self._store: dict[str, dict[str, Any]] = {}

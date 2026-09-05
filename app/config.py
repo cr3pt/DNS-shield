@@ -37,7 +37,6 @@ def _default_legacy_yaml_path() -> Path:
 
 
 class ConfigStore:
-
     def __init__(self, db_path: Path | None = None, backup_path: Path | None = None):
         self.db_path = db_path or _default_db_path()
         self.backup_path = backup_path or _default_backup_path()

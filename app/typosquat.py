@@ -89,10 +89,6 @@ def _second_level_label(domain: str) -> str:
 
 
 def _is_embedded_token(candidate_label: str, protected_label: str) -> bool:
-    """True only if protected_label appears as a distinct hyphen/edge-bounded
-    token inside candidate_label - not merely as a substring. This avoids
-    flagging legitimate compound domains like "googleapis", "amazonaws", or
-    "canalplus" just because they happen to contain a protected brand name."""
     if protected_label == candidate_label:
         return False
     pattern = r"(?:^|-)" + re.escape(protected_label) + r"(?:$|-)"
@@ -141,10 +137,6 @@ def find_typosquat_match(
                 return (protected, "embedded", 0)
 
         distance = _levenshtein(candidate_label, protected_label)
-        # A fuzzy match that's almost as long as either label isn't a meaningful "close
-        # spelling" anymore - it just means one of the labels is short (e.g. "x" from
-        # x.com, or "wp" from wp.pl), so nearly every short candidate/protected pairing
-        # ends up within max_distance of each other by pure chance.
         shortest = min(len(protected_label), len(candidate_label))
         if 0 < distance <= max_distance and distance < shortest and (best is None or distance < best[2]):
             best = (protected, "typo", distance)
