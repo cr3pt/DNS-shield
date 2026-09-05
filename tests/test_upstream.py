@@ -1,3 +1,4 @@
+from app.blocklist import BlocklistManager
 from app.upstream import _split_host_port, hostname_of
 
 
@@ -54,3 +55,31 @@ def test_hostname_of_dot_hostname_with_custom_port():
 
 def test_hostname_of_doh_url_with_custom_port():
     assert hostname_of("doh://dns.example.com:8443/dns-query") == "dns.example.com"
+
+
+def test_split_host_port_never_raises_on_malformed_port():
+    # hostname_of() runs on every single DNS query via block_reason(), with
+    # no try/except around it (unlike the actual forward() call sites) - a
+    # typo in a hand-edited upstream entry must degrade gracefully instead
+    # of taking down resolution for every query.
+    assert _split_host_port("dns.example.com:notaport", 53) == ("dns.example.com", 53)
+    assert _split_host_port("[::1]:notaport", 853) == ("::1", 853)
+    assert _split_host_port("dns.example.com:", 53) == ("dns.example.com", 53)
+    assert _split_host_port("dns.example.com:-1", 53) == ("dns.example.com", 53)
+
+
+def test_hostname_of_never_raises_on_malformed_port():
+    assert hostname_of("dns.example.com:notaport") == "dns.example.com"
+    assert hostname_of("[2606:4700:4700::1111]:notaport") is None
+
+
+def test_block_reason_survives_malformed_upstream_entry(config_store, tmp_path):
+    # block_reason() runs on every DNS query and calls protected_hostnames()
+    # -> hostname_of() with zero exception handling around it - a typo'd
+    # upstream entry must not be able to take down resolution entirely.
+    config_store.mutate(lambda d: d.setdefault("enrichment", {}).update({"public_enabled": True}))
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update(
+        {"upstreams": ["dns.example.com:notaport", "1.1.1.1:53"]}
+    ))
+    blocklist = BlocklistManager(config_store, tmp_path / "cache")
+    assert blocklist.block_reason("example.com", "1.2.3.4") is None

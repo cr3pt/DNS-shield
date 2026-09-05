@@ -28,6 +28,12 @@ def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
     the same convention curl/browsers use) resolves that; a bare IPv6
     literal without brackets is accepted too, just without a custom port,
     since there'd be no way to tell where the address ends.
+
+    A non-numeric port falls back to default_port rather than raising -
+    this runs on every single DNS query via hostname_of()/block_reason(),
+    unguarded by a try/except unlike the actual forward() call sites, so a
+    typo in a hand-edited upstream entry must never be able to take down
+    resolution for every query.
     """
     entry = entry.strip()
     if entry.startswith("["):
@@ -35,13 +41,13 @@ def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
         if closing != -1:
             host = entry[1:closing]
             rest = entry[closing + 1 :]
-            if rest.startswith(":") and rest[1:]:
+            if rest.startswith(":") and rest[1:].isdigit():
                 return host, int(rest[1:])
             return host, default_port
     if entry.count(":") > 1:
         return entry, default_port
     host, _, port_str = entry.partition(":")
-    return host, int(port_str) if port_str else default_port
+    return host, int(port_str) if port_str.isdigit() else default_port
 
 
 def forward(data: bytes, upstream: str, timeout: float) -> bytes:

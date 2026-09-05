@@ -4309,7 +4309,7 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
     const btn = document.getElementById("copy-domains-btn");
     if (btn) {
       btn.onclick = () => {
-        navigator.clipboard.writeText(${JSON.stringify(domains.join("\n"))}).then(() => {
+        navigator.clipboard.writeText(${JSON.stringify(domains.join("\n")).replace(/</g, "\\u003c")}).then(() => {
           btn.textContent = "Copied!";
           setTimeout(() => { btn.textContent = "Copy all"; }, 1500);
         });
