@@ -1243,6 +1243,21 @@
         </p>
 
         <div class="field checkbox">
+          <input type="checkbox" id="s-enrich-ai-enabled">
+          <label for="s-enrich-ai-enabled" data-i18n="ti.ai">AI context lookup (Google Gemini)</label>
+        </div>
+        <div class="field">
+          <label><span data-i18n="ti.ai_key">Gemini API key</span> <span id="ai-key-status" class="muted"></span></label>
+          <input type="password" id="s-enrich-ai-key" placeholder="leave blank to keep current" autocomplete="off">
+        </div>
+        <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.ai">
+          Asks Gemini in plain language who a domain or IP most likely belongs to, what it's
+          normally used for, and any well-known reputation concerns - a free-text summary for
+          context, not a verified fact or a reputation signal, so it never affects the overall
+          verdict. Get a free API key from Google AI Studio (aistudio.google.com).
+        </p>
+
+        <div class="field checkbox">
           <input type="checkbox" id="s-enrich-local-enabled">
           <label for="s-enrich-local-enabled" data-i18n="ti.enable_local">Enable your own (local) reputation service</label>
         </div>
@@ -2076,6 +2091,9 @@ const I18N_PL = {
   "ti.ipinfo": "Sprawdzenie geolokalizacji/właściciela IP (ipinfo.io)",
   "ti.ipinfo_key": "Token API ipinfo.io (opcjonalny)",
   "ti.hint.ipinfo": "Tylko dla adresów IP. Zwraca miasto/region/kraj, ASN oraz organizację/dostawcę internetu (ISP) będącego właścicielem adresu klienta lub docelowego - to czysto informacyjne dane, nie sygnał reputacyjny, więc nigdy nie wpływają na ogólny werdykt. Działa bez tokenu przy niskim limicie zapytań; dodaj darmowy token ipinfo.io powyżej dla wyższych limitów.",
+  "ti.ai": "Kontekst od AI (Google Gemini)",
+  "ti.ai_key": "Klucz API Gemini",
+  "ti.hint.ai": "Pyta Gemini w prostym języku do kogo najprawdopodobniej należy domena lub adres IP, do czego zwykle służy i czy są znane obawy reputacyjne - to opis w wolnym tekście, dla kontekstu, a nie zweryfikowany fakt czy sygnał reputacyjny, więc nigdy nie wpływa na ogólny werdykt. Darmowy klucz API można uzyskać w Google AI Studio (aistudio.google.com).",
   "ti.hint.local_service": "Wskaż tutaj infrastrukturę, którą sam prowadzisz, zamiast (lub obok) usług publicznych powyżej - nie podlega przełącznikowi powyżej, bo to nie jest wywołanie do zewnętrznej usługi. DNS-shield wysyła POST-em <code>{\"target\": \"&lt;domena-lub-ip&gt;\", \"type\": \"domain\"|\"ip\"}</code> jako JSON pod adres URL poniżej i oczekuje w odpowiedzi <code>{\"verdict\": \"safe\"|\"low\"|\"medium\"|\"high\"|\"critical\", \"score\": 0-100, \"summary\": \"...\"}</code> (score/summary opcjonalne).",
   "ti.hint.auto_enrich": "Uruchamia Enrich raz dla domeny, przy pierwszym zapytaniu jakie DNS-shield kiedykolwiek dla niej zobaczy - nigdy przy powtórnych zapytaniach i nigdy więcej niż limit sprawdzeń poniżej na jedno uruchomienie, więc nagły napływ nowych domen (urządzenie łączące się po raz pierwszy, telefon przywracający aplikacje) nie wyczerpie od razu darmowego limitu API; zamiast tego nadrabia zaległości w kolejnych kilku sprawdzeniach. Potrzebuje włączonego \"Włącz publiczne sprawdzenia\" powyżej (lub lokalnej usługi reputacji), żeby cokolwiek faktycznie wywołać.",
 
@@ -2781,6 +2799,8 @@ function openEnrichmentWindow(result) {
       if (!src.configured) {
         const hint = name === "local"
           ? "Not set up - enable it and add a URL in Settings -> Threat intelligence."
+          : name === "ai"
+          ? "Not set up - enable it and add a Gemini API key in Settings -> Threat intelligence."
           : name === "rdap" || name === "crtsh" || name === "ipinfo"
           ? "Not enabled - turn it on in Settings -> Threat intelligence."
           : "Not configured - add an API key in Settings -> Threat intelligence.";
@@ -2822,10 +2842,14 @@ function openEnrichmentWindow(result) {
       : "";
 
   const safeAllowHtml =
-    result.type === "domain" && result.overall_verdict === "safe"
+    result.type === "domain"
       ? `<div class="safe-allow">
-          <button type="button" id="safe-allow-btn" data-target="${escapeHtml(result.target)}">Add to allowlist</button>
-          <p class="muted" style="margin-top:0.5rem;">Clears any denylist entry for ${escapeHtml(result.target)} and adds it to the global allowlist, same as Unblock in the query log - allowlist beats a blocklist-source match, but a fresh denylist entry would still win, hence clearing that too.</p>
+          <div class="btn-row">
+            ${result.overall_verdict === "safe" ? `<button type="button" id="safe-allow-btn" data-target="${escapeHtml(result.target)}">Add to allowlist</button>` : ""}
+            <button type="button" id="exclude-alert-btn" data-target="${escapeHtml(result.target)}">Exclude from alerts</button>
+          </div>
+          ${result.overall_verdict === "safe" ? `<p class="muted" style="margin-top:0.5rem;">Clears any denylist entry for ${escapeHtml(result.target)} and adds it to the global allowlist, same as Unblock in the query log - allowlist beats a blocklist-source match, but a fresh denylist entry would still win, hence clearing that too.</p>` : ""}
+          <p class="muted" style="margin-top:0.5rem;">Stops ${escapeHtml(result.target)} (and its subdomains) from ever raising a watched-domain, typosquat, rebinding, or local-TLD alert - same list as Settings -> Anomalies -> Excluded domains. Doesn't affect blocking.</p>
         </div>`
       : "";
 
@@ -2855,6 +2879,7 @@ function openEnrichmentWindow(result) {
   .client-block button:disabled { opacity:0.5; cursor:wait; }
   .client-block button[data-blocked="1"] { background:rgba(255,255,255,0.12); }
   .safe-allow { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .safe-allow .btn-row { display:flex; gap:0.6rem; flex-wrap:wrap; }
   .safe-allow button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.45rem 1rem; font-size:0.85rem; font-weight:600; cursor:pointer; }
   .safe-allow button:hover { border-color:currentColor; }
   .safe-allow button:disabled { opacity:0.5; cursor:wait; }
@@ -2927,6 +2952,32 @@ function openEnrichmentWindow(result) {
           })
           .catch(function (err) {
             alert("Failed to add to allowlist: " + (err && err.message ? err.message : err));
+            btn.disabled = false;
+            btn.innerHTML = original;
+          });
+      };
+    })();
+    (function () {
+      var btn = document.getElementById("exclude-alert-btn");
+      if (!btn || !window.opener || !window.opener.api) return;
+      btn.onclick = function () {
+        var target = btn.getAttribute("data-target");
+        btn.disabled = true;
+        var original = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span>Saving...';
+        window.opener
+          .api("/api/anomaly-exclusions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ domain: target }),
+          })
+          .then(function () {
+            btn.setAttribute("data-done", "1");
+            btn.textContent = "Excluded from alerts";
+            if (window.opener.refreshAll) window.opener.refreshAll();
+          })
+          .catch(function (err) {
+            alert("Failed to exclude domain: " + (err && err.message ? err.message : err));
             btn.disabled = false;
             btn.innerHTML = original;
           });
@@ -3856,6 +3907,7 @@ async function loadSettings() {
   document.getElementById("s-shodan-key").value = "";
   document.getElementById("s-urlhaus-key").value = "";
   document.getElementById("s-enrich-ipinfo-key").value = "";
+  document.getElementById("s-enrich-ai-key").value = "";
   document.getElementById("s-enrich-local-key").value = "";
   const enr = s.enrichment || {};
   const keyStatusText = (set, preview) => (set ? `(configured: ${preview}) ` : "(not set)");
@@ -3866,11 +3918,13 @@ async function loadSettings() {
   document.getElementById("shodan-key-status").textContent = keyStatusText(enr.shodan_api_key_set, enr.shodan_api_key_preview);
   document.getElementById("urlhaus-key-status").textContent = keyStatusText(enr.urlhaus_api_key_set, enr.urlhaus_api_key_preview);
   document.getElementById("ipinfo-key-status").textContent = keyStatusText(enr.ipinfo_api_key_set, enr.ipinfo_api_key_preview);
+  document.getElementById("ai-key-status").textContent = keyStatusText(enr.ai_api_key_set, enr.ai_api_key_preview);
   document.getElementById("local-key-status").textContent = keyStatusText(enr.local_api_key_set, enr.local_api_key_preview);
   document.getElementById("s-enrich-public-enabled").checked = !!enr.public_enabled;
   document.getElementById("s-enrich-rdap-enabled").checked = !!enr.rdap_enabled;
   document.getElementById("s-enrich-crtsh-enabled").checked = !!enr.crtsh_enabled;
   document.getElementById("s-enrich-ipinfo-enabled").checked = !!enr.ipinfo_enabled;
+  document.getElementById("s-enrich-ai-enabled").checked = !!enr.ai_enabled;
   document.getElementById("s-enrich-local-enabled").checked = !!enr.local_enabled;
   document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
   document.getElementById("s-enrich-alert-enabled").checked = enr.alert_enabled !== false;
@@ -3882,7 +3936,8 @@ async function loadSettings() {
   const publicReady = !!enr.public_enabled && (
     enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set ||
     enr.greynoise_api_key_set || enr.shodan_api_key_set || enr.urlhaus_api_key_set ||
-    enr.rdap_enabled || enr.crtsh_enabled || enr.ipinfo_enabled
+    enr.rdap_enabled || enr.crtsh_enabled || enr.ipinfo_enabled ||
+    (enr.ai_enabled && enr.ai_api_key_set)
   );
   const localReady = !!enr.local_enabled && !!enr.local_url;
   enrichmentAvailable = publicReady || localReady;
@@ -5762,6 +5817,7 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
     rdap_enabled: document.getElementById("s-enrich-rdap-enabled").checked,
     crtsh_enabled: document.getElementById("s-enrich-crtsh-enabled").checked,
     ipinfo_enabled: document.getElementById("s-enrich-ipinfo-enabled").checked,
+    ai_enabled: document.getElementById("s-enrich-ai-enabled").checked,
     local_enabled: document.getElementById("s-enrich-local-enabled").checked,
     local_url: document.getElementById("s-enrich-local-url").value.trim(),
     alert_enabled: document.getElementById("s-enrich-alert-enabled").checked,
@@ -5777,6 +5833,7 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
   const shodan = document.getElementById("s-shodan-key").value.trim();
   const urlhaus = document.getElementById("s-urlhaus-key").value.trim();
   const ipinfoKey = document.getElementById("s-enrich-ipinfo-key").value.trim();
+  const aiKey = document.getElementById("s-enrich-ai-key").value.trim();
   const localKey = document.getElementById("s-enrich-local-key").value.trim();
   if (vt) body.virustotal_api_key = vt;
   if (abuse) body.abuseipdb_api_key = abuse;
@@ -5785,6 +5842,7 @@ document.getElementById("enrichment-settings-form").addEventListener("submit", a
   if (shodan) body.shodan_api_key = shodan;
   if (urlhaus) body.urlhaus_api_key = urlhaus;
   if (ipinfoKey) body.ipinfo_api_key = ipinfoKey;
+  if (aiKey) body.ai_api_key = aiKey;
   if (localKey) body.local_api_key = localKey;
   await withDelayedSpinner(e.submitter, async () => {
     await api("/api/settings/enrichment", {

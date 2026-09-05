@@ -113,6 +113,8 @@ enrichment:
   crtsh_enabled: false
   ipinfo_enabled: false
   ipinfo_api_key: ""
+  ai_enabled: false
+  ai_api_key: ""
   local_enabled: false
   local_url: ""
   local_api_key: ""

@@ -358,6 +358,8 @@ class EnrichmentSettingsIn(BaseModel):
     crtsh_enabled: bool | None = None
     ipinfo_enabled: bool | None = None
     ipinfo_api_key: str | None = None
+    ai_enabled: bool | None = None
+    ai_api_key: str | None = None
     public_enabled: bool | None = None
     local_enabled: bool | None = None
     local_url: str | None = None
@@ -1665,6 +1667,9 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "ipinfo_enabled": bool(snap.get("enrichment", {}).get("ipinfo_enabled", False)),
                 "ipinfo_api_key_set": bool(snap.get("enrichment", {}).get("ipinfo_api_key")),
                 "ipinfo_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("ipinfo_api_key")),
+                "ai_enabled": bool(snap.get("enrichment", {}).get("ai_enabled", False)),
+                "ai_api_key_set": bool(snap.get("enrichment", {}).get("ai_api_key")),
+                "ai_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("ai_api_key")),
                 "public_enabled": bool(snap.get("enrichment", {}).get("public_enabled", False)),
                 "local_enabled": bool(snap.get("enrichment", {}).get("local_enabled", False)),
                 "local_url": snap.get("enrichment", {}).get("local_url", "") or "",
@@ -1781,6 +1786,7 @@ To restore into an EXISTING instance (data/config.db already exists):
             "shodan_api_key",
             "urlhaus_api_key",
             "ipinfo_api_key",
+            "ai_api_key",
             "local_api_key",
         }
         data_in = body.model_dump(exclude_unset=True)
@@ -1807,6 +1813,9 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "ipinfo_enabled": bool(enr.get("ipinfo_enabled", False)),
                 "ipinfo_api_key_set": bool(enr.get("ipinfo_api_key")),
                 "ipinfo_api_key_preview": _masked_key_preview(enr.get("ipinfo_api_key")),
+                "ai_enabled": bool(enr.get("ai_enabled", False)),
+                "ai_api_key_set": bool(enr.get("ai_api_key")),
+                "ai_api_key_preview": _masked_key_preview(enr.get("ai_api_key")),
                 "public_enabled": bool(enr.get("public_enabled", False)),
                 "local_enabled": bool(enr.get("local_enabled", False)),
                 "local_url": enr.get("local_url", "") or "",
