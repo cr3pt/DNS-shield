@@ -1871,6 +1871,10 @@
       <button type="submit" data-i18n="logs.apply_filters">Apply filters</button>
       <button type="button" class="secondary" id="query-log-clear" data-i18n="common.clear">Clear</button>
     </form>
+    <div class="field checkbox" style="margin:0.4rem 0;">
+      <input type="checkbox" id="ql-show-unblocked">
+      <label for="ql-show-unblocked" data-i18n="logs.show_unblocked">Show unblocked</label>
+    </div>
     <p class="muted" id="query-log-summary"></p>
     <table class="card-table">
       <thead><tr><th data-i18n="col.time">Time</th><th data-i18n="col.domain">Domain</th><th class="col-qtype" data-i18n="col.type">Type</th><th data-i18n="col.client">Client</th><th data-i18n="col.result">Result</th><th></th></tr></thead>
@@ -2295,6 +2299,7 @@ const I18N_PL = {
   "logs.last_24h": "Ostatnie 24 godziny",
   "logs.last_7d": "Ostatnie 7 dni",
   "logs.apply_filters": "Zastosuj filtry",
+  "logs.show_unblocked": "Pokazuj odblokowane",
   "logs.no_matching": "Brak pasujących zapytań",
   "logs.showing": "Wyświetlono",
   "logs.of": "z",
@@ -2670,6 +2675,13 @@ const clientLabel = (ip) => (clientNames[ip] ? `${clientNames[ip]} (${ip})` : ip
 let blockedClients = new Set();
 const isClientBlocked = (ip) => blockedClients.has(ip);
 
+let currentAllowlist = new Set();
+function isOnAllowlist(domain) {
+  return currentAllowlist.has((domain || "").toLowerCase().replace(/\.$/, ""));
+}
+
+let recentlyUnblockedDomains = new Set();
+
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -2939,6 +2951,7 @@ function openEnrichmentWindow(result) {
         window.opener
           .api("/api/rules/deny/" + encodeURIComponent(target), { method: "DELETE" })
           .then(function () {
+            if (window.opener.isOnAllowlist && window.opener.isOnAllowlist(target)) return null;
             return window.opener.api("/api/rules/allow", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -3501,6 +3514,7 @@ function ruleDeleteButton(label, path, onDone) {
 
 async function loadRules() {
   const rules = await api("/api/rules");
+  currentAllowlist = new Set((rules.allowlist || []).map((d) => d.toLowerCase()));
   const allowRows = document.getElementById("allow-rows");
   allowRows.innerHTML = "";
   for (const domain of rules.allowlist) {
@@ -4196,12 +4210,16 @@ function renderQueryLogRow(q) {
       await withSpinner(blockBtn, async () => {
         if (q.blocked) {
           await api(`/api/rules/deny/${encodeURIComponent(q.domain)}`, { method: "DELETE" });
-          await api("/api/rules/allow", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ domain: q.domain }),
-          });
+          if (!isOnAllowlist(q.domain)) {
+            await api("/api/rules/allow", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ domain: q.domain }),
+            });
+          }
+          recentlyUnblockedDomains.add(q.domain.toLowerCase());
         } else {
+          recentlyUnblockedDomains.delete(q.domain.toLowerCase());
           await api("/api/rules/deny", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -4259,7 +4277,9 @@ async function loadQueryLog(reset) {
 
   const rows = document.getElementById("query-log-rows");
   if (reset) rows.innerHTML = "";
+  const showUnblocked = document.getElementById("ql-show-unblocked").checked;
   for (const q of result.rows) {
+    if (!showUnblocked && recentlyUnblockedDomains.has((q.domain || "").toLowerCase())) continue;
     rows.appendChild(renderQueryLogRow(q));
   }
 
@@ -6203,6 +6223,10 @@ document.getElementById("query-log-clear").addEventListener("click", () => {
 document.getElementById("query-log-load-more").addEventListener("click", () => {
   queryLogOffset += QUERY_LOG_PAGE_SIZE;
   loadQueryLog(false);
+});
+
+document.getElementById("ql-show-unblocked").addEventListener("change", () => {
+  loadQueryLog(true);
 });
 
 document.getElementById("query-log-purge").addEventListener("click", async () => {
