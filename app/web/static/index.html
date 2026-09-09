@@ -4188,6 +4188,45 @@ document.getElementById("add-webhook-form").addEventListener("submit", async (e)
 let queryLogOffset = 0;
 const QUERY_LOG_PAGE_SIZE = 100;
 
+function setCookie(name, value, days) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${days * 24 * 60 * 60}; path=/; samesite=lax`;
+}
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+const QUERY_LOG_FILTER_COOKIE = "dnsshield_query_log_filters";
+
+function saveQueryLogFilters() {
+  const state = {
+    domain: document.getElementById("ql-domain").value,
+    client: document.getElementById("ql-client").value,
+    qtype: document.getElementById("ql-qtype").value,
+    status: document.getElementById("ql-status").value,
+    range: document.getElementById("ql-range").value,
+    showUnblocked: document.getElementById("ql-show-unblocked").checked,
+  };
+  setCookie(QUERY_LOG_FILTER_COOKIE, JSON.stringify(state), 365);
+}
+
+function restoreQueryLogFilters() {
+  const raw = getCookie(QUERY_LOG_FILTER_COOKIE);
+  if (!raw) return;
+  let state;
+  try {
+    state = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  document.getElementById("ql-domain").value = state.domain || "";
+  document.getElementById("ql-client").value = state.client || "";
+  document.getElementById("ql-qtype").value = state.qtype || "";
+  document.getElementById("ql-status").value = state.status || "";
+  document.getElementById("ql-range").value = state.range || "";
+  document.getElementById("ql-show-unblocked").checked = !!state.showUnblocked;
+}
+
 function queryLogFilterParams() {
   const params = new URLSearchParams();
   const domain = document.getElementById("ql-domain").value.trim();
@@ -6212,11 +6251,13 @@ document.getElementById("add-typosquat-form").addEventListener("submit", async (
 
 document.getElementById("query-log-filter-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  saveQueryLogFilters();
   loadQueryLog(true);
 });
 
 document.getElementById("query-log-clear").addEventListener("click", () => {
   document.getElementById("query-log-filter-form").reset();
+  saveQueryLogFilters();
   loadQueryLog(true);
 });
 
@@ -6226,6 +6267,7 @@ document.getElementById("query-log-load-more").addEventListener("click", () => {
 });
 
 document.getElementById("ql-show-unblocked").addEventListener("change", () => {
+  saveQueryLogFilters();
   loadQueryLog(true);
 });
 
@@ -6449,6 +6491,7 @@ async function boot() {
   document.getElementById("my-username").textContent = currentUser.username;
   document.getElementById("s-account-language").value = currentUser.language || "";
   renderTotpStatus();
+  restoreQueryLogFilters();
 
   await refreshAll();
   setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);
