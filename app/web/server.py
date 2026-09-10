@@ -947,6 +947,15 @@ def create_app(
             range = "24h"
         return stats.timeseries(range, client_ips=_allowed_client_ips(user))
 
+    @app.get("/api/query-log/clients")
+    def get_query_log_clients(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        allowed = _allowed_client_ips(user)
+        clients = stats.distinct_clients() if allowed is None else allowed
+        return {
+            "clients": sorted(clients),
+            "client_names": client_names.snapshot() if client_names is not None else {},
+        }
+
     @app.get("/api/query-log")
     def get_query_log(
         domain: str | None = None,

@@ -1842,7 +1842,9 @@
     <h2 data-i18n="logs.query_log">Query log</h2>
     <form class="inline" id="query-log-filter-form">
       <input type="text" id="ql-domain" placeholder="Domain contains..." data-i18n-ph="logs.ph.domain">
-      <input type="text" id="ql-client" placeholder="Client IP or name contains..." data-i18n-ph="logs.ph.client">
+      <select id="ql-client">
+        <option value="" data-i18n="logs.all_clients">All clients</option>
+      </select>
       <select id="ql-qtype">
         <option value="" data-i18n="logs.all_types">All types</option>
         <option value="A">A</option>
@@ -2289,7 +2291,7 @@ const I18N_PL = {
 
   "logs.query_log": "Log zapytań",
   "logs.ph.domain": "Domena zawiera...",
-  "logs.ph.client": "Klient (IP lub nazwa) zawiera...",
+  "logs.all_clients": "Wszyscy klienci",
   "logs.all_types": "Wszystkie typy",
   "logs.all_results": "Wszystkie wyniki",
   "logs.blocked": "Zablokowane",
@@ -4305,6 +4307,22 @@ function renderQueryLogRow(q) {
   ]);
 }
 
+async function loadQueryLogClients() {
+  const result = await api("/api/query-log/clients");
+  clientNames = { ...clientNames, ...(result.client_names || {}) };
+  const select = document.getElementById("ql-client");
+  const previous = select.value;
+  select.innerHTML = "";
+  select.appendChild(el("option", { value: "", text: t("logs.all_clients", "All clients") }));
+  const clients = [...(result.clients || [])].sort((a, b) => clientLabel(a).localeCompare(clientLabel(b)));
+  for (const ip of clients) {
+    select.appendChild(el("option", { value: ip, text: clientLabel(ip) }));
+  }
+  if (!previous || clients.includes(previous)) {
+    select.value = previous;
+  }
+}
+
 async function loadQueryLog(reset) {
   if (reset) queryLogOffset = 0;
   const params = queryLogFilterParams();
@@ -5402,6 +5420,7 @@ async function refreshAll() {
   if (!currentUser) return;
   await loadStatusAndStats();
   await loadTrend();
+  await loadQueryLogClients();
   await loadQueryLog(true);
   const canViewAnomalies = isAdmin || (currentUser.permissions && currentUser.permissions.view_anomalies);
   if (canViewAnomalies) await loadAnomalies();
@@ -6491,6 +6510,7 @@ async function boot() {
   document.getElementById("my-username").textContent = currentUser.username;
   document.getElementById("s-account-language").value = currentUser.language || "";
   renderTotpStatus();
+  await loadQueryLogClients();
   restoreQueryLogFilters();
 
   await refreshAll();
