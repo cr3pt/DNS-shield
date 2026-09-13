@@ -2847,6 +2847,22 @@ function openEnrichmentWindow(result) {
       </div>`
     : "";
 
+  const recentClients = result.type === "domain" ? (result.recent_clients || []) : [];
+  const recentClientsHtml =
+    result.type === "domain"
+      ? `<div class="recent-clients">
+          <h2>Recently queried by <span class="muted">(up to 20 most recent unique clients, most recent first)</span></h2>
+          ${recentClients.length
+            ? `<ul>${recentClients
+                .map(
+                  (ip) =>
+                    `<li><code>${escapeHtml(clientLabel(ip))}</code><button type="button" class="enrich-client-btn" data-client="${escapeHtml(ip)}">Enrich</button></li>`
+                )
+                .join("")}</ul>`
+            : `<p class="muted">No clients on record for this domain yet - it may have aged out of the query log's retention.</p>`}
+        </div>`
+      : "";
+
   const clientBlockHtml =
     result.type === "ip"
       ? `<div class="client-block">
@@ -2887,6 +2903,13 @@ function openEnrichmentWindow(result) {
   .hist-table th, .hist-table td { text-align:left; padding:0.35rem 0.5rem; border-bottom:1px solid rgba(255,255,255,0.1); }
   .hist-table th { opacity:0.7; font-weight:600; }
   .hbadge { display:inline-block; padding:0.1rem 0.5rem; border-radius:999px; color:#04102a; font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.02em; }
+  .recent-clients { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .recent-clients ul { list-style:none; margin:0.6rem 0 0; padding:0; max-height:14rem; overflow-y:auto; }
+  .recent-clients li { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.3rem 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.85rem; }
+  .recent-clients li code { word-break:break-all; }
+  .recent-clients button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.25rem 0.7rem; font-size:0.75rem; font-weight:600; cursor:pointer; white-space:nowrap; }
+  .recent-clients button:hover { border-color:currentColor; }
+  .recent-clients button:disabled { opacity:0.5; cursor:wait; }
   .client-block { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
   .client-block button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.45rem 1rem; font-size:0.85rem; font-weight:600; cursor:pointer; }
   .client-block button:hover { border-color:currentColor; }
@@ -2907,6 +2930,7 @@ function openEnrichmentWindow(result) {
   ${localStatusHtml}
   ${sourceHtml || '<p class="muted">No threat-intel sources configured yet.</p>'}
   ${historyHtml}
+  ${recentClientsHtml}
   ${safeAllowHtml}
   ${clientBlockHtml}
   <p class="footer">Looked up just now, stored locally in enrichment.db.</p>
@@ -2998,6 +3022,31 @@ function openEnrichmentWindow(result) {
           });
       };
     })();
+    document.querySelectorAll(".enrich-client-btn").forEach(function (ebtn) {
+      if (!window.opener || !window.opener.api) return;
+      ebtn.onclick = function () {
+        var client = ebtn.getAttribute("data-client");
+        ebtn.disabled = true;
+        var original = ebtn.innerHTML;
+        ebtn.innerHTML = '<span class="spinner"></span>Checking...';
+        window.opener
+          .api("/api/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: client, type: "ip" }),
+          })
+          .then(function (result) {
+            window.opener.openEnrichmentWindow(result);
+          })
+          .catch(function (err) {
+            alert("Enrichment failed: " + (err && err.message ? err.message : err));
+          })
+          .finally(function () {
+            ebtn.disabled = false;
+            ebtn.innerHTML = original;
+          });
+      };
+    });
   <\/script>
 </body></html>`);
   w.document.close();

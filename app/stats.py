@@ -178,6 +178,32 @@ class Stats:
             conn.close()
         return [row[0] for row in rows]
 
+    def recent_clients_for_domain(
+        self, domain: str, limit: int = 20, restrict_client_ips: list[str] | None = None
+    ) -> list[str]:
+        domain = domain.strip().lower().rstrip(".")
+        if not domain:
+            return []
+        if restrict_client_ips is not None and not restrict_client_ips:
+            return []
+
+        where = ["domain = ?"]
+        params: list[Any] = [domain]
+        if restrict_client_ips is not None:
+            where.append("client IN (%s)" % ",".join("?" for _ in restrict_client_ips))
+            params.extend(restrict_client_ips)
+
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"SELECT client, MAX(id) AS last_id FROM queries WHERE {' AND '.join(where)} "
+                f"GROUP BY client ORDER BY last_id DESC LIMIT ?",
+                params + [limit],
+            ).fetchall()
+        finally:
+            conn.close()
+        return [row[0] for row in rows]
+
     def snapshot(self, top_n: int = 25, log_n: int = 200, client_ips: list[str] | None = None) -> dict[str, Any]:
         where_clients = ""
         base_params: list[Any] = []

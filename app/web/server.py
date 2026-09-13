@@ -2273,7 +2273,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return blocklist.lookup_domain(domain)
 
     @app.post("/api/enrich")
-    def enrich_target(body: EnrichIn, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> dict[str, Any]:
+    def enrich_target(body: EnrichIn, user: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> dict[str, Any]:
         target = body.target.strip()
         target_type = body.type if body.type in ("domain", "ip") else "domain"
         if not target:
@@ -2302,6 +2302,9 @@ To restore into an EXISTING instance (data/config.db already exists):
             result["mac_address"] = blocklist.mac_for(result["target"])
         else:
             result["local_blocklist"] = blocklist.lookup_domain(result["target"])
+            result["recent_clients"] = stats.recent_clients_for_domain(
+                result["target"], limit=20, restrict_client_ips=_allowed_client_ips(user)
+            )
         maybe_alert_on_verdict(result, config_store, anomaly)
         return result
 
