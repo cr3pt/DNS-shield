@@ -1427,6 +1427,18 @@
     </section>
 
     <section>
+      <h2 data-i18n="anom.subdomain_excluded">Ignored subdomain-count domains</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.subdomain_excluded">
+        Base domains below never trigger the "subdomain count burst" check above, however many
+        distinct subdomains of them are queried - use this for legitimate high-subdomain-count
+        infrastructure (CDNs, mail systems, cloud services) you've confirmed is fine. They also
+        never show up in that check's "Analyze saved data" results, since you've already dealt
+        with them. Add one with the "Ignore" button in that tool, or directly here.
+      </p>
+      <div id="anomaly-subdomain-exclusion-domains"></div>
+    </section>
+
+    <section>
       <h2 data-i18n="typosquatfp.title">Typosquat false positives</h2>
       <p class="hint" style="color:var(--muted);" data-i18n="typosquatfp.hint">
         Pairs below never trigger a typosquat alert again for that exact queried domain against
@@ -2142,6 +2154,7 @@ const I18N_PL = {
   "anom.hint.ptr_scan": "Uruchamia się, gdy klient wysyła wiele odrębnych zapytań odwrotnego DNS (PTR) dla lokalnych/prywatnych adresów IP w jednym oknie - pojedyncze zapytania (NAS sprawdzający swoją bramę, router przeglądający sieć LAN) są normalne, ale klient przechodzący kolejno przez zakres prywatny wygląda, jakby wyliczał, co jest w Twojej sieci.",
   "anom.hint.subdomain_count": "Uruchamia się na podstawie samej surowej liczby odrębnych subdomen jednej domeny odpytanych w danym oknie, bez żadnego filtra losowości - w odróżnieniu od wykrywania DNS tunneling powyżej wykrywa też wzorce o niskiej entropii, jak sekwencyjne/wyliczane subdomeny (<code>host1.example.com</code>, <code>host2.example.com</code>, ...) albo nadużycie wildcardów/CDN, które nie wyglądałyby na dość \"losowe\", by uruchomić sprawdzenie tunelowania. Ponieważ nie ma tu filtra wstępnego, legalna infrastruktura o dużej liczbie subdomen (CDN-y, systemy pocztowe, usługi chmurowe) też może to uruchomić - użyj \"Analizuj zapisane dane\" poniżej, by zobaczyć, co jest normalne w Twojej sieci, zanim wybierzesz próg.",
   "anom.hint.excluded": "Domeny poniżej (i ich subdomeny) nigdy nie wywołują alertu obserwowanej domeny, typosquattingu, DNS rebinding ani lokalnego TLD - przydatne dla znanej, dobrej domeny, która akurat wygląda podejrzanie dla jednego z tych sprawdzeń. Nie wpływa na sprawdzenia ilościowe powyżej (skoki zapytań, odsetek blokowania, DNS tunneling, skanowanie PTR), które oznaczają ogólne zachowanie klienta, a nie pojedynczą domenę. Najszybszy sposób dodania to przycisk \"Wyklucz\" obok domeny w wyskakującym okienku \"Pokaż domeny\" alertu.",
+  "anom.hint.subdomain_excluded": "Domeny bazowe poniżej nigdy nie wywołują sprawdzenia \"wybuch liczby subdomen\" powyżej, niezależnie od tego, ile odrębnych subdomen zostanie odpytanych - użyj tego dla legalnej infrastruktury o dużej liczbie subdomen (CDN-y, systemy pocztowe, usługi chmurowe), co do której masz pewność, że jest w porządku. Nie pojawiają się też w wynikach \"Analizuj zapisane dane\" tego sprawdzenia, skoro już się nimi zajęto. Dodaj domenę przyciskiem \"Ignoruj\" w tym narzędziu albo bezpośrednio tutaj.",
 
   "alertrules.hint.main_pre": "Oznacz zapytanie natychmiast, gdy nastąpi, zamiast czekać na wzorzec statystyczny - zapytanie o domenę poniżej (lub z subskrybowanej listy obserwowanej) zawsze wywołuje alert, niezależnie od tego, czy jest faktycznie blokowane. Sprawdzane mniej więcej co",
   "alertrules.hint.main_post": "sekund. Czysto obserwacyjne: to nigdy nie zmienia sposobu rozwiązania zapytania, a każde trafienie przechodzi przez ten sam mechanizm cooldownu/powiadomień co anomalie powyżej.",
@@ -2546,6 +2559,7 @@ const I18N_PL = {
   "editor.ignored_domains": "Ignorowane domeny (nigdy nielogowane)",
   "editor.ignored_clients": "Ignorowani klienci (IP lub CIDR, nigdy nielogowani)",
   "editor.anomaly_exclusions": "Domeny wykluczone z wykrywania anomalii",
+  "editor.anomaly_subdomain_exclusions": "Domeny bazowe ignorowane przez sprawdzenie wybuchu liczby subdomen",
   "editor.typosquat_fp": "Pary domen wykluczone z wykrywania typosquattingu",
   "editor.typosquat_fp_empty": "Jeszcze żadnych - użyj przycisku \"Oznacz jako FP\" na alercie typosquat w zakładce Alerty.",
   "editor.rebinding_fp": "Pary domena/adres wykluczone z wykrywania DNS rebinding",
@@ -2596,10 +2610,11 @@ const I18N_PL = {
   "anom.subdomain_count": "Unikalnych subdomen",
   "anom.show_subdomains": "Pokaż subdomeny",
   "anom.ignore_subdomain": "Ignoruj",
-  "anom.unignore_subdomain": "Cofnij ignorowanie",
+  "anom.ignore_subdomain_title": "Przestań liczyć tę domenę w tym sprawdzeniu od teraz i usuń ją z tej listy. Zarządzaj ignorowanymi domenami w Ustawienia -> Anomalie -> Ignorowane domeny (liczba subdomen).",
   "anom.no_domains_in_window": "Brak zapytań o domeny w tym oknie czasowym.",
   "anom.save": "Zapisz ustawienia wykrywania anomalii",
   "anom.excluded": "Wykluczone z wykrywania anomalii",
+  "anom.subdomain_excluded": "Ignorowane domeny (liczba subdomen)",
   "typosquatfp.title": "Fałszywe alarmy typosquattingu",
   "typosquatfp.hint": "Poniższe pary nigdy więcej nie wywołają alertu typosquat dla dokładnie tej odpytywanej domeny wobec dokładnie tej chronionej domeny - inne domeny dopasowane do tej samej chronionej domeny nadal będą wykrywane. Dodaj parę przyciskiem \"Oznacz jako FP\" przy alercie typosquat w zakładce Alerty.",
   "rebindingfp.title": "Fałszywe alarmy DNS rebinding",
@@ -5146,6 +5161,19 @@ async function loadAnomalyExclusions() {
   container.appendChild(editor);
 }
 
+async function loadAnomalySubdomainExclusions() {
+  const domains = await api("/api/anomaly-subdomain-exclusions");
+  const editor = buildRuleEditor(
+    t("editor.anomaly_subdomain_exclusions", "Base domains ignored by the subdomain-count-burst check"),
+    domains,
+    async (d) => { await api("/api/anomaly-subdomain-exclusions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+    async (d) => { await api(`/api/anomaly-subdomain-exclusions/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const container = document.getElementById("anomaly-subdomain-exclusion-domains");
+  container.innerHTML = "";
+  container.appendChild(editor);
+}
+
 function buildFpPairEditor(pairs, apiPath, keys, titleText, emptyText, deleteKeys) {
   deleteKeys = deleteKeys || keys;
   const wrap = el("div", { class: "rule-editor" });
@@ -5355,39 +5383,31 @@ function renderSubdomainAnalysisRow(r, hours) {
     }
   };
 
-  const ignoreBtn = el("button", {
-    type: "button",
-    class: r.excluded ? "secondary" : "danger",
-    text: r.excluded ? t("anom.unignore_subdomain", "Un-ignore") : t("anom.ignore_subdomain", "Ignore"),
-  });
-  ignoreBtn.onclick = async () => {
-    ignoreBtn.disabled = true;
-    try {
-      if (r.excluded) {
-        await api(`/api/anomaly-subdomain-exclusions/${encodeURIComponent(r.base_domain)}`, { method: "DELETE" });
-        r.excluded = false;
-      } else {
-        await api("/api/anomaly-subdomain-exclusions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ domain: r.base_domain }),
-        });
-        r.excluded = true;
-      }
-      ignoreBtn.className = r.excluded ? "secondary" : "danger";
-      ignoreBtn.textContent = r.excluded ? t("anom.unignore_subdomain", "Un-ignore") : t("anom.ignore_subdomain", "Ignore");
-    } catch (err) {
-      alert(t("common.action_failed", "Action failed") + ": " + err.message);
-    } finally {
-      ignoreBtn.disabled = false;
-    }
-  };
+  const ignoreBtn = el("button", { type: "button", class: "danger", text: t("anom.ignore_subdomain", "Ignore") });
+  ignoreBtn.title = t("anom.ignore_subdomain_title", "Stop counting this domain in this check going forward and remove it from this list. Manage ignored domains in Settings -> Anomalies -> Ignored subdomain-count domains.");
 
-  return el("tr", {}, [
+  const row = el("tr", {}, [
     el("td", { text: r.base_domain }),
     el("td", { text: String(r.subdomain_count) }),
     el("td", {}, [el("div", { class: "row-actions" }, [showBtn, ignoreBtn])]),
   ]);
+
+  ignoreBtn.onclick = async () => {
+    ignoreBtn.disabled = true;
+    try {
+      await api("/api/anomaly-subdomain-exclusions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: r.base_domain }),
+      });
+      row.remove();
+    } catch (err) {
+      ignoreBtn.disabled = false;
+      alert(t("common.action_failed", "Action failed") + ": " + err.message);
+    }
+  };
+
+  return row;
 }
 
 document.getElementById("subdomain-analysis-btn").addEventListener("click", async () => {
@@ -5651,6 +5671,7 @@ async function refreshAll() {
   await loadDomainUpstreams();
   await loadRewrites();
   await loadAnomalyExclusions();
+  await loadAnomalySubdomainExclusions();
   await loadTyposquatFpPairs();
   await loadRebindingFpPairs();
   await loadThreatIntelFpTargets();

@@ -1299,16 +1299,18 @@ klienta, który w tym oknie coś odpytał:
   bazowe z Twojego dziennika zapytań według liczby odrębnych subdomen w
   wybranym oknie (ostatnia godzina/24h/7 dni, top 20), żebyś mógł
   zobaczyć, co jest normalne w Twojej sieci, zanim wybierzesz liczbę.
-  Przy każdej domenie na liście jest przycisk **Pokaż subdomeny**
-  (otwiera rzeczywiste nazwy subdomen w nowym oknie, z przyciskiem do
-  skopiowania wszystkich naraz) oraz przycisk **Ignoruj** - zignorowanie
-  domeny dodaje ją do `anomaly.subdomain_count_excluded_domains`, więc
-  od tej pory jest trwale pomijana przez to konkretne sprawdzenie
-  (przydatne dla legalnej infrastruktury o dużej liczbie subdomen, co do
-  której masz pewność, że jest w porządku); kliknięcie ponownie (przycisk
-  zmieni się wtedy na **Cofnij ignorowanie**) usuwa ją z tej listy. Ta
-  lista wykluczeń jest osobna od ogólnej listy "Wykluczone z wykrywania
-  anomalii" niżej na stronie, która wprost nie obejmuje tego ani innych
+  Zignorowane domeny (patrz niżej) w ogóle nie pojawiają się w tym
+  rankingu - skoro już zdecydowano, że dana domena jest w porządku, nie
+  ma powodu, żeby wciąż tu wracała. Przy każdej pozostałej domenie na
+  liście jest przycisk **Pokaż subdomeny** (otwiera rzeczywiste nazwy
+  subdomen w nowym oknie, z przyciskiem do skopiowania wszystkich naraz)
+  oraz przycisk **Ignoruj**, który dodaje ją do
+  `anomaly.subdomain_count_excluded_domains` i od razu usuwa z listy. Ta
+  lista wykluczeń ma własną, osobną sekcję w ustawieniach - "Ignorowane
+  domeny (liczba subdomen)" - tuż pod ogólną listą "Wykluczone z
+  wykrywania anomalii"; można tam dodawać, usuwać i przeglądać wpisy
+  bezpośrednio, bez potrzeby ponownego uruchamiania analizy. To osobna
+  lista od tamtej ogólnej, która wprost nie obejmuje tego ani innych
   sprawdzeń ilościowych.
 - **Skanowanie PTR** - klient wykonał w oknie niezwykle dużą liczbę
   odwrotnych wyszukiwań DNS (PTR) dla *prywatnych, lokalnych* adresów IP

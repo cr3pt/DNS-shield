@@ -243,18 +243,17 @@ class AnomalyDetector:
         until_ts = time.time()
         since_ts = until_ts - max(float(hours), 1.0) * 3600
         domains = self._stats.distinct_domains_in_window(since_ts, until_ts)
+        excluded = set(self._config.get("anomaly", "subdomain_count_excluded_domains", default=[]) or [])
 
         groups: dict[str, int] = {}
         for d in domains:
             base = _base_domain(d)
+            if base in excluded:
+                continue
             groups[base] = groups.get(base, 0) + 1
 
         ranked = sorted(groups.items(), key=lambda kv: -kv[1])[: max(1, limit)]
-        excluded = set(self._config.get("anomaly", "subdomain_count_excluded_domains", default=[]) or [])
-        return [
-            {"base_domain": base, "subdomain_count": count, "excluded": base in excluded}
-            for base, count in ranked
-        ]
+        return [{"base_domain": base, "subdomain_count": count} for base, count in ranked]
 
     def list_subdomains(self, base_domain: str, hours: float = 24) -> list[str]:
         until_ts = time.time()
