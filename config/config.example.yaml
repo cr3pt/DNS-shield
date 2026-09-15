@@ -129,7 +129,7 @@ anomaly:
   check_interval_minutes: 5
   window_minutes: 15
   min_queries: 20
-  blocked_ratio_threshold: 0.5
+  blocked_ratio_threshold: 0.7
   domain_burst_threshold: 50
   domain_burst_min_label_length: 10
   domain_burst_min_entropy: 3.3
@@ -139,6 +139,7 @@ anomaly:
   dns_tunneling_min_label_length: 20
   dns_tunneling_min_entropy: 3.0
   subdomain_count_threshold: 50
+  subdomain_count_excluded_domains: []
   ptr_scan_threshold: 15
   cooldown_minutes: 60
   excluded_domains: []

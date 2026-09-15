@@ -1157,7 +1157,16 @@ client that's queried it in that window:
   to this setting that ranks the base domains in your own query log by
   distinct-subdomain count over a chosen window (last hour/24h/7 days,
   top 20), so you can see what's normal for your network before picking
-  a number.
+  a number. Each ranked domain has a **Show subdomains** button (opens
+  the actual subdomain names in a new window, with a copy-all button)
+  and an **Ignore** button - ignoring a domain adds it to
+  `anomaly.subdomain_count_excluded_domains`, so it's permanently
+  skipped by this specific check going forward (handy for legitimate
+  high-subdomain-count infrastructure you've confirmed is fine); click
+  it again (now labeled **Un-ignore**) to remove it from that list.
+  This exclusion list is separate from the general "Excluded from
+  anomaly detection" list further down the page, which explicitly
+  doesn't cover this or the other volumetric checks.
 - **PTR scan** - a client issued an unusually large number of reverse-DNS
   (PTR) lookups against *private/local* IP addresses in the window
   (`anomaly.ptr_scan_threshold`, default 15) - one device methodically

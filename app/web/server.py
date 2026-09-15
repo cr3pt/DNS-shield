@@ -58,7 +58,7 @@ _ANOMALY_DEFAULTS: dict[str, Any] = {
     "check_interval_minutes": 5,
     "window_minutes": 15,
     "min_queries": 20,
-    "blocked_ratio_threshold": 0.5,
+    "blocked_ratio_threshold": 0.7,
     "domain_burst_threshold": 50,
     "domain_burst_min_entropy": 3.3,
     "domain_burst_min_label_length": 10,
@@ -2085,6 +2085,47 @@ To restore into an EXISTING instance (data/config.db already exists):
         hours = max(1.0, min(hours, 24 * 30))
         limit = max(1, min(limit, 100))
         return anomaly.analyze_subdomain_counts(hours=hours, limit=limit)
+
+    @app.get("/api/anomalies/subdomain-analysis/domains")
+    def subdomain_analysis_domains(
+        base_domain: str, hours: float = 24, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[str]:
+        if anomaly is None:
+            return []
+        hours = max(1.0, min(hours, 24 * 30))
+        return anomaly.list_subdomains(base_domain.strip().lower().rstrip("."), hours=hours)
+
+    @app.get("/api/anomaly-subdomain-exclusions")
+    def list_anomaly_subdomain_exclusions(
+        _: dict[str, Any] = Depends(require_permission("view_anomalies")),
+    ) -> list[str]:
+        return config_store.get("anomaly", "subdomain_count_excluded_domains", default=[]) or []
+
+    @app.post("/api/anomaly-subdomain-exclusions")
+    def add_anomaly_subdomain_exclusion(body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        domain = body.domain.strip().lower().rstrip(".")
+        if not domain:
+            raise HTTPException(status_code=400, detail="Empty domain")
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            domains = data.setdefault("anomaly", {}).setdefault("subdomain_count_excluded_domains", [])
+            if domain not in domains:
+                domains.append(domain)
+            return domains
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/anomaly-subdomain-exclusions/{domain}")
+    def remove_anomaly_subdomain_exclusion(domain: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        domain = domain.strip().lower().rstrip(".")
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            domains = data.setdefault("anomaly", {}).setdefault("subdomain_count_excluded_domains", [])
+            if domain in domains:
+                domains.remove(domain)
+            return domains
+
+        return config_store.mutate(_mutate)
 
     @app.get("/api/anomalies/{anomaly_id}/domains")
     def anomaly_domains(

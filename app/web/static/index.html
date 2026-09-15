@@ -1391,7 +1391,7 @@
         </div>
         <p class="muted" id="subdomain-analysis-status"></p>
         <table class="card-table" id="subdomain-analysis-table" style="display:none;">
-          <thead><tr><th data-i18n="anom.base_domain">Base domain</th><th data-i18n="anom.subdomain_count">Distinct subdomains</th></tr></thead>
+          <thead><tr><th data-i18n="anom.base_domain">Base domain</th><th data-i18n="anom.subdomain_count">Distinct subdomains</th><th data-i18n="col.actions">Actions</th></tr></thead>
           <tbody id="subdomain-analysis-rows"></tbody>
         </table>
         <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.ptr_scan">
@@ -2082,6 +2082,7 @@ const I18N_PL = {
   "common.checking": "Sprawdzanie...",
   "common.loading": "Wczytywanie...",
   "common.action_failed": "Operacja nie powiodła się",
+  "common.analysis_failed": "Analiza nie powiodła się",
 
   "general.hint.web_ui": "Panel, który właśnie oglądasz - jego własny adres/port nasłuchu, logowanie i wygląd.",
   "general.hint.https": "Jeśli nie ustawisz ścieżki do certyfikatu/klucza, DNS-shield wygeneruje i będzie ponownie używać własnego, samopodpisanego certyfikatu (przechowywanego w woluminie danych) - przeglądarka pokaże ostrzeżenie bezpieczeństwa przy pierwszym połączeniu, bo certyfikat nie pochodzi od zaufanego urzędu, ale połączenie i tak jest szyfrowane. Podaj własne ścieżki do pliku certyfikatu/klucza, jeśli masz prawdziwy (np. z klienta ACME reverse proxy, zamontowany do kontenera). W obu przypadkach wymaga ponownego uruchomienia kontenera.",
@@ -2585,6 +2586,10 @@ const I18N_PL = {
   "anom.analyze_subdomains": "Analizuj zapisane dane",
   "anom.base_domain": "Domena bazowa",
   "anom.subdomain_count": "Unikalnych subdomen",
+  "anom.show_subdomains": "Pokaż subdomeny",
+  "anom.ignore_subdomain": "Ignoruj",
+  "anom.unignore_subdomain": "Cofnij ignorowanie",
+  "anom.no_domains_in_window": "Brak zapytań o domeny w tym oknie czasowym.",
   "anom.save": "Zapisz ustawienia wykrywania anomalii",
   "anom.excluded": "Wykluczone z wykrywania anomalii",
   "typosquatfp.title": "Fałszywe alarmy typosquattingu",
@@ -4552,6 +4557,47 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
   w.document.close();
 }
 
+function openSubdomainListWindow(baseDomain, subdomains) {
+  const w = window.open("", "_blank", "width=520,height=580");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the subdomain list.");
+    return;
+  }
+  const listHtml = subdomains.length
+    ? `<ul>${subdomains.map((d) => `<li><code>${escapeHtml(d)}</code></li>`).join("")}</ul>`
+    : `<p class="muted">No subdomains found for this window - they may have aged out of the query log's retention.</p>`;
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(baseDomain)} - subdomains</title>
+<style>
+  body { margin:0; padding:1.5rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  h1 { font-size:1.05rem; margin:0 0 0.3rem; word-break:break-all; }
+  .muted { color:#8a9ab8; font-size:0.85rem; }
+  ul { list-style:none; margin:1rem 0 0; padding:0; max-height:70vh; overflow-y:auto; }
+  li { padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); }
+  li code { word-break:break-all; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; }
+  button { padding:0.35rem 0.8rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.8rem; white-space:nowrap; margin-top:1rem; }
+</style></head>
+<body>
+  <h1>${escapeHtml(baseDomain)}</h1>
+  <p class="muted">${subdomains.length} distinct subdomains</p>
+  ${listHtml}
+  ${subdomains.length ? '<button type="button" id="copy-subdomains-btn">Copy all</button>' : ""}
+  <script>
+    const btn = document.getElementById("copy-subdomains-btn");
+    if (btn) {
+      btn.onclick = () => {
+        navigator.clipboard.writeText(${JSON.stringify(subdomains.join("\n")).replace(/</g, "\\u003c")}).then(() => {
+          btn.textContent = "Copied!";
+          setTimeout(() => { btn.textContent = "Copy all"; }, 1500);
+        });
+      };
+    }
+  <\/script>
+</body></html>`);
+  w.document.close();
+}
+
 function openFindDomainWindow() {
   const w = window.open("", "_blank", "width=520,height=580");
   if (!w) {
@@ -5283,6 +5329,54 @@ document.getElementById("reanalyze-btn").addEventListener("click", async () => {
   }
 });
 
+function renderSubdomainAnalysisRow(r, hours) {
+  const showBtn = el("button", { type: "button", class: "secondary", text: t("anom.show_subdomains", "Show subdomains") });
+  showBtn.onclick = async () => {
+    try {
+      const subdomains = await withSpinner(showBtn, () =>
+        api(`/api/anomalies/subdomain-analysis/domains?base_domain=${encodeURIComponent(r.base_domain)}&hours=${hours}`)
+      );
+      openSubdomainListWindow(r.base_domain, subdomains);
+    } catch (err) {
+      alert(t("alerts.load_domains_failed", "Failed to load domains") + ": " + err.message);
+    }
+  };
+
+  const ignoreBtn = el("button", {
+    type: "button",
+    class: r.excluded ? "secondary" : "danger",
+    text: r.excluded ? t("anom.unignore_subdomain", "Un-ignore") : t("anom.ignore_subdomain", "Ignore"),
+  });
+  ignoreBtn.onclick = async () => {
+    ignoreBtn.disabled = true;
+    try {
+      if (r.excluded) {
+        await api(`/api/anomaly-subdomain-exclusions/${encodeURIComponent(r.base_domain)}`, { method: "DELETE" });
+        r.excluded = false;
+      } else {
+        await api("/api/anomaly-subdomain-exclusions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain: r.base_domain }),
+        });
+        r.excluded = true;
+      }
+      ignoreBtn.className = r.excluded ? "secondary" : "danger";
+      ignoreBtn.textContent = r.excluded ? t("anom.unignore_subdomain", "Un-ignore") : t("anom.ignore_subdomain", "Ignore");
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + err.message);
+    } finally {
+      ignoreBtn.disabled = false;
+    }
+  };
+
+  return el("tr", {}, [
+    el("td", { text: r.base_domain }),
+    el("td", { text: String(r.subdomain_count) }),
+    el("td", {}, [el("div", { class: "row-actions" }, [showBtn, ignoreBtn])]),
+  ]);
+}
+
 document.getElementById("subdomain-analysis-btn").addEventListener("click", async () => {
   const hours = parseFloat(document.getElementById("subdomain-analysis-range").value);
   const btn = document.getElementById("subdomain-analysis-btn");
@@ -5295,14 +5389,15 @@ document.getElementById("subdomain-analysis-btn").addEventListener("click", asyn
     const ranked = await api(`/api/anomalies/subdomain-analysis?hours=${hours}&limit=20`);
     if (!ranked.length) {
       table.style.display = "none";
-      status.textContent = "No domains queried in that window.";
+      status.textContent = t("anom.no_domains_in_window", "No domains queried in that window.");
     } else {
-      rows.innerHTML = ranked.map(r => `<tr><td>${escapeHtml(r.base_domain)}</td><td>${r.subdomain_count}</td></tr>`).join("");
+      rows.innerHTML = "";
+      for (const r of ranked) rows.appendChild(renderSubdomainAnalysisRow(r, hours));
       table.style.display = "";
       status.textContent = "";
     }
   } catch (err) {
-    status.textContent = "Analysis failed: " + err.message;
+    status.textContent = t("common.analysis_failed", "Analysis failed") + ": " + err.message;
   } finally {
     btn.disabled = false;
   }

@@ -250,11 +250,21 @@ class AnomalyDetector:
             groups[base] = groups.get(base, 0) + 1
 
         ranked = sorted(groups.items(), key=lambda kv: -kv[1])[: max(1, limit)]
-        return [{"base_domain": base, "subdomain_count": count} for base, count in ranked]
+        excluded = set(self._config.get("anomaly", "subdomain_count_excluded_domains", default=[]) or [])
+        return [
+            {"base_domain": base, "subdomain_count": count, "excluded": base in excluded}
+            for base, count in ranked
+        ]
+
+    def list_subdomains(self, base_domain: str, hours: float = 24) -> list[str]:
+        until_ts = time.time()
+        since_ts = until_ts - max(float(hours), 1.0) * 3600
+        domains = self._stats.distinct_domains_in_window(since_ts, until_ts)
+        return sorted(d for d in domains if _base_domain(d) == base_domain)
 
     def _evaluate_window(self, window_minutes: float, until_ts: float, notify: bool) -> list[dict[str, Any]]:
         min_queries = int(self._config.get("anomaly", "min_queries", default=20) or 20)
-        blocked_ratio_threshold = float(self._config.get("anomaly", "blocked_ratio_threshold", default=0.5) or 0.5)
+        blocked_ratio_threshold = float(self._config.get("anomaly", "blocked_ratio_threshold", default=0.7) or 0.7)
         domain_burst_threshold = int(self._config.get("anomaly", "domain_burst_threshold", default=50) or 50)
         domain_burst_min_entropy = float(self._config.get("anomaly", "domain_burst_min_entropy", default=3.3) or 3.3)
         domain_burst_min_label_length = int(
@@ -275,6 +285,9 @@ class AnomalyDetector:
         )
         subdomain_count_threshold = int(
             self._config.get("anomaly", "subdomain_count_threshold", default=50) or 50
+        )
+        subdomain_count_excluded = set(
+            self._config.get("anomaly", "subdomain_count_excluded_domains", default=[]) or []
         )
         ptr_scan_threshold = int(self._config.get("anomaly", "ptr_scan_threshold", default=15) or 15)
         cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
@@ -382,6 +395,8 @@ class AnomalyDetector:
                             for base, subdomains in sorted_groups:
                                 if len(subdomains) < subdomain_count_threshold:
                                     break
+                                if base in subdomain_count_excluded:
+                                    continue
                                 subdomain_burst_base = base
                                 subdomain_burst_count = len(subdomains)
                                 severity = "high" if len(subdomains) >= subdomain_count_threshold * 2 else "medium"

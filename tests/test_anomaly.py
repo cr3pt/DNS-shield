@@ -242,8 +242,8 @@ def test_analyze_subdomain_counts_ranks_by_distinct_subdomain_count(config_store
     det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
     ranked = det.analyze_subdomain_counts(hours=1, limit=20)
 
-    assert ranked[0] == {"base_domain": "busy.com", "subdomain_count": 7}
-    assert ranked[1] == {"base_domain": "quiet.com", "subdomain_count": 2}
+    assert ranked[0] == {"base_domain": "busy.com", "subdomain_count": 7, "excluded": False}
+    assert ranked[1] == {"base_domain": "quiet.com", "subdomain_count": 2, "excluded": False}
 
 
 def test_analyze_subdomain_counts_respects_limit(config_store, tmp_path):
@@ -255,3 +255,61 @@ def test_analyze_subdomain_counts_respects_limit(config_store, tmp_path):
     det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
     ranked = det.analyze_subdomain_counts(hours=1, limit=2)
     assert len(ranked) == 2
+
+
+def test_analyze_subdomain_counts_marks_excluded_domains(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update(
+        {"subdomain_count_excluded_domains": ["busy.com"]}
+    ))
+    for i in range(3):
+        stats.record(f"a{i}.busy.com", False, "10.0.0.1", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    ranked = det.analyze_subdomain_counts(hours=1, limit=20)
+    assert ranked[0] == {"base_domain": "busy.com", "subdomain_count": 3, "excluded": True}
+
+
+def test_subdomain_count_burst_skips_excluded_base_domain(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update({
+        "subdomain_count_threshold": 5,
+        "subdomain_count_excluded_domains": ["busy.com"],
+    }))
+    for i in range(6):
+        stats.record(f"a{i}.busy.com", False, "10.0.0.9", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    found = det.check_once()
+    assert not any(f["kind"] == "subdomain_count_burst" for f in found)
+
+
+def test_subdomain_count_burst_still_fires_for_non_excluded_domain(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update({
+        "subdomain_count_threshold": 5,
+        "subdomain_count_excluded_domains": ["busy.com"],
+    }))
+    for i in range(6):
+        stats.record(f"a{i}.busy.com", False, "10.0.0.9", "A")
+        stats.record(f"b{i}.other.com", False, "10.0.0.9", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    found = det.check_once()
+    hit = next(f for f in found if f["kind"] == "subdomain_count_burst")
+    assert "other.com" in hit["summary"]
+    assert "busy.com" not in hit["summary"]
+
+
+def test_list_subdomains_returns_sorted_matching_domains(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    stats.record("b.example.com", False, "10.0.0.1", "A")
+    stats.record("a.example.com", False, "10.0.0.1", "A")
+    stats.record("c.other.com", False, "10.0.0.1", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    assert det.list_subdomains("example.com", hours=1) == ["a.example.com", "b.example.com"]
