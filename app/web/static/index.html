@@ -143,7 +143,8 @@
   .brand-icon { width: 1.6rem; height: 1.6rem; flex-shrink: 0; }
   header .sub { color: var(--muted); font-size: 0.85rem; }
   main {
-    max-width: 1100px;
+    width: 95%;
+    max-width: 1600px;
     margin: 0 auto;
     padding: 1.5rem;
     display: flex;
@@ -2371,6 +2372,7 @@ const I18N_PL = {
   "alerts.kind.domain_burst": "Seria losowo wyglądających domen (możliwe DGA)",
   "alerts.kind.blocked_domain_burst": "Nietypowo dużo odrębnych zablokowanych domen",
   "alerts.kind.dns_tunneling": "Wiele odrębnych subdomen jednej domeny (możliwy DNS tunneling)",
+  "alerts.kind.subdomain_count_burst": "Wiele odrębnych subdomen jednej domeny (samo liczenie, bez filtra losowości)",
   "alerts.kind.ptr_scan": "Wiele odwrotnych zapytań DNS do lokalnych/prywatnych IP (możliwe skanowanie sieci wewnętrznej)",
   "alerts.kind.watched_domain": "Obserwowana domena: {domain}",
   "alerts.kind.typosquat": "Możliwy typosquat: {protected}",
@@ -2381,6 +2383,7 @@ const I18N_PL = {
   "alerts.summary.domain_burst": "{distinct} odrębnych domen odpytanych w ostatnie {window} min, {random} ({pct}%) wygląda na losowo wygenerowane",
   "alerts.summary.blocked_domain_burst": "{distinct} odrębnych zablokowanych domen w ostatnie {window} min",
   "alerts.summary.dns_tunneling": "{count} odrębnych, długich/losowo wyglądających subdomen {base} odpytanych w ostatnie {window} min (śr. długość nazwy {avglen} znaków)",
+  "alerts.summary.subdomain_count_burst": "{count} odrębnych subdomen {base} odpytanych w ostatnie {window} min",
   "alerts.summary.ptr_scan": "{count} odrębnych odwrotnych zapytań DNS do lokalnych/prywatnych IP w ostatnie {window} min",
   "alerts.summary.watched_domain": "Odpytano obserwowaną domenę \"{domain}\" (reguła: {rule})",
   "alerts.summary.typosquat_typo": "Domena \"{domain}\" wygląda jak literówka \"{protected}\"",
@@ -4728,6 +4731,7 @@ const ALERT_KIND_LABEL_FNS = {
   domain_burst: () => t("alerts.kind.domain_burst", "Burst of random-looking domains (possible DGA)"),
   blocked_domain_burst: () => t("alerts.kind.blocked_domain_burst", "Unusually many distinct blocked domains"),
   dns_tunneling: () => t("alerts.kind.dns_tunneling", "Many distinct subdomains of one domain (possible DNS tunneling)"),
+  subdomain_count_burst: () => t("alerts.kind.subdomain_count_burst", "Many distinct subdomains of one domain (raw count, no randomness filter)"),
   ptr_scan: () => t("alerts.kind.ptr_scan", "Many reverse-DNS lookups of local/private IPs (possible internal network scan)"),
 };
 
@@ -4783,6 +4787,10 @@ function alertSummaryText(a) {
     return t("alerts.summary.dns_tunneling", "{count} distinct, long/random-looking subdomains of {base} queried in the last {window} min (avg name length {avglen} chars)")
       .replace("{count}", d.subdomain_count).replace("{base}", d.base_domain)
       .replace("{window}", fmtG(d.window_minutes)).replace("{avglen}", avgLen);
+  }
+  if (kind === "subdomain_count_burst") {
+    return t("alerts.summary.subdomain_count_burst", "{count} distinct subdomains of {base} queried in the last {window} min")
+      .replace("{count}", d.subdomain_count).replace("{base}", d.base_domain).replace("{window}", fmtG(d.window_minutes));
   }
   if (kind === "ptr_scan") {
     return t("alerts.summary.ptr_scan", "{count} distinct reverse-DNS lookups of local/private IPs in the last {window} min")
