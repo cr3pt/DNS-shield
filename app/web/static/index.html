@@ -392,6 +392,11 @@
     }
         .col-qtype, .card-table .col-qtype { display: none; }
     .card-table.alerts-table { table-layout: auto; min-width: 0; }
+    input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
+      font-size: 16px;
+    }
+    button { padding: 0.55rem 1rem; }
+    .field.checkbox input[type="checkbox"] { width: 1.15rem; height: 1.15rem; }
   }
   .trend-legend { display: flex; gap: 1.1rem; margin-bottom: 0.6rem; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
   .trend-legend .swatch { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -2920,9 +2925,9 @@ function openEnrichmentWindow(result) {
       : "";
 
   w.document.write(`<!doctype html>
-<html><head><meta charset="utf-8"><title>Enrichment: ${escapeHtml(result.target)}</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Enrichment: ${escapeHtml(result.target)}</title>
 <style>
-  body { margin:0; padding:2rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:${colors.bg}; color:${colors.fg}; }
+  body { margin:0; padding:clamp(1rem, 4vw, 2rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:${colors.bg}; color:${colors.fg}; }
   h1 { font-size:1.3rem; margin:0 0 0.6rem; word-break:break-all; }
   h2 { font-size:0.95rem; margin:0 0 0.6rem; }
   .verdict { display:inline-block; padding:0.3rem 0.9rem; border-radius:999px; background:${colors.accent}; color:#04102a; font-weight:700; text-transform:uppercase; font-size:0.8rem; margin-bottom:1.5rem; letter-spacing:0.03em; }
@@ -4471,14 +4476,14 @@ function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excl
         .join("")}</ul>`
     : `<p class="muted">No domains found for this window - they may have aged out of the query log's retention.</p>`;
   w.document.write(`<!doctype html>
-<html><head><meta charset="utf-8"><title>${escapeHtml(a.client)} - ${escapeHtml(kindLabel)}</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(a.client)} - ${escapeHtml(kindLabel)}</title>
 <style>
-  body { margin:0; padding:1.5rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  body { margin:0; padding:clamp(1rem, 4vw, 1.5rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
   h1 { font-size:1.05rem; margin:0 0 0.3rem; word-break:break-all; }
   .muted { color:#8a9ab8; font-size:0.85rem; }
   ul { list-style:none; margin:1rem 0 0; padding:0; max-height:70vh; overflow-y:auto; }
-  li { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); }
-  li code { word-break:break-all; }
+  li { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; }
+  li code { word-break:break-all; min-width:0; flex:1 1 auto; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; }
   .row-actions { display:flex; gap:0.4rem; flex-shrink:0; }
   button { padding:0.35rem 0.8rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.8rem; white-space:nowrap; }
@@ -4567,9 +4572,9 @@ function openSubdomainListWindow(baseDomain, subdomains) {
     ? `<ul>${subdomains.map((d) => `<li><code>${escapeHtml(d)}</code></li>`).join("")}</ul>`
     : `<p class="muted">No subdomains found for this window - they may have aged out of the query log's retention.</p>`;
   w.document.write(`<!doctype html>
-<html><head><meta charset="utf-8"><title>${escapeHtml(baseDomain)} - subdomains</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(baseDomain)} - subdomains</title>
 <style>
-  body { margin:0; padding:1.5rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  body { margin:0; padding:clamp(1rem, 4vw, 1.5rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
   h1 { font-size:1.05rem; margin:0 0 0.3rem; word-break:break-all; }
   .muted { color:#8a9ab8; font-size:0.85rem; }
   ul { list-style:none; margin:1rem 0 0; padding:0; max-height:70vh; overflow-y:auto; }
@@ -4606,22 +4611,22 @@ function openFindDomainWindow() {
   }
   const enrichAvailable = !!enrichmentAvailable;
   w.document.write(`<!doctype html>
-<html><head><meta charset="utf-8"><title>Find domain</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Find domain</title>
 <style>
-  body { margin:0; padding:1.5rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  body { margin:0; padding:clamp(1rem, 4vw, 1.5rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
   h1 { font-size:1.05rem; margin:0 0 0.6rem; }
   .muted { color:#8a9ab8; font-size:0.85rem; }
-  form { display:flex; gap:0.5rem; margin:1rem 0; }
-  input[type=text] { flex:1; padding:0.45rem 0.6rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#131d33; color:#dbe4f5; font-size:0.9rem; box-sizing:border-box; }
+  form { display:flex; gap:0.5rem; margin:1rem 0; flex-wrap:wrap; }
+  input[type=text] { flex:1; min-width:0; padding:0.45rem 0.6rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#131d33; color:#dbe4f5; font-size:16px; box-sizing:border-box; }
   button { padding:0.45rem 0.9rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.85rem; white-space:nowrap; }
   button:disabled { opacity:0.5; cursor:not-allowed; }
   button.primary { background:#3b82f6; border-color:#3b82f6; color:#fff; }
   #result { display:none; }
   #result.open { display:block; }
-  .row { display:flex; justify-content:space-between; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .row { display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid rgba(255,255,255,0.08); }
   .row:last-of-type { border-bottom:none; }
   .row .label { color:#8a9ab8; font-size:0.8rem; }
-  .row .value { text-align:right; font-size:0.85rem; }
+  .row .value { text-align:right; font-size:0.85rem; min-width:0; overflow-wrap:break-word; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; word-break:break-all; }
   .badge { display:inline-block; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.75rem; font-weight:600; }
   .badge.yes { background:rgba(255,93,117,0.15); color:#ff5d75; }
