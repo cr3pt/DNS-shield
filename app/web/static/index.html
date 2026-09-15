@@ -1368,6 +1368,32 @@
           <div class="field"><label data-i18n="anom.min_subdomain_length">Minimum subdomain length to score</label><input type="number" id="s-anomaly-tunnel-min-length" min="1" step="1"></div>
           <div class="field"><label data-i18n="anom.randomness_threshold">Randomness threshold (bits/char, 0-~4.7)</label><input type="number" id="s-anomaly-tunnel-min-bits" min="0" max="5" step="0.1"></div>
         </div>
+        <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.subdomain_count">
+          Fires purely on the raw count of distinct subdomains of one domain queried in a window,
+          with no randomness filter - so unlike DNS tunneling detection above, it also catches
+          low-entropy patterns like sequential/enumerated subdomains (<code>host1.example.com</code>,
+          <code>host2.example.com</code>, ...) or wildcard/CDN abuse that wouldn't look "random"
+          enough to trip the tunneling check. Because there's no pre-filter, legitimate
+          high-subdomain-count infrastructure (CDNs, mail systems, cloud services) can trip this
+          too - use "Analyze saved data" below to see what's normal on your network before
+          picking a threshold.
+        </p>
+        <div class="field-grid">
+          <div class="field"><label data-i18n="anom.subdomain_count_threshold">Distinct-subdomain count threshold</label><input type="number" id="s-anomaly-subdomain-count-threshold" min="1" step="1"></div>
+        </div>
+        <div class="inline" style="align-items:center; margin:0.4rem 0;">
+          <select id="subdomain-analysis-range">
+            <option value="1" data-i18n="logs.last_hour">Last hour</option>
+            <option value="24" selected data-i18n="logs.last_24h">Last 24 hours</option>
+            <option value="168" data-i18n="logs.last_7d">Last 7 days</option>
+          </select>
+          <button type="button" class="secondary" id="subdomain-analysis-btn" data-i18n="anom.analyze_subdomains">Analyze saved data</button>
+        </div>
+        <p class="muted" id="subdomain-analysis-status"></p>
+        <table class="card-table" id="subdomain-analysis-table" style="display:none;">
+          <thead><tr><th data-i18n="anom.base_domain">Base domain</th><th data-i18n="anom.subdomain_count">Distinct subdomains</th></tr></thead>
+          <tbody id="subdomain-analysis-rows"></tbody>
+        </table>
         <p class="hint" style="color:var(--muted);" data-i18n="anom.hint.ptr_scan">
           Fires when a client sends many distinct reverse-DNS (PTR) lookups for local/private IPs
           within a single window - one-off lookups (a NAS resolving its gateway, a router
@@ -2107,6 +2133,7 @@ const I18N_PL = {
   "anom.hint.domain_burst": "Skok liczby różnych domen uruchamia alert tylko wtedy, gdy spora część tych domen wygląda też na <em>wygenerowaną losowo</em> (entropia Shannona etykiety domeny, np. \"kq7xzpqm3f.info\"), a nie na prawdziwe słowa - to właśnie zapobiega uruchamianiu alertu przy zwykłym ruchu o dużej liczbie różnych domen, jak strona ładująca trzydzieści różnych, prawdziwych domen reklamowo-śledzących, co nie jest faktycznie podejrzane.",
   "anom.hint.tunneling": "DNS tunneling wykorzystuje DNS jako ukryty kanał danych, kodując dane w długim strumieniu odrębnych, niemal losowych subdomen jednej domeny (np. <code>k3f9a...92mz.tunnel.example.com</code>, jedna unikalna subdomena na zapytanie). Alert uruchamia się, gdy klient odpytuje wiele odrębnych subdomen <em>tej samej</em> domeny w danym oknie i większość z nich wygląda na zakodowane dane (długie + wysoka entropia), a nie na typową garstkę subdomen prawdziwej strony.",
   "anom.hint.ptr_scan": "Uruchamia się, gdy klient wysyła wiele odrębnych zapytań odwrotnego DNS (PTR) dla lokalnych/prywatnych adresów IP w jednym oknie - pojedyncze zapytania (NAS sprawdzający swoją bramę, router przeglądający sieć LAN) są normalne, ale klient przechodzący kolejno przez zakres prywatny wygląda, jakby wyliczał, co jest w Twojej sieci.",
+  "anom.hint.subdomain_count": "Uruchamia się na podstawie samej surowej liczby odrębnych subdomen jednej domeny odpytanych w danym oknie, bez żadnego filtra losowości - w odróżnieniu od wykrywania DNS tunneling powyżej wykrywa też wzorce o niskiej entropii, jak sekwencyjne/wyliczane subdomeny (<code>host1.example.com</code>, <code>host2.example.com</code>, ...) albo nadużycie wildcardów/CDN, które nie wyglądałyby na dość \"losowe\", by uruchomić sprawdzenie tunelowania. Ponieważ nie ma tu filtra wstępnego, legalna infrastruktura o dużej liczbie subdomen (CDN-y, systemy pocztowe, usługi chmurowe) też może to uruchomić - użyj \"Analizuj zapisane dane\" poniżej, by zobaczyć, co jest normalne w Twojej sieci, zanim wybierzesz próg.",
   "anom.hint.excluded": "Domeny poniżej (i ich subdomeny) nigdy nie wywołują alertu obserwowanej domeny, typosquattingu, DNS rebinding ani lokalnego TLD - przydatne dla znanej, dobrej domeny, która akurat wygląda podejrzanie dla jednego z tych sprawdzeń. Nie wpływa na sprawdzenia ilościowe powyżej (skoki zapytań, odsetek blokowania, DNS tunneling, skanowanie PTR), które oznaczają ogólne zachowanie klienta, a nie pojedynczą domenę. Najszybszy sposób dodania to przycisk \"Wyklucz\" obok domeny w wyskakującym okienku \"Pokaż domeny\" alertu.",
 
   "alertrules.hint.main_pre": "Oznacz zapytanie natychmiast, gdy nastąpi, zamiast czekać na wzorzec statystyczny - zapytanie o domenę poniżej (lub z subskrybowanej listy obserwowanej) zawsze wywołuje alert, niezależnie od tego, czy jest faktycznie blokowane. Sprawdzane mniej więcej co",
@@ -2554,6 +2581,10 @@ const I18N_PL = {
   "anom.subdomain_threshold": "Próg liczby unikalnych subdomen",
   "anom.min_subdomain_length": "Min. długość subdomeny do oceny",
   "anom.ptr_threshold": "Próg liczby lokalnych zapytań PTR",
+  "anom.subdomain_count_threshold": "Próg liczby unikalnych subdomen (bez filtra losowości)",
+  "anom.analyze_subdomains": "Analizuj zapisane dane",
+  "anom.base_domain": "Domena bazowa",
+  "anom.subdomain_count": "Unikalnych subdomen",
   "anom.save": "Zapisz ustawienia wykrywania anomalii",
   "anom.excluded": "Wykluczone z wykrywania anomalii",
   "typosquatfp.title": "Fałszywe alarmy typosquattingu",
@@ -4024,6 +4055,7 @@ async function loadSettings() {
   document.getElementById("s-anomaly-ptr-scan-threshold").value = an.ptr_scan_threshold ?? "";
   document.getElementById("s-anomaly-tunnel-min-length").value = an.dns_tunneling_min_label_length ?? "";
   document.getElementById("s-anomaly-tunnel-min-bits").value = an.dns_tunneling_min_entropy ?? "";
+  document.getElementById("s-anomaly-subdomain-count-threshold").value = an.subdomain_count_threshold ?? "";
 
   const ar = s.alert_rules || {};
   document.getElementById("s-alert-check-interval").value = ar.check_interval_seconds ?? "";
@@ -5251,6 +5283,31 @@ document.getElementById("reanalyze-btn").addEventListener("click", async () => {
   }
 });
 
+document.getElementById("subdomain-analysis-btn").addEventListener("click", async () => {
+  const hours = parseFloat(document.getElementById("subdomain-analysis-range").value);
+  const btn = document.getElementById("subdomain-analysis-btn");
+  const status = document.getElementById("subdomain-analysis-status");
+  const table = document.getElementById("subdomain-analysis-table");
+  const rows = document.getElementById("subdomain-analysis-rows");
+  btn.disabled = true;
+  status.textContent = "";
+  try {
+    const ranked = await api(`/api/anomalies/subdomain-analysis?hours=${hours}&limit=20`);
+    if (!ranked.length) {
+      table.style.display = "none";
+      status.textContent = "No domains queried in that window.";
+    } else {
+      rows.innerHTML = ranked.map(r => `<tr><td>${escapeHtml(r.base_domain)}</td><td>${r.subdomain_count}</td></tr>`).join("");
+      table.style.display = "";
+      status.textContent = "";
+    }
+  } catch (err) {
+    status.textContent = "Analysis failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.getElementById("anomaly-clear-all").addEventListener("click", async () => {
   if (!confirm("Remove all detected anomalies? This can't be undone.")) return;
   await api("/api/anomalies", { method: "DELETE" });
@@ -5278,6 +5335,7 @@ document.getElementById("anomaly-settings-form").addEventListener("submit", asyn
         ptr_scan_threshold: intField("s-anomaly-ptr-scan-threshold"),
         dns_tunneling_min_label_length: intField("s-anomaly-tunnel-min-length"),
         dns_tunneling_min_entropy: floatField("s-anomaly-tunnel-min-bits"),
+        subdomain_count_threshold: intField("s-anomaly-subdomain-count-threshold"),
         cooldown_minutes: floatField("s-anomaly-cooldown"),
       }),
     });

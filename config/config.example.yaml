@@ -138,6 +138,7 @@ anomaly:
   dns_tunneling_threshold: 30
   dns_tunneling_min_label_length: 20
   dns_tunneling_min_entropy: 3.0
+  subdomain_count_threshold: 50
   ptr_scan_threshold: 15
   cooldown_minutes: 60
   excluded_domains: []

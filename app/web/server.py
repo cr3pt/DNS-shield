@@ -67,6 +67,7 @@ _ANOMALY_DEFAULTS: dict[str, Any] = {
     "dns_tunneling_threshold": 30,
     "dns_tunneling_min_label_length": 20,
     "dns_tunneling_min_entropy": 3.0,
+    "subdomain_count_threshold": 50,
     "ptr_scan_threshold": 15,
     "cooldown_minutes": 60,
 }
@@ -390,6 +391,7 @@ class AnomalySettingsIn(BaseModel):
     dns_tunneling_threshold: int | None = None
     dns_tunneling_min_label_length: int | None = None
     dns_tunneling_min_entropy: float | None = None
+    subdomain_count_threshold: int | None = None
     ptr_scan_threshold: int | None = None
     cooldown_minutes: float | None = None
 
@@ -2073,6 +2075,16 @@ To restore into an EXISTING instance (data/config.db already exists):
             return []
         hours = max(1.0, min(body.hours, 24 * 30))
         return anomaly.reanalyze(hours)
+
+    @app.get("/api/anomalies/subdomain-analysis")
+    def subdomain_analysis(
+        hours: float = 24, limit: int = 20, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        if anomaly is None:
+            return []
+        hours = max(1.0, min(hours, 24 * 30))
+        limit = max(1, min(limit, 100))
+        return anomaly.analyze_subdomain_counts(hours=hours, limit=limit)
 
     @app.get("/api/anomalies/{anomaly_id}/domains")
     def anomaly_domains(

@@ -1141,6 +1141,23 @@ client that's queried it in that window:
   *domains* (DGA malware trying candidate C2 domains), this one fires on
   many different *subdomains of one domain* (data being smuggled out
   through one attacker-controlled domain).
+- **Subdomain count burst** - a client queried an unusually large number
+  of *distinct subdomains of the same domain* in the window
+  (`anomaly.subdomain_count_threshold`, default 50), with **no**
+  randomness filter at all - a plain count. This is deliberately
+  separate from DNS tunneling above: tunneling's entropy gate means it
+  only fires when the subdomains look encoded/random, so it misses
+  low-entropy patterns like sequential or enumerated subdomains
+  (`host1.example.com`, `host2.example.com`, ...), subdomain
+  brute-forcing/enumeration, or wildcard/CDN abuse that doesn't happen to
+  look "random". Because there's no pre-filter, legitimate
+  high-subdomain-count infrastructure (CDNs, mail systems, cloud
+  services) can also trip this, so the right threshold is network-
+  specific; Settings -> Anomalies has an "Analyze saved data" tool next
+  to this setting that ranks the base domains in your own query log by
+  distinct-subdomain count over a chosen window (last hour/24h/7 days,
+  top 20), so you can see what's normal for your network before picking
+  a number.
 - **PTR scan** - a client issued an unusually large number of reverse-DNS
   (PTR) lookups against *private/local* IP addresses in the window
   (`anomaly.ptr_scan_threshold`, default 15) - one device methodically

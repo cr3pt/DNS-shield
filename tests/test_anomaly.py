@@ -10,7 +10,17 @@ from app.anomaly import (
     _ptr_name_to_ip,
     _shannon_entropy,
 )
+from app.stats import Stats
 from tests.conftest import FakeStats
+
+
+def _wait_for(predicate, timeout=2.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
 
 
 def test_shannon_entropy_of_repeated_char_is_zero():
@@ -180,3 +190,68 @@ def test_excluded_domain_suppresses_typosquat_alert(config_store, tmp_path):
     det = _make_detector(config_store, tmp_path, hits)
     det._typosquat_watch_last_id = 0
     assert det.check_typosquat_hits() == []
+
+
+def test_subdomain_count_burst_fires_for_many_distinct_subdomains(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update({"subdomain_count_threshold": 5}))
+    for i in range(6):
+        stats.record(f"host{i}.example.com", False, "10.0.0.9", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    found = det.check_once()
+
+    kinds = [f["kind"] for f in found]
+    assert "subdomain_count_burst" in kinds
+
+
+def test_subdomain_count_burst_does_not_fire_below_threshold(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update({"subdomain_count_threshold": 10}))
+    for i in range(3):
+        stats.record(f"host{i}.example.com", False, "10.0.0.9", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    found = det.check_once()
+    assert not any(f["kind"] == "subdomain_count_burst" for f in found)
+
+
+def test_subdomain_count_burst_severity_escalates_at_double_threshold(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    config_store.mutate(lambda d: d.setdefault("anomaly", {}).update({"subdomain_count_threshold": 5}))
+    for i in range(10):
+        stats.record(f"host{i}.example.com", False, "10.0.0.9", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    found = det.check_once()
+    hit = next(f for f in found if f["kind"] == "subdomain_count_burst")
+    assert hit["severity"] == "high"
+
+
+def test_analyze_subdomain_counts_ranks_by_distinct_subdomain_count(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    for i in range(7):
+        stats.record(f"a{i}.busy.com", False, "10.0.0.1", "A")
+    for i in range(2):
+        stats.record(f"b{i}.quiet.com", False, "10.0.0.2", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 2)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    ranked = det.analyze_subdomain_counts(hours=1, limit=20)
+
+    assert ranked[0] == {"base_domain": "busy.com", "subdomain_count": 7}
+    assert ranked[1] == {"base_domain": "quiet.com", "subdomain_count": 2}
+
+
+def test_analyze_subdomain_counts_respects_limit(config_store, tmp_path):
+    stats = Stats(tmp_path / "stats.db", config_store, flush_interval=0.05)
+    for i in range(5):
+        stats.record(f"h.example{i}.com", False, "10.0.0.1", "A")
+    assert _wait_for(lambda: len(stats.distinct_clients()) == 1)
+
+    det = AnomalyDetector(config_store, stats, tmp_path / "anomaly.db")
+    ranked = det.analyze_subdomain_counts(hours=1, limit=2)
+    assert len(ranked) == 2

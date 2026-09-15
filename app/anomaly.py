@@ -106,6 +106,7 @@ KIND_LABELS = {
     "domain_burst": "Burst of random-looking domains (possible DGA)",
     "blocked_domain_burst": "Unusually many distinct blocked domains",
     "dns_tunneling": "Many distinct subdomains of one domain (possible DNS tunneling)",
+    "subdomain_count_burst": "Unusually many distinct subdomains of one domain",
     "ptr_scan": "Many reverse-DNS lookups of local/private IPs (possible internal network scan)",
 }
 
@@ -238,6 +239,19 @@ class AnomalyDetector:
             cursor = slice_end
         return found
 
+    def analyze_subdomain_counts(self, hours: float = 24, limit: int = 20) -> list[dict[str, Any]]:
+        until_ts = time.time()
+        since_ts = until_ts - max(float(hours), 1.0) * 3600
+        domains = self._stats.distinct_domains_in_window(since_ts, until_ts)
+
+        groups: dict[str, int] = {}
+        for d in domains:
+            base = _base_domain(d)
+            groups[base] = groups.get(base, 0) + 1
+
+        ranked = sorted(groups.items(), key=lambda kv: -kv[1])[: max(1, limit)]
+        return [{"base_domain": base, "subdomain_count": count} for base, count in ranked]
+
     def _evaluate_window(self, window_minutes: float, until_ts: float, notify: bool) -> list[dict[str, Any]]:
         min_queries = int(self._config.get("anomaly", "min_queries", default=20) or 20)
         blocked_ratio_threshold = float(self._config.get("anomaly", "blocked_ratio_threshold", default=0.5) or 0.5)
@@ -259,6 +273,9 @@ class AnomalyDetector:
         dns_tunneling_min_entropy = float(
             self._config.get("anomaly", "dns_tunneling_min_entropy", default=3.0) or 3.0
         )
+        subdomain_count_threshold = int(
+            self._config.get("anomaly", "subdomain_count_threshold", default=50) or 50
+        )
         ptr_scan_threshold = int(self._config.get("anomaly", "ptr_scan_threshold", default=15) or 15)
         cooldown_minutes = float(self._config.get("anomaly", "cooldown_minutes", default=60) or 60)
         cooldown_seconds = max(cooldown_minutes, 1.0) * 60
@@ -267,7 +284,7 @@ class AnomalyDetector:
         now = until_ts
         found: list[dict[str, Any]] = []
 
-        domain_list_threshold = min(domain_burst_threshold, dns_tunneling_threshold)
+        domain_list_threshold = min(domain_burst_threshold, dns_tunneling_threshold, subdomain_count_threshold)
         needs_domains = any(row["distinct_domains"] >= domain_list_threshold for row in activity)
         domains_by_client = self._stats.client_domains(window_minutes * 60, until_ts=until_ts) if needs_domains else {}
 
@@ -331,28 +348,47 @@ class AnomalyDetector:
                     dns_tunneling_base: str | None = None
                     dns_tunneling_subdomain_count: int | None = None
                     dns_tunneling_avg_length: float | None = None
-                    if distinct_domains >= dns_tunneling_threshold:
+                    subdomain_burst_base: str | None = None
+                    subdomain_burst_count: int | None = None
+                    if distinct_domains >= dns_tunneling_threshold or distinct_domains >= subdomain_count_threshold:
                         client_domains = domains_by_client.get(client, [])
                         groups: dict[str, list[str]] = {}
                         for d in client_domains:
                             groups.setdefault(_base_domain(d), []).append(d)
-                        for base, subdomains in sorted(groups.items(), key=lambda kv: -len(kv[1])):
-                            if len(subdomains) < dns_tunneling_threshold:
-                                break
-                            avg_length = sum(len(d) for d in subdomains) / len(subdomains)
-                            random_like = [
-                                d for d in subdomains
-                                if _looks_like_tunnel_label(d, dns_tunneling_min_label_length, dns_tunneling_min_entropy)
-                            ]
-                            if len(random_like) / len(subdomains) >= 0.5:
-                                dns_tunneling_base = base
-                                dns_tunneling_subdomain_count = len(subdomains)
-                                dns_tunneling_avg_length = avg_length
-                                severity = "high" if len(subdomains) >= dns_tunneling_threshold * 2 else "medium"
+                        sorted_groups = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+
+                        if distinct_domains >= dns_tunneling_threshold:
+                            for base, subdomains in sorted_groups:
+                                if len(subdomains) < dns_tunneling_threshold:
+                                    break
+                                avg_length = sum(len(d) for d in subdomains) / len(subdomains)
+                                random_like = [
+                                    d for d in subdomains
+                                    if _looks_like_tunnel_label(d, dns_tunneling_min_label_length, dns_tunneling_min_entropy)
+                                ]
+                                if len(random_like) / len(subdomains) >= 0.5:
+                                    dns_tunneling_base = base
+                                    dns_tunneling_subdomain_count = len(subdomains)
+                                    dns_tunneling_avg_length = avg_length
+                                    severity = "high" if len(subdomains) >= dns_tunneling_threshold * 2 else "medium"
+                                    candidates.append((
+                                        "dns_tunneling", severity,
+                                        f"{len(subdomains)} distinct, long/random-looking subdomains of {base} queried "
+                                        f"in the last {window_minutes:g} min (avg name length {avg_length:.0f} chars)",
+                                    ))
+                                    break
+
+                        if distinct_domains >= subdomain_count_threshold:
+                            for base, subdomains in sorted_groups:
+                                if len(subdomains) < subdomain_count_threshold:
+                                    break
+                                subdomain_burst_base = base
+                                subdomain_burst_count = len(subdomains)
+                                severity = "high" if len(subdomains) >= subdomain_count_threshold * 2 else "medium"
                                 candidates.append((
-                                    "dns_tunneling", severity,
-                                    f"{len(subdomains)} distinct, long/random-looking subdomains of {base} queried "
-                                    f"in the last {window_minutes:g} min (avg name length {avg_length:.0f} chars)",
+                                    "subdomain_count_burst", severity,
+                                    f"{len(subdomains)} distinct subdomains of {base} queried in the last "
+                                    f"{window_minutes:g} min",
                                 ))
                                 break
 
@@ -386,6 +422,9 @@ class AnomalyDetector:
                             details["base_domain"] = dns_tunneling_base
                             details["subdomain_count"] = dns_tunneling_subdomain_count
                             details["avg_name_length"] = dns_tunneling_avg_length
+                        if kind == "subdomain_count_burst":
+                            details["base_domain"] = subdomain_burst_base
+                            details["subdomain_count"] = subdomain_burst_count
                         if kind == "ptr_scan":
                             details["ptr_scan_count"] = ptr_scan_count
                         conn.execute(

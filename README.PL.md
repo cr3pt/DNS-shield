@@ -1282,6 +1282,23 @@ klienta, który w tym oknie coś odpytał:
   kolejnych kandydackich domen C2), ten reaguje na wiele różnych
   *subdomen jednej domeny* (dane wykradane przez jedną domenę kontrolowaną
   przez atakującego).
+- **Wybuch liczby subdomen** - klient odpytał w oknie niezwykle dużą
+  liczbę *odrębnych subdomen tej samej domeny*
+  (`anomaly.subdomain_count_threshold`, domyślnie 50), bez żadnego filtra
+  losowości - to zwykłe liczenie. To celowo osobne sprawdzenie od
+  tunelowania DNS wyżej: filtr entropii w tunelowaniu sprawia, że
+  uruchamia się on tylko wtedy, gdy subdomeny wyglądają na zakodowane/
+  losowe, więc pomija wzorce o niskiej entropii, jak sekwencyjne albo
+  wyliczane subdomeny (`host1.example.com`, `host2.example.com`, ...),
+  brute-force/wyliczanie subdomen albo nadużycie wildcardów/CDN, które
+  akurat nie wyglądają "losowo". Ponieważ nie ma tu filtra wstępnego,
+  legalna infrastruktura o dużej liczbie subdomen (CDN-y, systemy
+  pocztowe, usługi chmurowe) też może to uruchomić, więc właściwy próg
+  zależy od konkretnej sieci; Settings -> Anomalies ma obok tego
+  ustawienia narzędzie "Analizuj zapisane dane", które zestawia domeny
+  bazowe z Twojego dziennika zapytań według liczby odrębnych subdomen w
+  wybranym oknie (ostatnia godzina/24h/7 dni, top 20), żebyś mógł
+  zobaczyć, co jest normalne w Twojej sieci, zanim wybierzesz liczbę.
 - **Skanowanie PTR** - klient wykonał w oknie niezwykle dużą liczbę
   odwrotnych wyszukiwań DNS (PTR) dla *prywatnych, lokalnych* adresów IP
   (`anomaly.ptr_scan_threshold`, domyślnie 15) - jedno urządzenie

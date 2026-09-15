@@ -412,6 +412,17 @@ class Stats:
             by_client.setdefault(row["client"], []).append(row["domain"])
         return by_client
 
+    def distinct_domains_in_window(self, since_ts: float, until_ts: float | None = None) -> list[str]:
+        until_ts = time.time() if until_ts is None else until_ts
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT domain FROM queries WHERE ts >= ? AND ts < ?", (since_ts, until_ts)
+            ).fetchall()
+        finally:
+            conn.close()
+        return [row[0] for row in rows]
+
     def max_query_id(self) -> int:
         conn = self._connect()
         try:
