@@ -1339,7 +1339,12 @@ Przycisk **Show domains** przy dowolnym wierszu otwiera okno z listą
 faktycznych nazw domen stojących za zagregowaną liczbą w danej anomalii
 (np. które 12 domen złożyło się na trafienie "12 distinct blocked
 domains") - odtwarzaną na żądanie z logu zapytań dla tego klienta i tego
-okna czasowego, a nie przechowywaną osobno w samej anomalii. Domena z
+okna czasowego, a nie przechowywaną osobno w samej anomalii. Dla
+**tunelowania DNS** i **wybuchu liczby subdomen** ta lista jest dodatkowo
+zawężona wyłącznie do subdomen tej jednej domeny bazowej, która wywołała
+alert (pozostały, niezwiązany ruch klienta w tym oknie jest pomijany),
+ponieważ te dwa sprawdzenia dotyczą subdomen jednej domeny, a nie całej
+aktywności klienta. Domena z
 `logging.ignored_domains`/`ignored_clients` nigdy się tu nie pojawia, z
 tego samego powodu, dla którego nigdy nie pojawia się w ogóle w logu
 zapytań: nigdy nie trafia do `stats.db` (Settings -> Logging -> "Excluded

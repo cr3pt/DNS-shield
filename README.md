@@ -1194,7 +1194,12 @@ A **Show domains** button on any row opens a popup listing the actual
 domain names behind that anomaly's aggregate count (e.g. which 12
 domains made up a "12 distinct blocked domains" hit) - reconstructed on
 demand from the query log for that client and time window, not stored
-redundantly on the anomaly itself. A domain on
+redundantly on the anomaly itself. For **DNS tunneling** and
+**subdomain count burst** specifically, this list is further narrowed
+to just the subdomains of the one base domain that tripped the alert
+(the client's other, unrelated traffic in that window is excluded),
+since those two checks are about one domain's subdomains, not the
+client's activity as a whole. A domain on
 `logging.ignored_domains`/`ignored_clients` never appears here, for the
 same reason it never appears in the query log at all: it's never written
 to `stats.db` in the first place (Settings -> Logging -> "Excluded from

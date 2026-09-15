@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
+from app.anomaly import _base_domain
 from app.auth import verify_password
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app.enrichment import enrich as run_enrichment
@@ -2151,6 +2152,10 @@ To restore into an EXISTING instance (data/config.db already exists):
         since_ts = until_ts - float(window_minutes) * 60
         blocked_only = kind in ("high_blocked_ratio", "blocked_domain_burst")
         domains = stats.domains_for_client_window(row["client"], since_ts, until_ts, blocked_only=blocked_only)
+        if kind in ("dns_tunneling", "subdomain_count_burst"):
+            base = details.get("base_domain")
+            if base:
+                domains = [d for d in domains if _base_domain(d) == base]
         return {"domains": domains, "blocked_only": blocked_only}
 
     def _check_anomaly_in_scope(anomaly_id: int, user: dict[str, Any]) -> None:
