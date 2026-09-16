@@ -2182,6 +2182,7 @@ const I18N_PL = {
   "ownlists.hint.typosquat": "Oznacza zapytanie jako prawdopodobny typosquat, gdy jest bliskim wariantem literowym (np. <code>paypa1.com</code>, <code>faceb00k.com</code>) lub ma osadzoną chronioną nazwę marki w dłuższej domenie (np. <code>paypal-security-check.com</code>) - nigdy dokładne dopasowanie ani prawdziwa subdomena samej chronionej domeny. Zawsze generuje alert (zakładka Alerty, z powiadomieniem jeśli skonfigurowane); Ustawienia -> DNS mają też wybór \"Po dopasowaniu\" decydujący, co dzieje się z samym zapytaniem - rozwiąż normalnie (domyślnie), przekieruj na prawdziwy adres marki lub przekieruj na wskazany przez Ciebie adres.",
   "toast.list_added": "Lista dodana",
   "toast.marked_fp": "Oznaczono jako fałszywy alarm",
+  "toast.excluded_subdomain": "Domena zignorowana",
   "col.domain": "Domena",
   "col.count": "Liczba",
   "col.client": "Klient",
@@ -2381,6 +2382,8 @@ const I18N_PL = {
   "alerts.mark_fp_title.rebinding": "Nigdy więcej nie alarmuj dla dokładnie tej domeny rozwiązującej się do dokładnie tego adresu",
   "alerts.mark_fp_title.threat_intel": "Nigdy więcej nie alarmuj dla tego celu przy tym werdykcie lub lepszym - jeśli przyszłe sprawdzenie oceni go gorzej, alert i tak się pojawi (z odpowiednią adnotacją)",
   "alerts.mark_fp_failed": "Nie udało się oznaczyć jako fałszywy alarm",
+  "alerts.exclude_subdomain": "Ignoruj domenę",
+  "alerts.exclude_subdomain_title": "Nigdy więcej nie uruchamiaj tego sprawdzenia dla tej domeny bazowej - zarządzaj listą w Ustawienia -> Anomalie -> Ignorowane domeny (liczba subdomen)",
   "alerts.kind.high_blocked_ratio": "Wysoki odsetek blokowanych zapytań",
   "alerts.kind.domain_burst": "Seria losowo wyglądających domen (możliwe DGA)",
   "alerts.kind.blocked_domain_burst": "Nietypowo dużo odrębnych zablokowanych domen",
@@ -4843,8 +4846,8 @@ function alertSummaryText(a) {
   return a.summary;
 }
 
-function markFpButton(a, apiPath, payload, label, title) {
-  const fpBtn = el("button", { class: "secondary", text: t("alerts.mark_fp", "Mark as FP") });
+function markFpButton(a, apiPath, payload, label, title, buttonText, toastPrefix) {
+  const fpBtn = el("button", { class: "secondary", text: buttonText || t("alerts.mark_fp", "Mark as FP") });
   fpBtn.title = title;
   fpBtn.onclick = async () => {
     try {
@@ -4856,7 +4859,7 @@ function markFpButton(a, apiPath, payload, label, title) {
         });
         await api(`/api/anomalies/${a.id}`, { method: "DELETE" });
       }, t("common.saving", "Saving..."));
-      showToast(t("toast.marked_fp", "Marked as false positive") + `: ${label}`);
+      showToast((toastPrefix || t("toast.marked_fp", "Marked as false positive")) + `: ${label}`);
       loadAnomalies();
     } catch (err) {
       fpBtn.disabled = false;
@@ -5035,6 +5038,14 @@ function renderAnomalyRow(a) {
     actions.unshift(markFpButton(
       a, "/api/threat-intel-fp", { target: a.client, verdict: a.details.verdict }, a.client,
       t("alerts.mark_fp_title.threat_intel", "Never alert again for this target at this verdict or better - if a later lookup scores it worse, it will still alert (and say so)")
+    ));
+  }
+  if (a.kind === "subdomain_count_burst" && a.details && a.details.base_domain) {
+    actions.unshift(markFpButton(
+      a, "/api/anomaly-subdomain-exclusions", { domain: a.details.base_domain }, a.details.base_domain,
+      t("alerts.exclude_subdomain_title", "Never fire this check again for this base domain - manage the list in Settings -> Anomalies -> Ignored subdomain-count domains"),
+      t("alerts.exclude_subdomain", "Ignore domain"),
+      t("toast.excluded_subdomain", "Domain ignored")
     ));
   }
 

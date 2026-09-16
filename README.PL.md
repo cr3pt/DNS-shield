@@ -1344,7 +1344,16 @@ okna czasowego, a nie przechowywaną osobno w samej anomalii. Dla
 zawężona wyłącznie do subdomen tej jednej domeny bazowej, która wywołała
 alert (pozostały, niezwiązany ruch klienta w tym oknie jest pomijany),
 ponieważ te dwa sprawdzenia dotyczą subdomen jednej domeny, a nie całej
-aktywności klienta. Domena z
+aktywności klienta.
+
+Alert typu **wybuch liczby subdomen** ma też przycisk **Ignoruj domenę**
+wprost przy swoim wierszu (bez potrzeby wcześniejszego otwierania "Show
+domains") - dodaje domenę bazową alertu do
+`anomaly.subdomain_count_excluded_domains` (tej samej listy, której
+używa przycisk Ignoruj w narzędziu "Analizuj zapisane dane" oraz lista
+Settings -> Anomalie -> "Ignorowane domeny (liczba subdomen)") i usuwa
+ten konkretny alert, skoro nie może już wystąpić w tej samej postaci.
+Domena z
 `logging.ignored_domains`/`ignored_clients` nigdy się tu nie pojawia, z
 tego samego powodu, dla którego nigdy nie pojawia się w ogóle w logu
 zapytań: nigdy nie trafia do `stats.db` (Settings -> Logging -> "Excluded

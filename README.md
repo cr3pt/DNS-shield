@@ -1199,7 +1199,15 @@ redundantly on the anomaly itself. For **DNS tunneling** and
 to just the subdomains of the one base domain that tripped the alert
 (the client's other, unrelated traffic in that window is excluded),
 since those two checks are about one domain's subdomains, not the
-client's activity as a whole. A domain on
+client's activity as a whole.
+
+A **subdomain count burst** alert also has an **Ignore domain** button
+right on its row (no need to open "Show domains" first) - it adds the
+alert's base domain to `anomaly.subdomain_count_excluded_domains` (the
+same list the "Analyze saved data" tool's Ignore button and the
+Settings -> Anomalies -> "Ignored subdomain-count domains" list use)
+and removes this specific alert, since it can never fire the same way
+again. A domain on
 `logging.ignored_domains`/`ignored_clients` never appears here, for the
 same reason it never appears in the query log at all: it's never written
 to `stats.db` in the first place (Settings -> Logging -> "Excluded from
