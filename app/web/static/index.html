@@ -1610,6 +1610,27 @@
       </div>
       <p class="muted" id="notif-browser-status"></p>
     </section>
+
+    <section>
+      <h2 data-i18n="notif.url_ping_title">URL ping (cron)</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="notif.hint.url_ping">
+        Periodically sends a plain HTTP GET request to a URL you choose - useful for keep-alive
+        pings, uptime monitors, or triggering a webhook on a schedule. Fire-and-forget: the
+        result (success or failure) is only written to the DNS-shield log, nothing else reacts
+        to it.
+      </p>
+      <form id="url-ping-form">
+        <div class="field checkbox">
+          <input type="checkbox" id="s-url-ping-enabled">
+          <label for="s-url-ping-enabled" data-i18n="notif.url_ping_enable">Enable URL ping</label>
+        </div>
+        <div class="field-grid">
+          <div class="field"><label data-i18n="notif.url_ping_url">URL</label><input type="text" id="s-url-ping-url" placeholder="https://example.com/ping" autocomplete="off"></div>
+          <div class="field"><label data-i18n="notif.url_ping_interval">Interval (minutes)</label><input type="number" id="s-url-ping-interval" min="1" step="1" placeholder="15"></div>
+        </div>
+        <button type="submit" data-i18n="notif.url_ping_save">Save URL ping settings</button>
+      </form>
+    </section>
   </div>
 
   <div id="subtab-import" class="subtab-panel">
@@ -2225,6 +2246,12 @@ const I18N_PL = {
   "notif.wh_enabled": "Włączony",
   "notif.browser_title": "Powiadomienia w przeglądarce",
   "notif.browser_enable": "Powiadamiaj mnie w tej przeglądarce o nowych anomaliach",
+  "notif.url_ping_title": "Odpytywanie adresu URL (cron)",
+  "notif.hint.url_ping": "Cyklicznie wysyła zwykłe żądanie HTTP GET pod wybrany przez Ciebie adres URL - przydatne do pingów podtrzymujących (keep-alive), monitorów dostępności albo wywoływania webhooka według harmonogramu. Działa bezobsługowo: wynik (sukces albo błąd) trafia tylko do logu DNS-shield, nic więcej na niego nie reaguje.",
+  "notif.url_ping_enable": "Włącz odpytywanie URL",
+  "notif.url_ping_url": "Adres URL",
+  "notif.url_ping_interval": "Odstęp (minuty)",
+  "notif.url_ping_save": "Zapisz ustawienia odpytywania URL",
 
   "import.restore_title": "Przywróć z kopii zapasowej",
   "import.restore_btn": "Przywróć",
@@ -4106,6 +4133,11 @@ async function loadSettings() {
   document.getElementById("s-notif-to-addresses").value = (notifEmail.to_addresses || []).join(", ");
   document.getElementById("s-notif-min-severity").value = notifEmail.min_severity ?? "medium";
 
+  const urlPing = s.url_ping || {};
+  document.getElementById("s-url-ping-enabled").checked = !!urlPing.enabled;
+  document.getElementById("s-url-ping-url").value = urlPing.url ?? "";
+  document.getElementById("s-url-ping-interval").value = urlPing.interval_minutes ?? "";
+
   const sso = s.sso || {};
   document.getElementById("s-sso-enabled").checked = !!sso.enabled;
   document.getElementById("s-sso-issuer").value = sso.issuer ?? "";
@@ -5546,6 +5578,23 @@ document.getElementById("notifications-email-form").addEventListener("submit", a
   document.getElementById("notif-test-email-result").textContent = "";
   await withDelayedSpinner(e.submitter, async () => {
     await api("/api/settings/notifications/email", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("url-ping-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    enabled: document.getElementById("s-url-ping-enabled").checked,
+    url: document.getElementById("s-url-ping-url").value.trim(),
+    interval_minutes: floatField("s-url-ping-interval"),
+  };
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/url-ping", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

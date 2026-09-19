@@ -1629,6 +1629,21 @@ nich nie jest sam w sobie nowym źródłem połączeń wychodzących ponad to, c
 już opisano - e-mail trafia na serwer pocztowy, który sam wpisałeś, a
 powiadomienie w przeglądarce nigdy nie opuszcza samej przeglądarki.
 
+Na tej samej stronie Ustawienia -> Powiadomienia jest też sekcja
+**Odpytywanie adresu URL (cron)**, niezwiązana z anomaliami - to zwykły
+zegar, a nie powiadomienie wywoływane zdarzeniem. Włącz ją, podaj adres
+URL i odstęp w minutach (domyślnie 15), a DNS-shield będzie wysyłać pod
+ten adres zwykłe żądanie HTTP `GET` z tym interwałem tak długo, jak
+długo działa, tą samą biblioteką `requests`, której używają już
+wyszukiwania threat-intel i webhooki. Przydatne np. do pingów
+podtrzymujących (keep-alive) usługę, która usypia przy bezczynności, do
+adresu "check-in" monitora dostępności albo po prostu do wywoływania
+jakiegoś innego endpointu według harmonogramu. Działa całkowicie
+bezobsługowo: wynik (status odpowiedzi albo błąd, jeśli żądanie się nie
+powiodło) trafia wyłącznie do logu DNS-shield - nic innego na niego nie
+reaguje, a nieudany ping nigdy nie wpływa na rozwiązywanie DNS ani żadną
+inną funkcję.
+
 ### Konta wieloużytkownikowe, role i widok publiczny
 
 DNS-shield obsługuje więcej niż jedno konto w panelu, każde z własnym

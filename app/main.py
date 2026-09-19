@@ -28,6 +28,7 @@ from app.notifications import NotificationSender
 from app.sessions import SessionStore
 from app.stats import Stats
 from app.upstream_stats import UpstreamStats
+from app.url_ping import UrlPingTask
 from app.users import UserStore
 from app.web.server import create_app
 
@@ -141,6 +142,9 @@ def main() -> None:
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")
 
     notifications = NotificationSender(config_store)
+
+    url_ping = UrlPingTask(config_store)
+    url_ping.start()
 
     anomaly = AnomalyDetector(
         config_store, stats, DATA_DIR / "anomalies.db", on_new_anomalies=notifications.notify_anomalies

@@ -88,6 +88,14 @@ def _alert_rules_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {key: cfg.get(key, default) for key, default in _ALERT_RULES_DEFAULTS.items()}
 
 
+def _url_ping_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "url": cfg.get("url", "") or "",
+        "interval_minutes": cfg.get("interval_minutes", 15) or 15,
+    }
+
+
 def _notification_email_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "enabled": bool(cfg.get("enabled", False)),
@@ -404,6 +412,12 @@ class ReanalyzeIn(BaseModel):
 class AlertRulesSettingsIn(BaseModel):
     check_interval_seconds: float | None = None
     cooldown_minutes: float | None = None
+
+
+class UrlPingSettingsIn(BaseModel):
+    enabled: bool | None = None
+    url: str | None = None
+    interval_minutes: float | None = None
 
 
 class NotificationEmailSettingsIn(BaseModel):
@@ -1696,6 +1710,7 @@ To restore into an EXISTING instance (data/config.db already exists):
             "sso": _sso_settings_public(snap.get("sso", {})),
             "anomaly": _anomaly_settings(snap.get("anomaly", {})),
             "alert_rules": _alert_rules_settings(snap.get("alert_rules", {})),
+            "url_ping": _url_ping_settings(snap.get("url_ping", {})),
             "notifications": {
                 "email": _notification_email_settings(snap.get("notifications", {}).get("email", {})),
                 "webhooks": [
@@ -1871,6 +1886,15 @@ To restore into an EXISTING instance (data/config.db already exists):
             cfg = data.setdefault("alert_rules", {})
             cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
             return _alert_rules_settings(cfg)
+
+        return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/url-ping")
+    def update_url_ping_settings(body: UrlPingSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            cfg = data.setdefault("url_ping", {})
+            cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            return _url_ping_settings(cfg)
 
         return config_store.mutate(_mutate)
 

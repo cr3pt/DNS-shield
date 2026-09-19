@@ -1455,6 +1455,19 @@ new source of outbound calls beyond what's already documented - email
 goes to the mail server you typed in, and the browser popup never leaves
 your own browser.
 
+The same Settings -> Notifications page also has a **URL ping (cron)**
+section, which is unrelated to anomalies - it's a plain timer, not an
+event-driven notification. Turn it on, set a URL and an interval in
+minutes (default 15), and DNS-shield sends a plain HTTP `GET` to that
+URL on that schedule for as long as it keeps running, using the same
+`requests` library the threat-intel lookups and webhooks already use.
+Useful for a keep-alive ping against a host that sleeps on inactivity,
+an uptime monitor's check-in URL, or simply triggering some other
+service's endpoint on a schedule. It's entirely fire-and-forget: the
+outcome (the response status, or the error if the request failed) is
+only ever written to DNS-shield's own log - nothing else reacts to it,
+and a failed ping never affects DNS resolution or any other feature.
+
 ### Multi-user accounts, roles, and the public view
 
 DNS-shield supports more than one dashboard account, each with its own

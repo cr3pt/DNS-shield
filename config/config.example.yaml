@@ -150,6 +150,11 @@ alert_rules:
   domains: []
   sources: []
 
+url_ping:
+  enabled: false
+  url: ""
+  interval_minutes: 15
+
 notifications:
   email:
     enabled: false
