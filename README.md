@@ -32,9 +32,9 @@ download it directly from GitHub).
 | --- | --- |
 | ![Blocked clients editor](docs/screenshots/blocked-clients.png) | ![Threat intelligence settings](docs/screenshots/settings-threat-intel.png) |
 
-| Enrich popup |
-| --- |
-| ![Enrichment result popup with lookup history and a block-host button](docs/screenshots/enrich-popup.png) |
+| Settings - Notifications (email, webhooks, browser, URL ping) | Enrich popup |
+| --- | --- |
+| ![Notification settings including the URL ping section](docs/screenshots/settings-notifications.png) | ![Enrichment result popup with lookup history and a block-host button](docs/screenshots/enrich-popup.png) |
 
 ## Why not just use AdGuard Home?
 

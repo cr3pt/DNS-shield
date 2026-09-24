@@ -297,12 +297,13 @@
 
     <section class="group">
       <div class="group-head"><h2>Notifications</h2><span class="tag">alerts out</span></div>
-      <p class="group-dek">Three independent channels, all off by default, all pointed at a service you control.</p>
+      <p class="group-dek">Four independent channels, all off by default, all pointed at a service you control.</p>
       <hr class="rule">
       <dl class="items">
         <div class="item"><dt>Email</dt><dd>Sent through your own SMTP server - not a third-party relay.</dd></div>
         <div class="item"><dt>Webhooks</dt><dd>Discord, Slack, or a Telegram bot, each with its own minimum severity.</dd></div>
-        <div class="item full"><dt>Browser notifications</dt><dd>Native OS popups while a dashboard tab is open, nothing server-side to configure.</dd></div>
+        <div class="item"><dt>Browser notifications</dt><dd>Native OS popups while a dashboard tab is open, nothing server-side to configure.</dd></div>
+        <div class="item full"><dt>URL ping (cron)</dt><dd>Plain HTTP GET to any URL on a timer, not tied to anomalies - keep-alive pings, uptime check-ins, or triggering another service on a schedule.</dd></div>
       </dl>
     </section>
 
