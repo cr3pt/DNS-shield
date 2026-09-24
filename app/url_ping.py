@@ -11,8 +11,6 @@ _TIMEOUT = 10
 
 
 class UrlPingTask:
-    """Periodically fires a GET request at a configured URL (fire-and-forget, log-only)."""
-
     def __init__(self, config_store):
         self._config = config_store
         self._stop_event = threading.Event()
