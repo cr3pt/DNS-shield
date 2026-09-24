@@ -35,9 +35,9 @@ sklonowaniu repozytorium albo pobierz bezpośrednio z GitHub).
 | --- | --- |
 | ![Edytor zablokowanych klientów](docs/screenshots/blocked-clients.png) | ![Ustawienia threat intelligence](docs/screenshots/settings-threat-intel.png) |
 
-| Okno wyników Enrich |
-| --- |
-| ![Wynik wzbogacenia z historią wyszukiwań i przyciskiem blokowania hosta](docs/screenshots/enrich-popup.png) |
+| Ustawienia - Powiadomienia (e-mail, webhooki, przeglądarka, URL ping) | Okno wyników Enrich |
+| --- | --- |
+| ![Ustawienia powiadomień wraz z sekcją URL ping](docs/screenshots/settings-notifications.png) | ![Wynik wzbogacenia z historią wyszukiwań i przyciskiem blokowania hosta](docs/screenshots/enrich-popup.png) |
 
 ## Dlaczego nie użyć po prostu AdGuard Home?
 
