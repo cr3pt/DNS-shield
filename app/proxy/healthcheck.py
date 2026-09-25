@@ -37,11 +37,6 @@ def resolve_address(hostname: str, resolver: str | None = None) -> str | None:
 
 
 def _check_http(address: str, hostname: str, port: int, use_https: bool) -> bool:
-    # Connects to the resolved address but always presents `hostname` for TLS SNI
-    # and the Host header - conflating the two (e.g. passing `address` as both the
-    # connection target and the SNI/Host value) breaks any site that relies on
-    # name-based virtual hosting, which is most HTTPS hosting today (CDNs, shared
-    # certs, etc.) - it would present the IP as SNI and get the wrong vhost/cert.
     conn: http.client.HTTPConnection | None = None
     try:
         sock = socket.create_connection((address, port), timeout=_TIMEOUT)
@@ -74,9 +69,6 @@ def check_domain_reachable(hostnames: list[str], use_https: bool, resolver: str 
     hostnames = [h for h in hostnames or [] if h]
     if not hostnames:
         return False
-    # Checked concurrently (one hostname timing out shouldn't make the others
-    # wait their turn) and returns as soon as any one succeeds, without waiting
-    # for slower stragglers still in flight.
     executor = ThreadPoolExecutor(max_workers=min(8, len(hostnames)))
     try:
         futures = [executor.submit(check_hostname_reachable, h, use_https, resolver) for h in hostnames]

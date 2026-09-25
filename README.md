@@ -470,6 +470,16 @@ lists already added. The Add button shows a spinner and stays disabled
 for that wait, and a small toast confirms once it's done - both replace
 what used to be a silent pause with no indication anything was happening.
 
+All of a category's sources (blocklists, allow sources, a group's own
+lists, etc.) are fetched concurrently, not one at a time, so adding one
+more list to an already-long chain doesn't multiply the wait. On startup
+specifically, DNS-shield first loads whatever was cached on disk from
+the last successful fetch - effectively instant, so blocking is already
+active before the dashboard or DNS server even finish coming up - then
+fetches everything live in the background a moment later. Only a
+genuinely first-ever run, with nothing cached yet anywhere, waits on the
+network before it's protected.
+
 ### Newly registered domains (NRD)
 
 Enterprise DNS security products (Infoblox's BloxOne Threat Defense calls
@@ -1843,6 +1853,18 @@ A ready-made Grafana dashboard for these metrics ships in
 `grafana/dnsshield-dashboard.json` - import it in Grafana (Dashboards ->
 New -> Import, upload the JSON) against any Prometheus datasource
 scraping `GET /metrics`.
+
+### Startup
+
+The dashboard's own port is bound as early as possible, before
+blocklists, DHCP, the reverse proxy, or anything else finishes
+initializing - visiting it right after `docker compose up` shows a small
+auto-refreshing "DNS-shield is starting up..." page instead of a
+connection error, until the real dashboard takes over that same port a
+moment later. Blocking itself comes up even faster than that (see
+**Blocklist formats and suggested lists** above for the disk-cache warm
+start) - the placeholder page is purely about the *web UI* not being
+ready yet, not about queries going unfiltered.
 
 ### Health check
 

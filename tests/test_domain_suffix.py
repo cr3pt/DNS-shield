@@ -18,9 +18,6 @@ def test_www_subdomain_collapses_to_registrable_domain():
 
 
 def test_private_suffix_github_io_not_split_by_default():
-    # include_psl_private_domains is not set (defaults to False), so github.io
-    # itself is treated as domain="github" + suffix="io" -> "github.io",
-    # merging every *.github.io host into a single "github.io" node.
     assert registrable_domain("foo.github.io") == "github.io"
     assert registrable_domain("github.io") == "github.io"
 

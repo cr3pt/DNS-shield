@@ -2,12 +2,6 @@ from app.graph import ClientDomainGraph
 
 
 class FakeGraphStats:
-    """Minimal local stand-in for app.stats.Stats, scoped to this test file.
-
-    Provides just the two methods ClientDomainGraph needs: max_query_id()
-    and queries_since(last_id, limit=5000).
-    """
-
     def __init__(self):
         self._rows = []
         self._next_id = 1
@@ -41,15 +35,12 @@ def test_first_process_call_only_initializes_cursor(config_store, tmp_path):
     stats.add("example.com", "10.0.0.1")
     graph = _make_graph(config_store, tmp_path, stats)
 
-    # First call after construction is a no-op: it only sets the cursor to
-    # the current max_query_id, mirroring AnomalyDetector.check_new_dns_clients().
     graph._process_new_queries()
     result = graph.get_graph()
     assert result["clients"] == []
     assert result["domains"] == []
     assert result["edges"] == []
 
-    # Only rows added after the cursor snapshot are processed on the next call.
     stats.add("example2.com", "10.0.0.2")
     graph._process_new_queries()
     result = graph.get_graph()
@@ -149,17 +140,14 @@ def test_get_graph_restrict_client_ips(config_store, tmp_path):
     stats.add("example.org", "10.0.0.2")
     graph._process_new_queries()
 
-    # None -> no restriction, sees everything.
     everyone = graph.get_graph(restrict_client_ips=None)
     assert {c["id"] for c in everyone["clients"]} == {"10.0.0.1", "10.0.0.2"}
 
-    # [] -> sees nothing.
     nobody = graph.get_graph(restrict_client_ips=[])
     assert nobody["clients"] == []
     assert nobody["domains"] == []
     assert nobody["edges"] == []
 
-    # A specific list filters to just those clients (and their domains/edges).
     only_one = graph.get_graph(restrict_client_ips=["10.0.0.1"])
     assert {c["id"] for c in only_one["clients"]} == {"10.0.0.1"}
     assert {d["id"] for d in only_one["domains"]} == {"example.com"}
@@ -198,7 +186,6 @@ def test_domain_detail_restrict_client_ips_filters_clients(config_store, tmp_pat
     assert {c["client"] for c in filtered["clients"]} == {"10.0.0.1"}
     assert filtered["distinct_clients"] == 1
 
-    # domain_detail filters clients rather than denying the whole call.
     none_visible = graph.domain_detail("example.com", restrict_client_ips=[])
     assert none_visible["clients"] == []
     assert none_visible["distinct_clients"] == 0
@@ -233,10 +220,8 @@ def test_suspicious_flags_only_the_outlier_client(config_store, tmp_path):
     graph = _make_graph(config_store, tmp_path, stats)
     graph._process_new_queries()
 
-    # Five ordinary clients, each visiting exactly one domain (degree 1).
     for i in range(5):
         stats.add(f"site{i}.com", f"10.0.1.{i}")
-    # One outlier client visiting ten distinct domains (degree 10).
     for i in range(10):
         stats.add(f"outlier{i}.com", "10.0.2.1")
     graph._process_new_queries()

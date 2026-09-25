@@ -40,7 +40,6 @@ def test_render_ssl_without_force_https_serves_both_ports_without_redirect():
     assert "listen 443 ssl;" in conf
     assert "ssl_certificate /etc/letsencrypt/live/app.example.com/fullchain.pem;" in conf
     assert "ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;" in conf
-    # without force_https, port 80 still serves the real rules, not a redirect
     assert "return 301 https" not in conf
     assert conf.count("proxy_pass http://127.0.0.1:8080;") == 2
 
@@ -54,7 +53,6 @@ def test_render_ssl_with_force_https_redirects_port_80():
     assert "return 301 https://$host$request_uri;" in conf
     assert "listen 443 ssl;" in conf
     assert "ssl_certificate " in conf
-    # port 80 block should be redirect-only - the real rule only appears once (in the 443 block)
     assert conf.count("proxy_pass http://127.0.0.1:8080;") == 1
 
 
