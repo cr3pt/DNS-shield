@@ -10,7 +10,7 @@ import time
 
 import socket
 
-from dnslib import AAAA, EDNS0, QTYPE, RCODE, RR, A, DNSHeader, DNSQuestion, DNSRecord
+from dnslib import AAAA, CNAME, EDNS0, QTYPE, RCODE, RR, TXT, A, DNSHeader, DNSQuestion, DNSRecord
 from dnslib.server import DNSServer
 from dnslib.server import TCPServer as _DNSLibTCPServer
 from dnslib.server import UDPServer as _DNSLibUDPServer
@@ -66,10 +66,11 @@ class FilteringResolver:
         if blocked:
             response = self._blocked_reply(request)
         else:
-            rewrite_ip = find_rewrite(qname, qtype_name, self._config) if qname else None
+            rewrite = find_rewrite(qname, qtype_name, self._config) if qname else None
             redirect_ip = self._config.get("dns", "typosquat_redirect_ip", default="") or ""
-            if rewrite_ip is not None:
-                response = self._rewrite_reply(request, qtype, rewrite_ip)
+            if rewrite is not None:
+                rewrite_value, rewrite_ttl = rewrite
+                response = self._rewrite_entry_reply(request, qtype_name, rewrite_value, rewrite_ttl)
             elif typosquat_can_redirect and typosquat_action == "redirect_custom" and redirect_ip:
                 response = self._rewrite_reply(request, qtype, redirect_ip)
             else:
@@ -195,6 +196,19 @@ class FilteringResolver:
             reply.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(ip), ttl=300))
         else:
             reply.add_answer(RR(request.q.qname, QTYPE.AAAA, rdata=AAAA(ip), ttl=300))
+        return reply
+
+    @staticmethod
+    def _rewrite_entry_reply(request: DNSRecord, record_type: str, value: str, ttl: int) -> DNSRecord:
+        reply = request.reply()
+        if record_type == "A":
+            reply.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(value), ttl=ttl))
+        elif record_type == "AAAA":
+            reply.add_answer(RR(request.q.qname, QTYPE.AAAA, rdata=AAAA(value), ttl=ttl))
+        elif record_type == "CNAME":
+            reply.add_answer(RR(request.q.qname, QTYPE.CNAME, rdata=CNAME(value), ttl=ttl))
+        elif record_type == "TXT":
+            reply.add_answer(RR(request.q.qname, QTYPE.TXT, rdata=TXT(value), ttl=ttl))
         return reply
 
     def _select_upstreams(self, qname: str, client_ip: str) -> list[str]:

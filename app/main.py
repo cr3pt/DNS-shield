@@ -21,6 +21,7 @@ from app.config import ConfigStore
 from app.dhcp.rogue_detector import RogueDhcpDetector
 from app.dhcp.server import DhcpServer
 from app.dns_cache import DNSCache
+from app.proxy.manager import ProxyManager
 from app.dns_server import build_resolver, reuse_port_supported, start_dns_servers, start_dot_server
 from app.dnssec import DnssecCache
 from app.enrichment_store import EnrichmentStore
@@ -178,6 +179,9 @@ def main() -> None:
     rogue_dhcp_detector = RogueDhcpDetector(config_store, anomaly_detector=anomaly)
     rogue_dhcp_detector.start()
 
+    proxy_manager = ProxyManager(config_store)
+    proxy_manager.start()
+
     users = UserStore(config_store)
     sessions = SessionStore()
     audit_log = AuditLog(DATA_DIR / "audit.db", config_store)
@@ -229,6 +233,7 @@ def main() -> None:
         audit_log=audit_log,
         dhcp_server=dhcp_server,
         rogue_dhcp_detector=rogue_dhcp_detector,
+        proxy_manager=proxy_manager,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))

@@ -24,10 +24,12 @@ LANGUAGE_NATIVE_NAMES = {"en": "English", "pl": "Polski"}
 DEFAULT_PERMISSIONS: dict[str, Any] = {
     "allowed_clients": [],
     "allowed_groups": [],
+    "allowed_domains": [],
     "view_threat_intel": False,
     "view_anomalies": False,
     "can_block": False,
     "can_whitelist": False,
+    "can_manage_proxy": False,
 }
 
 
@@ -36,10 +38,12 @@ def _normalized_permissions(raw: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "allowed_clients": list(raw.get("allowed_clients") or []),
         "allowed_groups": list(raw.get("allowed_groups") or []),
+        "allowed_domains": list(raw.get("allowed_domains") or []),
         "view_threat_intel": bool(raw.get("view_threat_intel", False)),
         "view_anomalies": bool(raw.get("view_anomalies", False)),
         "can_block": bool(raw.get("can_block", False)),
         "can_whitelist": bool(raw.get("can_whitelist", False)),
+        "can_manage_proxy": bool(raw.get("can_manage_proxy", False)),
     }
 
 

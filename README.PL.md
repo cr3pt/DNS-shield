@@ -1672,6 +1672,14 @@ głównie do odczytu, ograniczony do tego, na co pozwoli administrator:
   dla administratora).
 - **Can whitelist a domain** - to samo, ale dla globalnej listy
   dozwolonych.
+- **Can manage reverse-proxy domains / allowed domains** - pozwala
+  użytkownikowi typu User tworzyć, edytować i usuwać wpisy w Ustawienia ->
+  Reverse proxy, ale wyłącznie dla nazw hostów pasujących do jego listy
+  **allowed domains** (dokładne dopasowanie albo subdomena, ta sama reguła
+  co przy allowed clients powyżej); pusta lista oznacza, że uprawnienie
+  na razie nie daje nic do zarządzania. Edycja surowego pola
+  niestandardowej konfiguracji nginx zawsze pozostaje wyłącznie dla
+  administratora, niezależnie od tego uprawnienia.
 
 Sama zakładka Settings oraz pasek wstrzymania "Blocking active" są zawsze
 dostępne wyłącznie dla administratora - konto User nigdy ich nie widzi, a
@@ -2200,6 +2208,69 @@ historia Twoich klientów, więc jego wyczyszczenie oznacza rozpoczęcie tej
 historii od nowa. Obie strony mają też własny przycisk **Zresetuj
 uczenie** do ręcznego restartu bez konieczności dotykania żadnego z
 powyższych.
+
+## Reverse proxy (opcjonalnie)
+
+Ustawienia -> Reverse proxy zarządzają prawdziwym procesem `nginx` z
+poziomu DNS-shield - bez osobnego kontenera, bez ręcznej edycji plików
+konfiguracyjnych. Domyślnie wyłączone; jeden globalny przełącznik na
+górze zakładki uruchamia `nginx -g "daemon off;"` jako proces potomny,
+generuje na nowo konfigurację każdej domeny na podstawie `config.db` i
+automatycznie restartuje nginx, jeśli kiedykolwiek się wywali (wątek w
+tle sprawdza go co kilka sekund).
+
+**Domeny** to podstawowa jednostka konfiguracji - jeden wpis na zestaw
+nazw hostów współdzielących ten sam blok serwera nginx. Każda ma: jedną
+lub więcej nazw hostów, uporządkowaną listę **reguł** (każda albo typu
+**proxy** - ścieżka plus docelowy adres, do którego nginx przekazuje
+ruch, z już podpiętymi nagłówkami `Upgrade`/`Connection` dla
+websocketów - albo typu **redirect** - ścieżka plus docelowy adres URL i
+kod HTTP), opcjonalne TLS (ścieżki do certyfikatu/klucza plus "wymuś
+HTTPS", które dodatkowo generuje przekierowanie HTTP->HTTPS na porcie
+80), oraz dostępne wyłącznie dla administratora pole **niestandardowej
+konfiguracji nginx**, dołączane dosłownie do bloku serwera tej domeny na
+wszystko, czego nie pokrywają pola strukturalne. Przycisk **sprawdź
+kondycję** rozwiązuje każdą nazwę hosta (przez własny resolwer
+DNS-shield, więc odzwierciedla cały skonfigurowany routing/rewrites) i
+wykonuje test osiągalności HTTP(S) względem adresu docelowego pierwszej
+reguły, dzięki czemu odróżnisz zepsutą domenę od takiej, której po prostu
+jeszcze nikt nie odwiedził. **Uzyskaj certyfikat** wystawia albo odnawia
+certyfikat Let's Encrypt poleceniem `certbot certonly --webroot`,
+używając nazw hostów danej domeny i podanego adresu e-mail - wymaga to
+osiągalności domeny na porcie 80 dla wyzwania ACME HTTP-01, tak jak w
+każdej innej konfiguracji certbota opartej na webroot.
+
+**Uprawnienia** działają tak samo jak wszędzie indziej w DNS-shield (patrz
+**Konta wieloużytkownikowe, role i widok publiczny** powyżej): User
+potrzebuje `can_manage_proxy` oraz pasującego wpisu w `allowed_domains`,
+żeby w ogóle dotknąć danej domeny, i nigdy nie może ustawić jej pola
+niestandardowej konfiguracji.
+
+**Czego celowo nie duplikuje**, w porównaniu do samodzielnego projektu
+reverse proxy, na którym oparto wzorzec tej funkcji:
+
+- **Własnego systemu logowania opartego na JWT i tokenach startowych.**
+  DNS-shield ma już własne konta użytkowników, sesje, role i kontrolę
+  dostępu per-uprawnienie (patrz **Konta wieloużytkownikowe** powyżej) -
+  doklejanie drugiego, niezależnego systemu logowania tylko dla tej jednej
+  zakładki byłoby czystą duplikacją bez żadnej korzyści, i drugim
+  miejscem, w którym dane logowania mogą się zdezaktualizować albo
+  rozjechać.
+- **Własnego wbudowanego mini-serwera DNS do rozwiązywania proxowanych
+  nazw hostów.** DNS-shield sam *jest* już pełnym serwerem DNS dla każdej
+  nazwy hosta w sieci, nie tylko tych proxowanych - skierowanie
+  proxowanej nazwy hosta na ten serwer to zwykły rekord DNS (rewrite albo
+  resolwer przydzielany przez Twój router przez DHCP), więc drugi, węższy
+  serwer DNS dołączony tylko dla proxy byłby zbędny i znałby tylko
+  fragment tego, co już obsługuje ten prawdziwy.
+
+**Ostrzeżenie o konflikcie portu 80.** Własna lokalna strona
+"zablokowano" DNS-shield (Ustawienia -> DNS -> `block_page_port`, patrz
+**Lokalna strona "zablokowano"** powyżej) domyślnie używa portu 80. Jeśli
+włączysz jednocześnie stronę blokady i reverse proxy na tym samym hoście,
+będą walczyć o ten port - przenieś jedno z nich (`block_page_port` dla
+pierwszego, albo nie kieruj reguł żadnej domeny na port 80 dla drugiego),
+zanim włączysz oba naraz.
 
 ## Import z AdGuard Home lub Pi-hole
 
