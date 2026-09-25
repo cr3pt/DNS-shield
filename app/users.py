@@ -18,6 +18,9 @@ from app.two_factor import (
 
 _TOKEN_TOUCH_MIN_INTERVAL = 60.0
 
+SUPPORTED_LANGUAGES = ("en", "pl")
+LANGUAGE_NATIVE_NAMES = {"en": "English", "pl": "Polski"}
+
 DEFAULT_PERMISSIONS: dict[str, Any] = {
     "allowed_clients": [],
     "allowed_groups": [],
@@ -281,8 +284,8 @@ class UserStore:
 
     def set_language(self, username: str, language: str) -> dict[str, Any]:
         language = (language or "").strip().lower()
-        if language not in ("", "en", "pl"):
-            raise ValueError('Language must be "", "en", or "pl"')
+        if language not in ("",) + SUPPORTED_LANGUAGES:
+            raise ValueError(f"Language must be \"\" or one of: {', '.join(SUPPORTED_LANGUAGES)}")
 
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             for user in data.setdefault("users", []):

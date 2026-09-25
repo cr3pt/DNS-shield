@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from app.anomaly import _base_domain
 from app.auth import verify_password
 from app.blocklist_catalog import BLOCKLIST_CATALOG
+from app import new_client_detection
 from app.enrichment import enrich as run_enrichment
 from app.enrichment import maybe_alert_on_verdict
 from app.import_adguard import import_config
@@ -37,7 +38,7 @@ from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
-from app.users import UserStore, public_user
+from app.users import LANGUAGE_NATIVE_NAMES, SUPPORTED_LANGUAGES, UserStore, public_user
 
 logger = logging.getLogger("dnsshield.web")
 
@@ -93,6 +94,27 @@ def _url_ping_settings(cfg: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(cfg.get("enabled", False)),
         "url": cfg.get("url", "") or "",
         "interval_minutes": cfg.get("interval_minutes", 15) or 15,
+    }
+
+
+def _rogue_dhcp_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "interfaces": list(cfg.get("interfaces", []) or []),
+        "allowed_server_ips": list(cfg.get("allowed_server_ips", []) or []),
+        "check_interval_minutes": cfg.get("check_interval_minutes", 15) or 15,
+        "cooldown_minutes": cfg.get("cooldown_minutes", 60) or 60,
+    }
+
+
+def _new_client_detection_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "dns_enabled": bool(cfg.get("dns_enabled", False)),
+        "dns_learning_days": cfg.get("dns_learning_days", 7) or 7,
+        "dns_learning_started_at": cfg.get("dns_learning_started_at"),
+        "dhcp_enabled": bool(cfg.get("dhcp_enabled", False)),
+        "dhcp_learning_days": cfg.get("dhcp_learning_days", 7) or 7,
+        "dhcp_learning_started_at": cfg.get("dhcp_learning_started_at"),
     }
 
 
@@ -191,6 +213,80 @@ class ClientGroupIn(BaseModel):
 
 class GroupSafeSearchIn(BaseModel):
     safe_search: bool | None = None
+
+
+class DhcpReservationIn(BaseModel):
+    mac: str
+    ip: str
+    hostname: str | None = None
+    dns_servers: list[str] = []
+    custom_options: list[dict[str, Any]] = []
+
+
+class DhcpScopeIn(BaseModel):
+    name: str
+    enabled: bool = True
+    interface: str
+    vlan_id: int | None = None
+    server_ip: str
+    network: str
+    pool_start: str
+    pool_end: str
+    gateway: str = ""
+    dns_servers: list[str] = []
+    domain_name: str = ""
+    lease_seconds: float = 86400
+    ntp_servers: list[str] = []
+    wins_servers: list[str] = []
+    mtu: int | None = None
+    tftp_server: str = ""
+    bootfile_name: str = ""
+    static_routes: list[dict[str, Any]] = []
+    excluded_ips: list[str] = []
+    custom_options: list[dict[str, Any]] = []
+    reservations: list[dict[str, Any]] = []
+
+
+class DhcpScopePatchIn(BaseModel):
+    name: str | None = None
+    enabled: bool | None = None
+    interface: str | None = None
+    vlan_id: int | None = None
+    server_ip: str | None = None
+    network: str | None = None
+    pool_start: str | None = None
+    pool_end: str | None = None
+    gateway: str | None = None
+    dns_servers: list[str] | None = None
+    domain_name: str | None = None
+    lease_seconds: float | None = None
+    ntp_servers: list[str] | None = None
+    wins_servers: list[str] | None = None
+    mtu: int | None = None
+    tftp_server: str | None = None
+    bootfile_name: str | None = None
+    static_routes: list[dict[str, Any]] | None = None
+    excluded_ips: list[str] | None = None
+    custom_options: list[dict[str, Any]] | None = None
+
+
+class DhcpSettingsIn(BaseModel):
+    enabled: bool | None = None
+
+
+class RogueDhcpSettingsIn(BaseModel):
+    enabled: bool | None = None
+    interfaces: list[str] | None = None
+    allowed_server_ips: list[str] | None = None
+    check_interval_minutes: float | None = None
+    cooldown_minutes: float | None = None
+
+
+class NewClientDetectionSettingsIn(BaseModel):
+    dns_enabled: bool | None = None
+    dns_learning_days: float | None = None
+    dhcp_enabled: bool | None = None
+    dhcp_learning_days: float | None = None
 
 
 class ScheduleWindowIn(BaseModel):
@@ -470,6 +566,8 @@ def create_app(
     dnssec_cache=None,
     resolver=None,
     audit_log=None,
+    dhcp_server=None,
+    rogue_dhcp_detector=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -1018,6 +1116,8 @@ def create_app(
     @app.delete("/api/query-log")
     def clear_query_log(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         stats.clear()
+        if anomaly is not None:
+            anomaly.reset_new_dns_clients()
         return {"ok": True}
 
     @app.post("/api/cache/clear")
@@ -1486,6 +1586,182 @@ def create_app(
 
         return _group_source_mutate(index, _fn)
 
+    @app.get("/api/dhcp/scopes")
+    def list_dhcp_scopes(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        return config_store.get("dhcp", "scopes", default=[]) or []
+
+    @app.post("/api/dhcp/scopes")
+    def add_dhcp_scope(scope: DhcpScopeIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            dhcp_cfg = data.setdefault("dhcp", {})
+            scopes = dhcp_cfg.setdefault("scopes", [])
+            if any(s.get("name") == scope.name for s in scopes):
+                raise HTTPException(status_code=400, detail="A scope with this name already exists")
+            scopes.append(scope.model_dump())
+            return scopes
+
+        return config_store.mutate(_mutate)
+
+    def _dhcp_scope_mutate(index: int, fn) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            scopes = data.setdefault("dhcp", {}).setdefault("scopes", [])
+            if not 0 <= index < len(scopes):
+                raise HTTPException(status_code=404, detail="No such DHCP scope")
+            fn(scopes[index])
+            return scopes
+
+        return config_store.mutate(_mutate)
+
+    @app.patch("/api/dhcp/scopes/{index}")
+    def update_dhcp_scope(
+        index: int, body: DhcpScopePatchIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        payload = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+
+        def _fn(scope: dict[str, Any]) -> None:
+            scope.update(payload)
+
+        return _dhcp_scope_mutate(index, _fn)
+
+    @app.delete("/api/dhcp/scopes/{index}")
+    def delete_dhcp_scope(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            scopes = data.setdefault("dhcp", {}).setdefault("scopes", [])
+            if not 0 <= index < len(scopes):
+                raise HTTPException(status_code=404, detail="No such DHCP scope")
+            scopes.pop(index)
+            return scopes
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/dhcp/scopes/{index}/toggle")
+    def toggle_dhcp_scope(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        def _fn(scope: dict[str, Any]) -> None:
+            scope["enabled"] = not scope.get("enabled", True)
+
+        return _dhcp_scope_mutate(index, _fn)
+
+    @app.post("/api/dhcp/scopes/{index}/reservations")
+    def add_dhcp_reservation(
+        index: int, body: DhcpReservationIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        mac = body.mac.upper()
+
+        def _fn(scope: dict[str, Any]) -> None:
+            reservations = scope.setdefault("reservations", [])
+            if any(r.get("mac", "").upper() == mac for r in reservations):
+                raise HTTPException(status_code=400, detail="A reservation for this MAC already exists")
+            entry = body.model_dump()
+            entry["mac"] = mac
+            reservations.append(entry)
+
+        _dhcp_scope_mutate(index, _fn)
+        return config_store.get("dhcp", "scopes", default=[])[index].get("reservations", [])
+
+    @app.delete("/api/dhcp/scopes/{index}/reservations/{mac}")
+    def delete_dhcp_reservation(
+        index: int, mac: str, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        mac = mac.upper()
+
+        def _fn(scope: dict[str, Any]) -> None:
+            reservations = scope.setdefault("reservations", [])
+            scope["reservations"] = [r for r in reservations if r.get("mac", "").upper() != mac]
+
+        _dhcp_scope_mutate(index, _fn)
+        return config_store.get("dhcp", "scopes", default=[])[index].get("reservations", [])
+
+    @app.get("/api/dhcp/leases")
+    def list_dhcp_leases(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        if dhcp_server is None:
+            return []
+        return dhcp_server.lease_store.all_active()
+
+    @app.delete("/api/dhcp/leases/{mac}")
+    def delete_dhcp_lease(mac: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, str]:
+        if dhcp_server is None:
+            raise HTTPException(status_code=400, detail="DHCP server is not running")
+        dhcp_server.lease_store.release(mac.upper())
+        return {"status": "released"}
+
+    @app.post("/api/dhcp/leases/{mac}/reserve")
+    def reserve_dhcp_lease(mac: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        if dhcp_server is None:
+            raise HTTPException(status_code=400, detail="DHCP server is not running")
+        mac = mac.upper()
+        lease = dhcp_server.lease_store.get_by_mac(mac)
+        if lease is None:
+            raise HTTPException(status_code=404, detail="No active lease for this MAC")
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            scopes = data.setdefault("dhcp", {}).setdefault("scopes", [])
+            for scope in scopes:
+                if scope.get("name") != lease["scope"]:
+                    continue
+                reservations = scope.setdefault("reservations", [])
+                if any(r.get("mac", "").upper() == mac for r in reservations):
+                    raise HTTPException(status_code=400, detail="A reservation for this MAC already exists")
+                reservations.append({
+                    "mac": mac, "ip": lease["ip"], "hostname": lease.get("hostname"),
+                    "dns_servers": [], "custom_options": [],
+                })
+                return scope
+            raise HTTPException(status_code=404, detail="Scope for this lease no longer exists")
+
+        return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/dhcp")
+    def update_dhcp_settings(body: DhcpSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            dhcp_cfg = data.setdefault("dhcp", {})
+            dhcp_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            return {"enabled": bool(dhcp_cfg.get("enabled", False))}
+
+        return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/rogue-dhcp-detection")
+    def update_rogue_dhcp_settings(
+        body: RogueDhcpSettingsIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            cfg = data.setdefault("rogue_dhcp_detection", {})
+            cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            return _rogue_dhcp_settings(cfg)
+
+        return config_store.mutate(_mutate)
+
+    @app.patch("/api/settings/new-client-detection")
+    def update_new_client_detection_settings(
+        body: NewClientDetectionSettingsIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        payload = body.model_dump(exclude_unset=True)
+        was_dns_enabled = bool(config_store.get("new_client_detection", "dns_enabled", default=False))
+        was_dhcp_enabled = bool(config_store.get("new_client_detection", "dhcp_enabled", default=False))
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            cfg = data.setdefault("new_client_detection", {})
+            cfg.update({k: v for k, v in payload.items() if v is not None})
+            if payload.get("dns_enabled") and not was_dns_enabled:
+                cfg["dns_learning_started_at"] = time.time()
+            if payload.get("dhcp_enabled") and not was_dhcp_enabled:
+                cfg["dhcp_learning_started_at"] = time.time()
+            return _new_client_detection_settings(cfg)
+
+        return config_store.mutate(_mutate)
+
+    @app.post("/api/new-client-detection/reset-dns")
+    def reset_new_dns_clients(_: dict[str, Any] = Depends(require_admin)) -> dict[str, str]:
+        if anomaly is not None:
+            anomaly.reset_new_dns_clients()
+        return {"status": "reset"}
+
+    @app.post("/api/new-client-detection/reset-dhcp")
+    def reset_new_dhcp_clients(_: dict[str, Any] = Depends(require_admin)) -> dict[str, str]:
+        if dhcp_server is not None:
+            dhcp_server.lease_store.reset_known_macs()
+        new_client_detection.reset_learning(config_store, "new_client_detection", "dhcp_learning_started_at")
+        return {"status": "reset"}
+
     @app.get("/api/domain-upstreams")
     def list_domain_upstreams(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("domain_upstreams", default=[]) or []
@@ -1711,6 +1987,9 @@ To restore into an EXISTING instance (data/config.db already exists):
             "anomaly": _anomaly_settings(snap.get("anomaly", {})),
             "alert_rules": _alert_rules_settings(snap.get("alert_rules", {})),
             "url_ping": _url_ping_settings(snap.get("url_ping", {})),
+            "dhcp": {"enabled": bool(snap.get("dhcp", {}).get("enabled", False)), "scope_count": len(snap.get("dhcp", {}).get("scopes", []) or [])},
+            "rogue_dhcp_detection": _rogue_dhcp_settings(snap.get("rogue_dhcp_detection", {})),
+            "new_client_detection": _new_client_detection_settings(snap.get("new_client_detection", {})),
             "notifications": {
                 "email": _notification_email_settings(snap.get("notifications", {}).get("email", {})),
                 "webhooks": [
@@ -2452,6 +2731,10 @@ To restore into an EXISTING instance (data/config.db already exists):
             raise HTTPException(status_code=400, detail="New password is required")
         users.update(user["username"], password=body.new_password)
         return {"ok": True}
+
+    @app.get("/api/languages")
+    def list_languages() -> list[dict[str, str]]:
+        return [{"code": code, "name": LANGUAGE_NATIVE_NAMES.get(code, code)} for code in SUPPORTED_LANGUAGES]
 
     @app.post("/api/account/language")
     def set_own_language(body: LanguageIn, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:

@@ -581,6 +581,7 @@
       <button type="button" class="subtab-btn" data-subtab="ownlists" data-i18n="nav.subtab.ownlists">Own lists</button>
       <button type="button" class="subtab-btn" data-subtab="clients" data-i18n="nav.subtab.clients">Clients</button>
       <button type="button" class="subtab-btn" data-subtab="cleans" data-i18n="nav.subtab.cleans">Cleans</button>
+      <button type="button" class="subtab-btn" data-subtab="dhcp" data-i18n="nav.subtab.dhcp">DHCP</button>
     </div>
   </div>
 
@@ -1883,6 +1884,104 @@
     </section>
   </div>
 
+  <div id="subtab-dhcp" class="subtab-panel">
+    <section>
+      <h2 data-i18n="dhcp.title">DHCP server</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="dhcp.hint.main">
+        A built-in DHCP server, entirely optional and off by default - runs alongside DNS-shield's
+        own resolver so leased clients can automatically get DNS-shield as their DNS server. Needs
+        the container to actually see LAN broadcast traffic (host networking, or a macvlan/VLAN
+        sub-interface) and the <code>NET_ADMIN</code>/<code>NET_RAW</code> capabilities - a bridge-only
+        Docker network cannot serve real DHCP clients. See the README for the exact Compose setup.
+      </p>
+      <div class="field checkbox">
+        <input type="checkbox" id="s-dhcp-enabled">
+        <label for="s-dhcp-enabled" data-i18n="dhcp.enable">Enable the DHCP server (requires restart)</label>
+      </div>
+      <button type="button" id="dhcp-settings-save" data-i18n="dhcp.save">Save DHCP settings</button>
+    </section>
+
+    <section>
+      <h2 data-i18n="dhcp.scopes_title">Scopes</h2>
+      <p class="muted" data-i18n="dhcp.hint.scopes">
+        One scope per subnet/VLAN. Each needs its own address pool, its own IP for this server on
+        that network (server identifier), and - for a VLAN - a numeric 802.1q tag; DNS-shield then
+        creates and manages the tagged sub-interface itself.
+      </p>
+      <form class="field-grid" id="add-dhcp-scope-form">
+        <div class="field"><label data-i18n="dhcp.field.name">Name</label><input type="text" id="dhcp-new-name" placeholder="LAN" required></div>
+        <div class="field"><label data-i18n="dhcp.field.interface">Interface</label><input type="text" id="dhcp-new-interface" placeholder="eth0" required></div>
+        <div class="field"><label data-i18n="dhcp.field.vlan_id">VLAN ID (optional)</label><input type="number" id="dhcp-new-vlan" min="1" max="4094"></div>
+        <div class="field"><label data-i18n="dhcp.field.server_ip">This server's IP on this network</label><input type="text" id="dhcp-new-server-ip" placeholder="192.168.1.1" required></div>
+        <div class="field"><label data-i18n="dhcp.field.network">Network (CIDR)</label><input type="text" id="dhcp-new-network" placeholder="192.168.1.0/24" required></div>
+        <div class="field"><label data-i18n="dhcp.field.pool_start">Pool start</label><input type="text" id="dhcp-new-pool-start" placeholder="192.168.1.100" required></div>
+        <div class="field"><label data-i18n="dhcp.field.pool_end">Pool end</label><input type="text" id="dhcp-new-pool-end" placeholder="192.168.1.200" required></div>
+        <div class="field"><label data-i18n="dhcp.field.gateway">Gateway</label><input type="text" id="dhcp-new-gateway" placeholder="192.168.1.1"></div>
+      </form>
+      <button type="button" id="add-dhcp-scope-btn" data-i18n="dhcp.add_scope">Add scope</button>
+      <div id="dhcp-scope-list" style="margin-top:1rem;"></div>
+    </section>
+
+    <section>
+      <h2 data-i18n="dhcp.leases_title">Active leases</h2>
+      <table>
+        <thead><tr>
+          <th data-i18n="dhcp.col.mac">MAC</th><th data-i18n="dhcp.col.ip">IP</th>
+          <th data-i18n="dhcp.col.hostname">Hostname</th><th data-i18n="dhcp.col.scope">Scope</th>
+          <th data-i18n="dhcp.col.expires">Expires</th><th></th>
+        </tr></thead>
+        <tbody id="dhcp-lease-rows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 data-i18n="dhcp.rogue_title">Rogue DHCP server detection</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="dhcp.hint.rogue">
+        Periodically broadcasts a real DHCPDISCOVER on the network (independent of the server
+        above - works even with it disabled) and flags any DHCPOFFER from a server IP you haven't
+        explicitly allow-listed - a sign of a second, possibly rogue or misconfigured, DHCP server
+        on the same network.
+      </p>
+      <div class="field checkbox">
+        <input type="checkbox" id="s-rogue-dhcp-enabled">
+        <label for="s-rogue-dhcp-enabled" data-i18n="dhcp.rogue.enable">Enable rogue DHCP server detection</label>
+      </div>
+      <div class="field-grid">
+        <div class="field"><label data-i18n="dhcp.rogue.interfaces">Interfaces to probe (comma separated, blank = default)</label><input type="text" id="s-rogue-dhcp-interfaces" placeholder="eth0, eth0.10"></div>
+        <div class="field"><label data-i18n="dhcp.rogue.allowed">Known-good DHCP server IPs (comma separated)</label><input type="text" id="s-rogue-dhcp-allowed" placeholder="192.168.1.1"></div>
+        <div class="field"><label data-i18n="dhcp.rogue.interval">Check interval (minutes)</label><input type="number" id="s-rogue-dhcp-interval" min="1" step="1"></div>
+        <div class="field"><label data-i18n="dhcp.rogue.cooldown">Re-alert cooldown (minutes)</label><input type="number" id="s-rogue-dhcp-cooldown" min="1" step="1"></div>
+      </div>
+      <button type="button" id="rogue-dhcp-save" data-i18n="dhcp.rogue.save">Save rogue-detection settings</button>
+    </section>
+
+    <section>
+      <h2 data-i18n="dhcp.newclient_title">New-client detection</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="dhcp.hint.newclient">
+        Learns which clients are already on your network for the number of days below - either
+        counted from when you enable this, or from your last "Reset learning" - and after that
+        window raises an Alert the first time it ever sees a client it doesn't already know about.
+      </p>
+      <div class="field-grid">
+        <div class="field checkbox">
+          <input type="checkbox" id="s-newclient-dns-enabled">
+          <label for="s-newclient-dns-enabled" data-i18n="dhcp.newclient.dns_enable">Alert on new DNS clients</label>
+        </div>
+        <div class="field"><label data-i18n="dhcp.newclient.dns_days">Learning period (days)</label><input type="number" id="s-newclient-dns-days" min="0" step="1"></div>
+        <div class="field checkbox">
+          <input type="checkbox" id="s-newclient-dhcp-enabled">
+          <label for="s-newclient-dhcp-enabled" data-i18n="dhcp.newclient.dhcp_enable">Alert on new DHCP clients</label>
+        </div>
+        <div class="field"><label data-i18n="dhcp.newclient.dhcp_days">Learning period (days)</label><input type="number" id="s-newclient-dhcp-days" min="0" step="1"></div>
+      </div>
+      <div class="inline">
+        <button type="button" id="newclient-settings-save" data-i18n="dhcp.newclient.save">Save new-client detection settings</button>
+        <button type="button" class="secondary" id="newclient-reset-dns" data-i18n="dhcp.newclient.reset_dns">Reset DNS client learning</button>
+        <button type="button" class="secondary" id="newclient-reset-dhcp" data-i18n="dhcp.newclient.reset_dhcp">Reset DHCP client learning</button>
+      </div>
+    </section>
+  </div>
+
   <div id="subtab-auditlog" class="subtab-panel">
     <section>
       <h2 data-i18n="nav.subtab.auditlog">Audit log</h2>
@@ -2115,7 +2214,7 @@ async function withDelayedSpinner(button, fn, delayMs = 1000) {
   }
 }
 
-const I18N_PL = {
+const I18N = { pl: {
   "common.adding": "Dodawanie...",
   "common.saving": "Zapisywanie...",
   "common.checking": "Sprawdzanie...",
@@ -2261,6 +2360,7 @@ const I18N_PL = {
   "common.enable": "Włącz",
   "common.disable": "Wyłącz",
   "common.remove": "Usuń",
+  "common.delete": "Usuń",
   "common.experimental": "eksperymentalne",
   "common.enrich": "Sprawdź",
   "common.enrich_title": "Sprawdź reputację przez skonfigurowane usługi threat-intel (tylko ręcznie)",
@@ -2417,6 +2517,9 @@ const I18N_PL = {
   "alerts.kind.dns_tunneling": "Wiele odrębnych subdomen jednej domeny (możliwy DNS tunneling)",
   "alerts.kind.subdomain_count_burst": "Wiele odrębnych subdomen jednej domeny (samo liczenie, bez filtra losowości)",
   "alerts.kind.ptr_scan": "Wiele odwrotnych zapytań DNS do lokalnych/prywatnych IP (możliwe skanowanie sieci wewnętrznej)",
+  "alerts.kind.new_dns_client": "Wykryto nowego klienta DNS",
+  "alerts.kind.new_dhcp_client": "Wykryto nowego klienta DHCP",
+  "alerts.kind.rogue_dhcp_server": "Wykryto nierozpoznany serwer DHCP w sieci",
   "alerts.kind.watched_domain": "Obserwowana domena: {domain}",
   "alerts.kind.typosquat": "Możliwy typosquat: {protected}",
   "alerts.kind.rebinding": "Możliwy DNS rebinding: {domain}",
@@ -2428,6 +2531,10 @@ const I18N_PL = {
   "alerts.summary.dns_tunneling": "{count} odrębnych, długich/losowo wyglądających subdomen {base} odpytanych w ostatnie {window} min (śr. długość nazwy {avglen} znaków)",
   "alerts.summary.subdomain_count_burst": "{count} odrębnych subdomen {base} odpytanych w ostatnie {window} min",
   "alerts.summary.ptr_scan": "{count} odrębnych odwrotnych zapytań DNS do lokalnych/prywatnych IP w ostatnie {window} min",
+  "alerts.summary.new_dns_client": "Pierwsze zaobserwowane zapytanie DNS od tego klienta",
+  "alerts.summary.new_dhcp_client": "Pierwsza dzierżawa DHCP przyznana {mac} ({ip})",
+  "alerts.summary.rogue_dhcp_server": "Oferta DHCP od nierozpoznanego serwera {server_ip} (oczekiwano jednego z: {allowed})",
+  "alerts.summary.rogue_dhcp_none_configured": "żaden nie skonfigurowany",
   "alerts.summary.watched_domain": "Odpytano obserwowaną domenę \"{domain}\" (reguła: {rule})",
   "alerts.summary.typosquat_typo": "Domena \"{domain}\" wygląda jak literówka \"{protected}\"",
   "alerts.summary.typosquat_embedded": "Domena \"{domain}\" podszywa się pod \"{protected}\"",
@@ -2719,29 +2826,99 @@ const I18N_PL = {
   "account.language.en": "English",
   "account.language.pl": "Polski",
   "account.language.save": "Zapisz język",
-};
+
+  "nav.subtab.dhcp": "DHCP",
+  "dhcp.title": "Serwer DHCP",
+  "dhcp.hint.main": "Wbudowany serwer DHCP, całkowicie opcjonalny i domyślnie wyłączony - działa obok własnego resolwera DNS-shield, dzięki czemu dzierżawione urządzenia mogą automatycznie dostać DNS-shield jako swój serwer DNS. Wymaga, żeby kontener realnie widział ruch broadcastowy w sieci LAN (sieć hosta albo sub-interfejs macvlan/VLAN) oraz uprawnień NET_ADMIN/NET_RAW - sieć Dockera typu bridge nie obsłuży prawdziwych klientów DHCP. Dokładna konfiguracja Compose jest w README.",
+  "dhcp.enable": "Włącz serwer DHCP (wymaga restartu)",
+  "dhcp.save": "Zapisz ustawienia DHCP",
+  "dhcp.scopes_title": "Zakresy (scopes)",
+  "dhcp.hint.scopes": "Jeden zakres na podsieć/VLAN. Każdy potrzebuje własnej puli adresów, własnego adresu IP tego serwera w tej sieci (identyfikator serwera) oraz - dla VLAN-u - numerycznego tagu 802.1q; DNS-shield sam utworzy i będzie zarządzał otagowanym sub-interfejsem.",
+  "dhcp.field.name": "Nazwa",
+  "dhcp.field.interface": "Interfejs",
+  "dhcp.field.vlan_id": "ID VLAN (opcjonalnie)",
+  "dhcp.field.server_ip": "Adres IP tego serwera w tej sieci",
+  "dhcp.field.network": "Sieć (CIDR)",
+  "dhcp.field.pool_start": "Początek puli",
+  "dhcp.field.pool_end": "Koniec puli",
+  "dhcp.field.gateway": "Brama",
+  "dhcp.field.dns_servers": "Serwery DNS (oddzielone przecinkami, puste = ten serwer)",
+  "dhcp.field.domain_name": "Nazwa domeny",
+  "dhcp.field.lease_seconds": "Czas dzierżawy (sekundy)",
+  "dhcp.field.ntp_servers": "Serwery NTP (oddzielone przecinkami)",
+  "dhcp.field.wins_servers": "Serwery WINS (oddzielone przecinkami)",
+  "dhcp.field.mtu": "MTU interfejsu",
+  "dhcp.field.tftp_server": "Serwer TFTP (PXE)",
+  "dhcp.field.bootfile_name": "Nazwa pliku rozruchowego (PXE)",
+  "dhcp.field.excluded_ips": "Wykluczone adresy IP w puli (oddzielone przecinkami)",
+  "dhcp.field.static_routes": "Trasy statyczne, jedna na linię: sieć/prefiks via brama",
+  "dhcp.field.custom_options": "Niestandardowe opcje DHCP, jedna na linię: kod:typ:wartość (typ: ip, ip_list, string, uint32, hex)",
+  "dhcp.add_scope": "Dodaj zakres",
+  "dhcp.fill_required": "Wypełnij nazwę, interfejs, adres IP serwera, sieć i zakres puli.",
+  "dhcp.disable_scope": "Wyłącz",
+  "dhcp.enable_scope": "Włącz",
+  "dhcp.confirm_delete_scope": "Usunąć ten zakres DHCP?",
+  "dhcp.save_scope": "Zapisz zakres",
+  "dhcp.reservations_title": "Stałe rezerwacje",
+  "dhcp.col.mac": "MAC",
+  "dhcp.col.ip": "IP",
+  "dhcp.col.hostname": "Nazwa hosta",
+  "dhcp.col.scope": "Zakres",
+  "dhcp.col.expires": "Wygasa",
+  "dhcp.hostname_ph": "nazwa hosta (opcjonalnie)",
+  "dhcp.leases_title": "Aktywne dzierżawy",
+  "dhcp.release": "Zwolnij",
+  "dhcp.reserve": "Zarezerwuj",
+  "dhcp.reserve_title": "Zamień tę dynamiczną dzierżawę na stałą rezerwację",
+  "dhcp.rogue_title": "Wykrywanie obcego serwera DHCP",
+  "dhcp.hint.rogue": "Okresowo wysyła w sieci prawdziwy pakiet DHCPDISCOVER (niezależnie od serwera powyżej - działa nawet gdy jest wyłączony) i oznacza każdą odpowiedź DHCPOFFER z adresu IP serwera, którego nie ma na jawnej liście dozwolonych - to oznaka drugiego, potencjalnie obcego lub źle skonfigurowanego serwera DHCP w tej samej sieci.",
+  "dhcp.rogue.enable": "Włącz wykrywanie obcego serwera DHCP",
+  "dhcp.rogue.interfaces": "Interfejsy do sprawdzania (oddzielone przecinkami, puste = domyślny)",
+  "dhcp.rogue.allowed": "Znane, zaufane adresy IP serwerów DHCP (oddzielone przecinkami)",
+  "dhcp.rogue.interval": "Częstotliwość sprawdzania (minuty)",
+  "dhcp.rogue.cooldown": "Odstęp między ponownymi alertami (minuty)",
+  "dhcp.rogue.save": "Zapisz ustawienia wykrywania",
+  "dhcp.newclient_title": "Wykrywanie nowych klientów",
+  "dhcp.hint.newclient": "Przez podaną liczbę dni uczy się, jacy klienci są już w Twojej sieci - licząc od włączenia tej funkcji albo od ostatniego \"Zresetuj uczenie\" - a po tym okresie zgłasza Alert przy pierwszym zaobserwowaniu klienta, którego jeszcze nie zna.",
+  "dhcp.newclient.dns_enable": "Alertuj o nowych klientach DNS",
+  "dhcp.newclient.dns_days": "Okres uczenia (dni)",
+  "dhcp.newclient.dhcp_enable": "Alertuj o nowych klientach DHCP",
+  "dhcp.newclient.dhcp_days": "Okres uczenia (dni)",
+  "dhcp.newclient.save": "Zapisz ustawienia wykrywania nowych klientów",
+  "dhcp.newclient.reset_dns": "Zresetuj uczenie klientów DNS",
+  "dhcp.newclient.reset_dhcp": "Zresetuj uczenie klientów DHCP",
+  "dhcp.confirm_reset_dns": "Zapomnieć wszystkich znanych klientów DNS i zacząć okres uczenia od nowa?",
+  "dhcp.confirm_reset_dhcp": "Zapomnieć wszystkich znanych klientów DHCP i zacząć okres uczenia od nowa?",
+  "toast.saved": "Zapisano",
+  "toast.scope_added": "Dodano zakres",
+  "toast.reset_done": "Zresetowano uczenie",
+  "toast.reserved": "Zarezerwowano",
+} };
 
 function detectBrowserLang() {
   const nav = (navigator.language || navigator.userLanguage || "en").toLowerCase();
-  return nav.startsWith("pl") ? "pl" : "en";
+  const match = Object.keys(I18N).find((code) => nav.startsWith(code));
+  return match || "en";
 }
 
 function t(key, fallback) {
-  if (currentLang === "pl" && Object.prototype.hasOwnProperty.call(I18N_PL, key)) return I18N_PL[key];
+  const dict = I18N[currentLang];
+  if (dict && Object.prototype.hasOwnProperty.call(dict, key)) return dict[key];
   return fallback !== undefined ? fallback : key;
 }
 
 function applyI18n(root) {
   const scope = root || document;
+  const dict = I18N[currentLang];
   scope.querySelectorAll("[data-i18n]").forEach((elm) => {
     if (elm.dataset.i18nOrig === undefined) elm.dataset.i18nOrig = elm.innerHTML;
     const key = elm.getAttribute("data-i18n");
-    elm.innerHTML = currentLang === "pl" && Object.prototype.hasOwnProperty.call(I18N_PL, key) ? I18N_PL[key] : elm.dataset.i18nOrig;
+    elm.innerHTML = dict && Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : elm.dataset.i18nOrig;
   });
   scope.querySelectorAll("[data-i18n-ph]").forEach((elm) => {
     if (elm.dataset.i18nPhOrig === undefined) elm.dataset.i18nPhOrig = elm.getAttribute("placeholder") || "";
     const key = elm.getAttribute("data-i18n-ph");
-    elm.setAttribute("placeholder", currentLang === "pl" && Object.prototype.hasOwnProperty.call(I18N_PL, key) ? I18N_PL[key] : elm.dataset.i18nPhOrig);
+    elm.setAttribute("placeholder", dict && Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : elm.dataset.i18nPhOrig);
   });
   document.documentElement.lang = currentLang;
 }
@@ -3992,6 +4169,313 @@ async function loadClientGroups() {
   });
 }
 
+function parseCommaList(value) {
+  return (value || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function parseStaticRoutes(text) {
+  return (text || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+    const m = line.match(/^([\d.]+)\/(\d+)\s+via\s+([\d.]+)$/i);
+    return m ? { network: m[1], prefix_len: parseInt(m[2], 10), gateway: m[3] } : null;
+  }).filter(Boolean);
+}
+
+function formatStaticRoutes(routes) {
+  return (routes || []).map((r) => `${r.network}/${r.prefix_len} via ${r.gateway}`).join("\n");
+}
+
+function parseCustomOptions(text) {
+  return (text || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+    const parts = line.split(":");
+    if (parts.length < 3) return null;
+    const [code, type, ...rest] = parts;
+    const raw = rest.join(":").trim();
+    return { code: parseInt(code, 10), type, value: type === "ip_list" ? parseCommaList(raw) : raw };
+  }).filter(Boolean);
+}
+
+function formatCustomOptions(options) {
+  return (options || []).map((o) => `${o.code}:${o.type}:${Array.isArray(o.value) ? o.value.join(",") : o.value}`).join("\n");
+}
+
+async function loadDhcpScopes() {
+  const scopes = await api("/api/dhcp/scopes");
+  renderDhcpScopes(scopes);
+}
+
+function renderDhcpScopes(scopes) {
+  const container = document.getElementById("dhcp-scope-list");
+  container.innerHTML = "";
+  scopes.forEach((scope, i) => {
+    const card = el("div", { class: "group-card" });
+
+    const title = scope.vlan_id ? `${scope.name} (VLAN ${scope.vlan_id})` : scope.name;
+    const header = el("div", { class: "row" }, [
+      el("h3", { style: "margin:0;", text: title }),
+      el("span", { class: "tag " + (scope.enabled ? "allowed" : "blocked"), text: scope.enabled ? t("tag.enabled", "enabled") : t("tag.disabled", "disabled") }),
+    ]);
+    card.appendChild(header);
+
+    const toggleBtn = el("button", { class: "secondary", type: "button", text: scope.enabled ? t("dhcp.disable_scope", "Disable") : t("dhcp.enable_scope", "Enable") });
+    toggleBtn.onclick = async () => {
+      await withSpinner(toggleBtn, () => api(`/api/dhcp/scopes/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+      refreshAll();
+    };
+    const delBtn = el("button", { class: "danger", type: "button", text: t("common.delete", "Delete") });
+    delBtn.onclick = async () => {
+      if (!confirm(t("dhcp.confirm_delete_scope", "Delete this DHCP scope?"))) return;
+      await api(`/api/dhcp/scopes/${i}`, { method: "DELETE" });
+      refreshAll();
+    };
+    card.appendChild(el("div", { class: "inline" }, [toggleBtn, delBtn]));
+
+    const form = el("form", { class: "field-grid" });
+    const fields = {};
+    const addField = (key, label, value, type) => {
+      const wrap = el("div", { class: "field" });
+      wrap.appendChild(el("label", { text: label }));
+      const input = el("input", { type: type || "text", value: value ?? "" });
+      fields[key] = input;
+      wrap.appendChild(input);
+      form.appendChild(wrap);
+    };
+    addField("interface", t("dhcp.field.interface", "Interface"), scope.interface);
+    addField("vlan_id", t("dhcp.field.vlan_id", "VLAN ID"), scope.vlan_id ?? "", "number");
+    addField("server_ip", t("dhcp.field.server_ip", "This server's IP on this network"), scope.server_ip);
+    addField("network", t("dhcp.field.network", "Network (CIDR)"), scope.network);
+    addField("pool_start", t("dhcp.field.pool_start", "Pool start"), scope.pool_start);
+    addField("pool_end", t("dhcp.field.pool_end", "Pool end"), scope.pool_end);
+    addField("gateway", t("dhcp.field.gateway", "Gateway"), scope.gateway);
+    addField("dns_servers", t("dhcp.field.dns_servers", "DNS servers (comma separated, blank = this box)"), (scope.dns_servers || []).join(", "));
+    addField("domain_name", t("dhcp.field.domain_name", "Domain name"), scope.domain_name);
+    addField("lease_seconds", t("dhcp.field.lease_seconds", "Lease time (seconds)"), scope.lease_seconds, "number");
+    addField("ntp_servers", t("dhcp.field.ntp_servers", "NTP servers (comma separated)"), (scope.ntp_servers || []).join(", "));
+    addField("wins_servers", t("dhcp.field.wins_servers", "WINS servers (comma separated)"), (scope.wins_servers || []).join(", "));
+    addField("mtu", t("dhcp.field.mtu", "Interface MTU"), scope.mtu ?? "", "number");
+    addField("tftp_server", t("dhcp.field.tftp_server", "TFTP server (PXE)"), scope.tftp_server);
+    addField("bootfile_name", t("dhcp.field.bootfile_name", "Boot filename (PXE)"), scope.bootfile_name);
+    addField("excluded_ips", t("dhcp.field.excluded_ips", "Excluded IPs in pool (comma separated)"), (scope.excluded_ips || []).join(", "));
+
+    const routesWrap = el("div", { class: "field", style: "grid-column:1/-1;" });
+    routesWrap.appendChild(el("label", { text: t("dhcp.field.static_routes", "Static routes, one per line: network/prefix via gateway") }));
+    const routesInput = document.createElement("textarea");
+    routesInput.rows = 2;
+    routesInput.style.fontFamily = "monospace";
+    routesInput.style.fontSize = "0.8rem";
+    routesInput.value = formatStaticRoutes(scope.static_routes);
+    routesWrap.appendChild(routesInput);
+    form.appendChild(routesWrap);
+
+    const optionsWrap = el("div", { class: "field", style: "grid-column:1/-1;" });
+    optionsWrap.appendChild(el("label", { text: t("dhcp.field.custom_options", "Custom DHCP options, one per line: code:type:value (type: ip, ip_list, string, uint32, hex)") }));
+    const optionsInput = document.createElement("textarea");
+    optionsInput.rows = 2;
+    optionsInput.style.fontFamily = "monospace";
+    optionsInput.style.fontSize = "0.8rem";
+    optionsInput.value = formatCustomOptions(scope.custom_options);
+    optionsWrap.appendChild(optionsInput);
+    form.appendChild(optionsWrap);
+
+    form.appendChild(el("button", { type: "submit", text: t("dhcp.save_scope", "Save scope") }));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = {
+        interface: fields.interface.value.trim(),
+        vlan_id: fields.vlan_id.value ? parseInt(fields.vlan_id.value, 10) : null,
+        server_ip: fields.server_ip.value.trim(),
+        network: fields.network.value.trim(),
+        pool_start: fields.pool_start.value.trim(),
+        pool_end: fields.pool_end.value.trim(),
+        gateway: fields.gateway.value.trim(),
+        dns_servers: parseCommaList(fields.dns_servers.value),
+        domain_name: fields.domain_name.value.trim(),
+        lease_seconds: parseFloat(fields.lease_seconds.value) || 86400,
+        ntp_servers: parseCommaList(fields.ntp_servers.value),
+        wins_servers: parseCommaList(fields.wins_servers.value),
+        mtu: fields.mtu.value ? parseInt(fields.mtu.value, 10) : null,
+        tftp_server: fields.tftp_server.value.trim(),
+        bootfile_name: fields.bootfile_name.value.trim(),
+        excluded_ips: parseCommaList(fields.excluded_ips.value),
+        static_routes: parseStaticRoutes(routesInput.value),
+        custom_options: parseCustomOptions(optionsInput.value),
+      };
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/dhcp/scopes/${i}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      });
+      refreshAll();
+      showToast(t("toast.saved", "Saved"));
+    });
+    card.appendChild(form);
+
+    const resWrap = el("div", { class: "rule-editor" });
+    resWrap.appendChild(el("div", { class: "title", text: t("dhcp.reservations_title", "Static reservations") }));
+    const resTable = el("table");
+    resTable.appendChild(el("thead", {}, [el("tr", {}, [
+      el("th", { text: t("dhcp.col.mac", "MAC") }), el("th", { text: t("dhcp.col.ip", "IP") }),
+      el("th", { text: t("dhcp.col.hostname", "Hostname") }), el("th", {}),
+    ])]));
+    const resBody = document.createElement("tbody");
+    (scope.reservations || []).forEach((r) => {
+      const rmBtn = el("button", { class: "danger", type: "button", text: t("common.remove", "Remove") });
+      rmBtn.onclick = async () => {
+        await api(`/api/dhcp/scopes/${i}/reservations/${encodeURIComponent(r.mac)}`, { method: "DELETE" });
+        refreshAll();
+      };
+      resBody.appendChild(el("tr", {}, [
+        el("td", { text: r.mac }), el("td", { text: r.ip }), el("td", { text: r.hostname || "" }),
+        el("td", {}, [rmBtn]),
+      ]));
+    });
+    resTable.appendChild(resBody);
+    resWrap.appendChild(resTable);
+
+    const resForm = el("form", { class: "inline" });
+    const macInput = el("input", { type: "text", placeholder: "AA:BB:CC:DD:EE:FF" });
+    const ipInput = el("input", { type: "text", placeholder: "192.168.1.50" });
+    const hostInput = el("input", { type: "text", placeholder: t("dhcp.hostname_ph", "hostname (optional)") });
+    resForm.appendChild(macInput);
+    resForm.appendChild(ipInput);
+    resForm.appendChild(hostInput);
+    resForm.appendChild(el("button", { type: "submit", text: t("common.add", "Add") }));
+    resForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const mac = macInput.value.trim();
+      const ip = ipInput.value.trim();
+      if (!mac || !ip) return;
+      try {
+        await api(`/api/dhcp/scopes/${i}/reservations`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac, ip, hostname: hostInput.value.trim() || null }),
+        });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+    });
+    resWrap.appendChild(resForm);
+    card.appendChild(resWrap);
+
+    container.appendChild(card);
+  });
+}
+
+document.getElementById("add-dhcp-scope-btn").addEventListener("click", async () => {
+  const name = document.getElementById("dhcp-new-name").value.trim();
+  const interfaceName = document.getElementById("dhcp-new-interface").value.trim();
+  const vlan = document.getElementById("dhcp-new-vlan").value;
+  const serverIp = document.getElementById("dhcp-new-server-ip").value.trim();
+  const network = document.getElementById("dhcp-new-network").value.trim();
+  const poolStart = document.getElementById("dhcp-new-pool-start").value.trim();
+  const poolEnd = document.getElementById("dhcp-new-pool-end").value.trim();
+  const gateway = document.getElementById("dhcp-new-gateway").value.trim();
+  if (!name || !interfaceName || !serverIp || !network || !poolStart || !poolEnd) {
+    alert(t("dhcp.fill_required", "Fill in name, interface, server IP, network, and pool range."));
+    return;
+  }
+  try {
+    await api("/api/dhcp/scopes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name, interface: interfaceName, vlan_id: vlan ? parseInt(vlan, 10) : null,
+        server_ip: serverIp, network, pool_start: poolStart, pool_end: poolEnd, gateway,
+      }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  document.getElementById("add-dhcp-scope-form").reset();
+  refreshAll();
+  showToast(t("toast.scope_added", "Scope added") + `: ${name}`);
+});
+
+document.getElementById("dhcp-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/dhcp", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: document.getElementById("s-dhcp-enabled").checked }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("rogue-dhcp-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/rogue-dhcp-detection", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: document.getElementById("s-rogue-dhcp-enabled").checked,
+        interfaces: parseCommaList(document.getElementById("s-rogue-dhcp-interfaces").value),
+        allowed_server_ips: parseCommaList(document.getElementById("s-rogue-dhcp-allowed").value),
+        check_interval_minutes: parseFloat(document.getElementById("s-rogue-dhcp-interval").value) || 15,
+        cooldown_minutes: parseFloat(document.getElementById("s-rogue-dhcp-cooldown").value) || 60,
+      }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("newclient-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/new-client-detection", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dns_enabled: document.getElementById("s-newclient-dns-enabled").checked,
+        dns_learning_days: parseFloat(document.getElementById("s-newclient-dns-days").value) || 7,
+        dhcp_enabled: document.getElementById("s-newclient-dhcp-enabled").checked,
+        dhcp_learning_days: parseFloat(document.getElementById("s-newclient-dhcp-days").value) || 7,
+      }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("newclient-reset-dns").addEventListener("click", async (e) => {
+  if (!confirm(t("dhcp.confirm_reset_dns", "Forget every known DNS client and restart the learning period?"))) return;
+  await withSpinner(e.currentTarget, () => api("/api/new-client-detection/reset-dns", { method: "POST" }), t("common.saving", "Saving..."));
+  showToast(t("toast.reset_done", "Learning reset"));
+});
+
+document.getElementById("newclient-reset-dhcp").addEventListener("click", async (e) => {
+  if (!confirm(t("dhcp.confirm_reset_dhcp", "Forget every known DHCP client and restart the learning period?"))) return;
+  await withSpinner(e.currentTarget, () => api("/api/new-client-detection/reset-dhcp", { method: "POST" }), t("common.saving", "Saving..."));
+  showToast(t("toast.reset_done", "Learning reset"));
+});
+
+async function loadDhcpLeases() {
+  const leases = await api("/api/dhcp/leases");
+  const rows = document.getElementById("dhcp-lease-rows");
+  rows.innerHTML = "";
+  for (const lease of leases) {
+    const releaseBtn = el("button", { class: "danger", type: "button", text: t("dhcp.release", "Release") });
+    releaseBtn.onclick = async () => {
+      await api(`/api/dhcp/leases/${encodeURIComponent(lease.mac)}`, { method: "DELETE" });
+      loadDhcpLeases();
+    };
+    const reserveBtn = el("button", { class: "secondary", type: "button", text: t("dhcp.reserve", "Reserve") });
+    reserveBtn.title = t("dhcp.reserve_title", "Turn this dynamic lease into a permanent static reservation");
+    reserveBtn.onclick = async () => {
+      try {
+        await api(`/api/dhcp/leases/${encodeURIComponent(lease.mac)}/reserve`, { method: "POST" });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+      showToast(t("toast.reserved", "Reserved"));
+    };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: lease.mac }),
+      el("td", { text: lease.ip }),
+      el("td", { text: lease.hostname || "" }),
+      el("td", { text: lease.scope }),
+      el("td", { text: new Date(lease.expires_at * 1000).toLocaleString() }),
+      el("td", {}, [el("div", { class: "row-actions" }, [reserveBtn, releaseBtn])]),
+    ]));
+  }
+}
+
 async function loadSettings() {
   const s = await api("/api/settings");
 
@@ -4151,6 +4635,21 @@ async function loadSettings() {
   document.getElementById("s-sso-auto-provision").checked = sso.auto_provision !== false;
   document.getElementById("s-sso-default-role").value = sso.default_role ?? "user";
   document.getElementById("sso-redirect-uri-hint").textContent = `${location.origin}/api/sso/callback`;
+
+  document.getElementById("s-dhcp-enabled").checked = !!(s.dhcp || {}).enabled;
+
+  const rogue = s.rogue_dhcp_detection || {};
+  document.getElementById("s-rogue-dhcp-enabled").checked = !!rogue.enabled;
+  document.getElementById("s-rogue-dhcp-interfaces").value = (rogue.interfaces || []).join(", ");
+  document.getElementById("s-rogue-dhcp-allowed").value = (rogue.allowed_server_ips || []).join(", ");
+  document.getElementById("s-rogue-dhcp-interval").value = rogue.check_interval_minutes ?? 15;
+  document.getElementById("s-rogue-dhcp-cooldown").value = rogue.cooldown_minutes ?? 60;
+
+  const newClient = s.new_client_detection || {};
+  document.getElementById("s-newclient-dns-enabled").checked = !!newClient.dns_enabled;
+  document.getElementById("s-newclient-dns-days").value = newClient.dns_learning_days ?? 7;
+  document.getElementById("s-newclient-dhcp-enabled").checked = !!newClient.dhcp_enabled;
+  document.getElementById("s-newclient-dhcp-days").value = newClient.dhcp_learning_days ?? 7;
 }
 
 async function loadLogIgnore() {
@@ -4783,6 +5282,9 @@ const ALERT_KIND_LABEL_FNS = {
   dns_tunneling: () => t("alerts.kind.dns_tunneling", "Many distinct subdomains of one domain (possible DNS tunneling)"),
   subdomain_count_burst: () => t("alerts.kind.subdomain_count_burst", "Many distinct subdomains of one domain (raw count, no randomness filter)"),
   ptr_scan: () => t("alerts.kind.ptr_scan", "Many reverse-DNS lookups of local/private IPs (possible internal network scan)"),
+  new_dns_client: () => t("alerts.kind.new_dns_client", "New DNS client detected"),
+  new_dhcp_client: () => t("alerts.kind.new_dhcp_client", "New DHCP client detected"),
+  rogue_dhcp_server: () => t("alerts.kind.rogue_dhcp_server", "Unrecognized DHCP server on the network"),
 };
 
 function alertKindLabel(a) {
@@ -4845,6 +5347,17 @@ function alertSummaryText(a) {
   if (kind === "ptr_scan") {
     return t("alerts.summary.ptr_scan", "{count} distinct reverse-DNS lookups of local/private IPs in the last {window} min")
       .replace("{count}", d.ptr_scan_count).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind === "new_dns_client") {
+    return t("alerts.summary.new_dns_client", "First DNS query ever seen from this client");
+  }
+  if (kind === "new_dhcp_client") {
+    return t("alerts.summary.new_dhcp_client", "First DHCP lease ever issued to {mac} ({ip})")
+      .replace("{mac}", d.mac || "").replace("{ip}", d.ip || "");
+  }
+  if (kind === "rogue_dhcp_server") {
+    return t("alerts.summary.rogue_dhcp_server", "DHCP offer from unrecognized server {server_ip} (expected one of: {allowed})")
+      .replace("{server_ip}", d.server_ip || "").replace("{allowed}", (d.allowed_ips || []).join(", ") || t("alerts.summary.rogue_dhcp_none_configured", "none configured"));
   }
   if (kind.startsWith("watched_domain:")) {
     return t("alerts.summary.watched_domain", 'Queried watched domain "{domain}" (rule: {rule})')
@@ -5725,6 +6238,8 @@ async function refreshAll() {
   await loadBlocklistCatalog();
   await loadRules();
   await loadClientGroups();
+  await loadDhcpScopes();
+  await loadDhcpLeases();
   await loadSettings();
   await loadLogIgnore();
   await loadUpstreamHealth();
@@ -6628,7 +7143,7 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
 
 document.getElementById("find-domain-btn").addEventListener("click", openFindDomainWindow);
 
-const SUBTAB_NAMES = ["general", "users", "sso", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans"];
+const SUBTAB_NAMES = ["general", "users", "sso", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans", "dhcp"];
 
 function setActiveSubtab(subtab) {
   if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";
@@ -6780,6 +7295,25 @@ function applyRoleVisibility() {
   }
 }
 
+async function loadLanguageOptions() {
+  let languages;
+  try {
+    languages = await fetch("/api/languages").then((r) => r.json());
+  } catch (err) {
+    return;
+  }
+  const select = document.getElementById("s-account-language");
+  const current = select.value;
+  select.querySelectorAll("option:not([value=\"\"])").forEach((opt) => opt.remove());
+  for (const lang of languages) {
+    const opt = document.createElement("option");
+    opt.value = lang.code;
+    opt.textContent = lang.name;
+    select.appendChild(opt);
+  }
+  select.value = current;
+}
+
 async function boot() {
   let whoami;
   try {
@@ -6792,6 +7326,7 @@ async function boot() {
   currentLang = currentUser && currentUser.language ? currentUser.language : detectBrowserLang();
   applyI18n();
   renderAuthStatus();
+  loadLanguageOptions();
 
   if (!currentUser) {
     await renderPublicView();

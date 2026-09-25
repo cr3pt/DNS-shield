@@ -18,12 +18,15 @@ from app.block_page import start_block_page_server
 from app.blocklist import BlocklistManager
 from app.client_names import ClientNameResolver
 from app.config import ConfigStore
+from app.dhcp.rogue_detector import RogueDhcpDetector
+from app.dhcp.server import DhcpServer
 from app.dns_cache import DNSCache
 from app.dns_server import build_resolver, reuse_port_supported, start_dns_servers, start_dot_server
 from app.dnssec import DnssecCache
 from app.enrichment_store import EnrichmentStore
 from app.tls import ensure_self_signed_cert
 from app.mac_resolve import MacResolver
+from app import new_client_detection
 from app.notifications import NotificationSender
 from app.sessions import SessionStore
 from app.stats import Stats
@@ -154,6 +157,27 @@ def main() -> None:
     auto_enricher = AutoEnricher(config_store, stats, enrichment_store, anomaly=anomaly)
     auto_enricher.start()
 
+    def _on_new_dhcp_client(mac: str, ip: str, scope_name: str) -> None:
+        if not config_store.get("new_client_detection", "dhcp_enabled", default=False):
+            return
+        if not new_client_detection.learning_elapsed(
+            config_store, "new_client_detection", "dhcp_learning_days", "dhcp_learning_started_at"
+        ):
+            return
+        anomaly.record_external_alert(
+            client=mac,
+            kind="new_dhcp_client",
+            severity="low",
+            summary=f"New DHCP client detected: {mac} ({ip})",
+            details={"mac": mac, "ip": ip, "scope": scope_name},
+        )
+
+    dhcp_server = DhcpServer(config_store, DATA_DIR, on_new_client=_on_new_dhcp_client)
+    dhcp_server.start()
+
+    rogue_dhcp_detector = RogueDhcpDetector(config_store, anomaly_detector=anomaly)
+    rogue_dhcp_detector.start()
+
     users = UserStore(config_store)
     sessions = SessionStore()
     audit_log = AuditLog(DATA_DIR / "audit.db", config_store)
@@ -203,6 +227,8 @@ def main() -> None:
         dnssec_cache=dnssec_cache,
         resolver=resolver,
         audit_log=audit_log,
+        dhcp_server=dhcp_server,
+        rogue_dhcp_detector=rogue_dhcp_detector,
     )
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))

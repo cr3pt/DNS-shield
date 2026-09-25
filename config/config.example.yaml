@@ -167,3 +167,22 @@ notifications:
     to_addresses: []
     min_severity: "medium"
   webhooks: []
+
+dhcp:
+  enabled: false
+  scopes: []
+
+rogue_dhcp_detection:
+  enabled: false
+  interfaces: []
+  allowed_server_ips: []
+  check_interval_minutes: 15
+  cooldown_minutes: 60
+
+new_client_detection:
+  dns_enabled: false
+  dns_learning_days: 7
+  dns_learning_started_at: null
+  dhcp_enabled: false
+  dhcp_learning_days: 7
+  dhcp_learning_started_at: null

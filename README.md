@@ -1826,7 +1826,12 @@ automatic) and takes effect immediately, no reload needed. The public,
 signed-out view and the login page (no account to look a preference up on
 yet) always follow the browser's language. Translation happens entirely
 client-side against a small lookup table baked into the page - nothing is
-sent anywhere to translate it.
+sent anywhere to translate it. The language list itself
+(`GET /api/languages`, backing that dropdown) and the server-side
+validation of what you can save both come from one shared list in the
+backend, so adding a whole new language later is exactly two edits: one
+line there, one translation dictionary in the page - nothing else in the
+UI needs to change to pick it up.
 
 ### Mobile
 
@@ -1874,6 +1879,101 @@ your entire current configuration is replaced outright with whatever was
 in the backup (no merging, since it's DNS-shield's own native format with
 nothing to convert). Irreversible unless you've also backed up the config
 you're about to overwrite - the dashboard asks for confirmation first.
+
+## DHCP server (optional)
+
+Settings -> DHCP has a built-in DHCPv4 server - entirely optional, off by
+default, and implemented natively (no `dnsmasq`/`Kea` process bundled
+in) so it's driven by the exact same `config.db` as everything else and
+shows up in the exact same dashboard.
+
+**This needs real access to your LAN's broadcast domain.** DHCP relies on
+L2 broadcast, which a default Docker bridge network doesn't forward -
+the container is isolated behind NAT. To actually serve real clients,
+change the `dns-shield` service in `docker-compose.yml` to use the
+host's network directly:
+
+```yaml
+services:
+  dns-shield:
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+```
+
+(drop the `ports:` list - `network_mode: host` ignores it, the container
+already shares the host's ports). `NET_ADMIN`/`NET_RAW` are what let it
+create/manage VLAN sub-interfaces and open the raw sockets DHCP needs on
+port 67. Without host networking, keep DHCP disabled and either run a
+real DHCP server on your router as usual, or run DNS-shield's DHCP
+server on bare metal/a VM with a real network interface instead of in
+this container.
+
+**Scopes** are the core unit of configuration - one per subnet/VLAN.
+Each has: a name, the network interface to listen on, an optional
+numeric VLAN ID (DNS-shield creates and manages the tagged 802.1q
+sub-interface itself via netlink - no manual `ip link` setup needed),
+this server's own IP address on that network (the DHCP "server
+identifier"), the network in CIDR form, a pool range, and the usual
+per-network settings: gateway, DNS servers (defaults to this box itself
+if left blank - the whole point of pairing DHCP with DNS-shield), domain
+name, lease time, NTP servers, WINS servers, interface MTU, a TFTP
+server/boot filename pair for PXE network booting, static routes, and
+IPs to exclude from the pool. Anything not covered by a named field -
+any of the 100+ options the DHCP spec defines - goes in **custom DHCP
+options**, one per line as `code:type:value` (`type` one of `ip`,
+`ip_list`, `string`, `uint32`, `hex`), applied on top of everything
+else.
+
+**Static reservations** pin a specific MAC address to a specific IP
+forever (never handed out to anyone else, never expires) and can
+override that one client's DNS servers independently of the rest of the
+scope - handy for a device that needs to keep resolving through a
+different resolver. Add one by hand under a scope, or click **Reserve**
+next to an existing entry in the **Active leases** table to turn a
+dynamic lease permanent without retyping its MAC/IP.
+
+Every request/response (DISCOVER/OFFER/REQUEST/ACK/NAK, RELEASE,
+DECLINE, INFORM) is handled directly, one thread per scope. Leases
+persist in their own local SQLite file, independent of `config.db`, and
+expire and get swept automatically. Known limitations: IPv4 only, and no
+DHCP relay-agent (`giaddr`) support - the server has to share an L2
+segment with its clients (a relay agent forwarding from a remote subnet
+won't work).
+
+### Rogue DHCP server detection
+
+A second, independent piece: Settings -> DHCP -> **Rogue DHCP server
+detection** periodically broadcasts a real DHCPDISCOVER on the network
+and listens for DHCPOFFER replies - from *any* DHCP server that happens
+to answer, not just this one. Works even with DNS-shield's own DHCP
+server switched off, purely as a network health check. Any responding
+server IP that isn't on the allow-list (this box's own scope
+server-identifier IPs are always implicitly allowed, plus whatever else
+you list, e.g. your router) raises a **high**-severity alert - a sign of
+a second, possibly rogue or simply misconfigured, DHCP server answering
+on the same network, which is exactly the kind of thing that causes
+random clients to get the wrong gateway/DNS with no obvious cause.
+
+### New-client detection (DNS and DHCP)
+
+Settings -> DHCP -> **New-client detection** has two independent
+switches, one for DNS query clients and one for DHCP lease clients. Turn
+either on and set a learning period in days; for that long, every client
+it sees just gets quietly remembered, building up a baseline of "normal"
+devices on your network. Once the learning period elapses, the first
+time it ever sees a client it hasn't already learned raises a low
+severity alert - "New DNS client detected" or "New DHCP client
+detected" - once per client, never repeated for the same one again.
+
+The learning period restarts automatically the moment you flip either
+switch on, and the DNS side also restarts automatically whenever you
+purge the query log (Settings -> Cleans -> **Delete all logged
+queries**) - the log is your client history, so wiping it means starting
+that history over. Both sides also have their own **Reset learning**
+button for restarting on demand without needing to touch either
+of those.
 
 ## Importing from AdGuard Home or Pi-hole
 
