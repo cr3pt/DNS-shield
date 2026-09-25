@@ -1,0 +1,295 @@
+from __future__ import annotations
+
+import logging
+import sqlite3
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+from app.domain_suffix import registrable_domain
+
+logger = logging.getLogger("dnsshield.graph")
+
+_POLL_INTERVAL_SECONDS = 10
+_REVERSE_DNS_SUFFIXES = (".in-addr.arpa", ".ip6.arpa")
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS edges (
+    client TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    blocked_count INTEGER NOT NULL DEFAULT 0,
+    first_seen REAL NOT NULL,
+    last_seen REAL NOT NULL,
+    PRIMARY KEY (client, domain)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_client ON edges(client);
+CREATE INDEX IF NOT EXISTS idx_edges_domain ON edges(domain);
+"""
+
+
+def _degree_scores(degrees: list[int], zscore_threshold: float, min_degree: int) -> tuple[float, float]:
+    n = len(degrees)
+    if n == 0:
+        return 0.0, 0.0
+    mean = sum(degrees) / n
+    variance = sum((d - mean) ** 2 for d in degrees) / n
+    return mean, variance**0.5
+
+
+class ClientDomainGraph:
+    def __init__(self, config_store, stats, db_path: Path):
+        self._config = config_store
+        self._stats = stats
+        self._db_path = db_path
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._cursor: int | None = None
+        self._init_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
+    def _init_schema(self) -> None:
+        conn = self._connect()
+        try:
+            conn.executescript(SCHEMA)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._loop, name="client-domain-graph", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def _loop(self) -> None:
+        while not self._stop_event.wait(_POLL_INTERVAL_SECONDS):
+            try:
+                self._process_new_queries()
+            except Exception:
+                logger.exception("client-domain graph aggregation failed")
+
+    def _process_new_queries(self) -> None:
+        if self._cursor is None:
+            self._cursor = self._stats.max_query_id()
+            return
+        rows = self._stats.queries_since(self._cursor, limit=5000)
+        if not rows:
+            return
+        self._cursor = max(row["id"] for row in rows)
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                for row in rows:
+                    qname = (row["domain"] or "").rstrip(".").lower()
+                    if not qname or qname.endswith(_REVERSE_DNS_SUFFIXES):
+                        continue
+                    domain = registrable_domain(qname)
+                    if not domain:
+                        continue
+                    blocked_inc = 1 if row["blocked"] else 0
+                    conn.execute(
+                        "INSERT INTO edges (client, domain, count, blocked_count, first_seen, last_seen) "
+                        "VALUES (?, ?, 1, ?, ?, ?) "
+                        "ON CONFLICT(client, domain) DO UPDATE SET "
+                        "count = count + 1, blocked_count = blocked_count + excluded.blocked_count, "
+                        "last_seen = excluded.last_seen",
+                        (row["client"], domain, blocked_inc, row["ts"], row["ts"]),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def clear(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("DELETE FROM edges")
+                conn.commit()
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.close()
+
+    def get_graph(
+        self,
+        restrict_client_ips: list[str] | None = None,
+        min_count: int = 1,
+        limit_nodes: int = 150,
+    ) -> dict[str, Any]:
+        zscore_threshold = float(self._config.get("graph", "suspicious_zscore", default=2.5))
+        min_degree = int(self._config.get("graph", "suspicious_min_degree", default=15))
+
+        where = ["count >= ?"]
+        params: list[Any] = [min_count]
+        if restrict_client_ips is not None:
+            if not restrict_client_ips:
+                where.append("0")
+            else:
+                where.append("client IN (%s)" % ",".join("?" for _ in restrict_client_ips))
+                params.extend(restrict_client_ips)
+        where_sql = " AND ".join(where)
+
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            client_rows = conn.execute(
+                f"SELECT client, COUNT(*) AS degree, SUM(count) AS total, SUM(blocked_count) AS blocked, "
+                f"MIN(first_seen) AS first_seen, MAX(last_seen) AS last_seen "
+                f"FROM edges WHERE {where_sql} GROUP BY client",
+                params,
+            ).fetchall()
+            domain_rows = conn.execute(
+                f"SELECT domain, COUNT(*) AS degree, SUM(count) AS total, SUM(blocked_count) AS blocked, "
+                f"MIN(first_seen) AS first_seen, MAX(last_seen) AS last_seen "
+                f"FROM edges WHERE {where_sql} GROUP BY domain",
+                params,
+            ).fetchall()
+
+            client_mean, client_std = _degree_scores([r["degree"] for r in client_rows], zscore_threshold, min_degree)
+            domain_mean, domain_std = _degree_scores([r["degree"] for r in domain_rows], zscore_threshold, min_degree)
+
+            def _score(degree: int, mean: float, std: float) -> float:
+                return (degree - mean) / std if std > 0 else 0.0
+
+            clients = [
+                {
+                    "id": r["client"],
+                    "degree": r["degree"],
+                    "total": r["total"],
+                    "blocked": r["blocked"] or 0,
+                    "first_seen": r["first_seen"],
+                    "last_seen": r["last_seen"],
+                    "score": round(_score(r["degree"], client_mean, client_std), 2),
+                    "suspicious": r["degree"] >= min_degree and _score(r["degree"], client_mean, client_std) >= zscore_threshold,
+                }
+                for r in client_rows
+            ]
+            domains = [
+                {
+                    "id": r["domain"],
+                    "degree": r["degree"],
+                    "total": r["total"],
+                    "blocked": r["blocked"] or 0,
+                    "first_seen": r["first_seen"],
+                    "last_seen": r["last_seen"],
+                    "score": round(_score(r["degree"], domain_mean, domain_std), 2),
+                    "suspicious": r["degree"] >= min_degree and _score(r["degree"], domain_mean, domain_std) >= zscore_threshold,
+                }
+                for r in domain_rows
+            ]
+
+            clients.sort(key=lambda c: c["total"], reverse=True)
+            domains.sort(key=lambda d: d["total"], reverse=True)
+            truncated = limit_nodes > 0 and (len(clients) > limit_nodes or len(domains) > limit_nodes)
+            if limit_nodes > 0:
+                clients = clients[:limit_nodes]
+                domains = domains[:limit_nodes]
+
+            client_ids = {c["id"] for c in clients}
+            domain_ids = {d["id"] for d in domains}
+            if not client_ids or not domain_ids:
+                edges: list[dict[str, Any]] = []
+            else:
+                edge_where = where_sql
+                edge_params = list(params)
+                edge_where += " AND client IN (%s) AND domain IN (%s)" % (
+                    ",".join("?" for _ in client_ids),
+                    ",".join("?" for _ in domain_ids),
+                )
+                edge_params.extend(client_ids)
+                edge_params.extend(domain_ids)
+                edge_rows = conn.execute(
+                    f"SELECT client, domain, count, blocked_count, first_seen, last_seen FROM edges "
+                    f"WHERE {edge_where}",
+                    edge_params,
+                ).fetchall()
+                edges = [
+                    {
+                        "client": r["client"],
+                        "domain": r["domain"],
+                        "count": r["count"],
+                        "blocked": r["blocked_count"],
+                        "first_seen": r["first_seen"],
+                        "last_seen": r["last_seen"],
+                    }
+                    for r in edge_rows
+                ]
+        finally:
+            conn.close()
+
+        return {"clients": clients, "domains": domains, "edges": edges, "truncated": truncated}
+
+    def client_detail(self, client: str, restrict_client_ips: list[str] | None = None) -> dict[str, Any] | None:
+        if restrict_client_ips is not None and client not in restrict_client_ips:
+            return None
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT domain, count, blocked_count, first_seen, last_seen FROM edges "
+                "WHERE client = ? ORDER BY count DESC",
+                (client,),
+            ).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return {"client": client, "domains": [], "distinct_domains": 0, "total_count": 0}
+        return {
+            "client": client,
+            "domains": [
+                {
+                    "domain": r["domain"],
+                    "count": r["count"],
+                    "blocked": r["blocked_count"],
+                    "first_seen": r["first_seen"],
+                    "last_seen": r["last_seen"],
+                }
+                for r in rows
+            ],
+            "distinct_domains": len(rows),
+            "total_count": sum(r["count"] for r in rows),
+        }
+
+    def domain_detail(self, domain: str, restrict_client_ips: list[str] | None = None) -> dict[str, Any]:
+        where = ["domain = ?"]
+        params: list[Any] = [domain]
+        if restrict_client_ips is not None:
+            if not restrict_client_ips:
+                where.append("0")
+            else:
+                where.append("client IN (%s)" % ",".join("?" for _ in restrict_client_ips))
+                params.extend(restrict_client_ips)
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"SELECT client, count, blocked_count, first_seen, last_seen FROM edges "
+                f"WHERE {' AND '.join(where)} ORDER BY count DESC",
+                params,
+            ).fetchall()
+        finally:
+            conn.close()
+        return {
+            "domain": domain,
+            "clients": [
+                {
+                    "client": r["client"],
+                    "count": r["count"],
+                    "blocked": r["blocked_count"],
+                    "first_seen": r["first_seen"],
+                    "last_seen": r["last_seen"],
+                }
+                for r in rows
+            ],
+            "distinct_clients": len(rows),
+            "total_count": sum(r["count"] for r in rows),
+        }

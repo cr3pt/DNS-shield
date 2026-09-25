@@ -326,6 +326,11 @@ class ProxySettingsIn(BaseModel):
     enabled: bool | None = None
 
 
+class GraphSettingsIn(BaseModel):
+    suspicious_zscore: float | None = None
+    suspicious_min_degree: int | None = None
+
+
 class ProxyCertbotIn(BaseModel):
     email: str
 
@@ -611,6 +616,7 @@ def create_app(
     dhcp_server=None,
     rogue_dhcp_detector=None,
     proxy_manager=None,
+    client_domain_graph=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -1104,6 +1110,54 @@ def create_app(
         if range not in ("24h", "7d", "30d"):
             range = "24h"
         return stats.timeseries(range, client_ips=_allowed_client_ips(user))
+
+    @app.get("/api/graph")
+    def get_graph(
+        min_count: int = 1,
+        limit_nodes: int = 150,
+        user: dict[str, Any] = Depends(require_permission("view_graph")),
+    ) -> dict[str, Any]:
+        if client_domain_graph is None:
+            raise HTTPException(status_code=503, detail="Graph is not available")
+        return client_domain_graph.get_graph(
+            restrict_client_ips=_allowed_client_ips(user), min_count=max(1, min_count), limit_nodes=limit_nodes
+        )
+
+    @app.get("/api/graph/client/{client}")
+    def get_graph_client(
+        client: str, user: dict[str, Any] = Depends(require_permission("view_graph"))
+    ) -> dict[str, Any]:
+        if client_domain_graph is None:
+            raise HTTPException(status_code=503, detail="Graph is not available")
+        detail = client_domain_graph.client_detail(client, restrict_client_ips=_allowed_client_ips(user))
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Client not found")
+        detail["hostname"] = client_names.get(client) if client_names is not None else None
+        return detail
+
+    @app.get("/api/graph/domain/{domain}")
+    def get_graph_domain(
+        domain: str, user: dict[str, Any] = Depends(require_permission("view_graph"))
+    ) -> dict[str, Any]:
+        if client_domain_graph is None:
+            raise HTTPException(status_code=503, detail="Graph is not available")
+        return client_domain_graph.domain_detail(domain.lower(), restrict_client_ips=_allowed_client_ips(user))
+
+    @app.post("/api/graph/clear")
+    def clear_graph(_: dict[str, Any] = Depends(require_admin)) -> dict[str, bool]:
+        if client_domain_graph is None:
+            raise HTTPException(status_code=503, detail="Graph is not available")
+        client_domain_graph.clear()
+        return {"ok": True}
+
+    @app.patch("/api/settings/graph")
+    def update_graph_settings(body: GraphSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            cfg = data.setdefault("graph", {})
+            cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            return cfg
+
+        return config_store.mutate(_mutate)
 
     @app.get("/api/query-log/clients")
     def get_query_log_clients(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
@@ -2215,6 +2269,10 @@ To restore into an EXISTING instance (data/config.db already exists):
             "url_ping": _url_ping_settings(snap.get("url_ping", {})),
             "dhcp": {"enabled": bool(snap.get("dhcp", {}).get("enabled", False)), "scope_count": len(snap.get("dhcp", {}).get("scopes", []) or [])},
             "proxy": {"enabled": bool(snap.get("proxy", {}).get("enabled", False)), "domain_count": len(snap.get("proxy", {}).get("domains", []) or [])},
+            "graph": {
+                "suspicious_zscore": snap.get("graph", {}).get("suspicious_zscore", 2.5) or 2.5,
+                "suspicious_min_degree": snap.get("graph", {}).get("suspicious_min_degree", 15) or 15,
+            },
             "rogue_dhcp_detection": _rogue_dhcp_settings(snap.get("rogue_dhcp_detection", {})),
             "new_client_detection": _new_client_detection_settings(snap.get("new_client_detection", {})),
             "notifications": {
