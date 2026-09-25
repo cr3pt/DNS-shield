@@ -6,6 +6,7 @@ import re
 import threading
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -489,7 +490,19 @@ class BlocklistManager:
         safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
         return self._cache_dir / f"{safe}.cache"
 
-    def _fetch_one(self, name: str, url: str, parser=parse_list) -> tuple[set[str], dict[str, int], set[str]]:
+    def _fetch_one(
+        self, name: str, url: str, parser=parse_list, network: bool = True
+    ) -> tuple[set[str], dict[str, int], set[str]]:
+        cache_path = self._cache_path(name)
+
+        if not network:
+            # Disk-only warm start (no network I/O) - never touches the in-memory
+            # fetch cache, so the live refresh that follows shortly after isn't
+            # short-circuited by a memoized "just fetched" entry.
+            if cache_path.exists():
+                return parser(cache_path.read_text(encoding="utf-8"))
+            return (set(), {}, set())
+
         cache_key = (url, parser)
         now = time.time()
         with self._fetch_cache_lock:
@@ -497,7 +510,6 @@ class BlocklistManager:
             if cached is not None and now - cached[0] < _FETCH_CACHE_TTL_SECONDS:
                 return cached[1], cached[2], cached[3]
 
-        cache_path = self._cache_path(name)
         try:
             resp = requests.get(url, timeout=15)
             resp.raise_for_status()
@@ -518,21 +530,35 @@ class BlocklistManager:
         return result
 
     def _fetch_sources(
-        self, sources: Iterable[dict], parser=parse_list, describer=describe_format
+        self, sources: Iterable[dict], parser=parse_list, describer=describe_format, network: bool = True
     ) -> tuple[set[str], dict[str, int], dict[str, str], dict[str, str], set[str]]:
         merged: set[str] = set()
         counts: dict[str, int] = {}
         formats: dict[str, str] = {}
         domain_source: dict[str, str] = {}
         exceptions: set[str] = set()
-        for source in sources:
-            if not source.get("enabled", True):
-                continue
-            name = source.get("name") or source.get("url", "unnamed")
-            url = source.get("url")
-            if not url:
-                continue
-            domains, format_counts, source_exceptions = self._fetch_one(name, url, parser)
+
+        enabled: list[tuple[str, str]] = [
+            (source.get("name") or source.get("url", "unnamed"), source.get("url"))
+            for source in sources
+            if source.get("enabled", True) and source.get("url")
+        ]
+        if not enabled:
+            return merged, counts, formats, domain_source, exceptions
+
+        # Sources are fetched concurrently (each is an independent HTTP round-trip) -
+        # merged below in original list order so a domain's credited source stays
+        # deterministic regardless of which request happens to finish first.
+        results: dict[str, tuple[set[str], dict[str, int], set[str]]] = {}
+        with ThreadPoolExecutor(max_workers=min(8, len(enabled))) as executor:
+            future_to_name = {
+                executor.submit(self._fetch_one, name, url, parser, network): name for name, url in enabled
+            }
+            for future in as_completed(future_to_name):
+                results[future_to_name[future]] = future.result()
+
+        for name, _url in enabled:
+            domains, format_counts, source_exceptions = results[name]
             counts[name] = len(domains)
             formats[name] = describer(format_counts)
             merged |= domains
@@ -541,17 +567,23 @@ class BlocklistManager:
                 domain_source.setdefault(domain, name)
         return merged, counts, formats, domain_source, exceptions
 
-    def refresh(self) -> None:
+    def refresh(self, network: bool = True) -> None:
         with self._refresh_lock:
             sources = self._config.get("blocklists", "sources", default=[]) or []
-            merged, counts, formats, domain_source, block_exceptions = self._fetch_sources(sources)
+            merged, counts, formats, domain_source, block_exceptions = self._fetch_sources(
+                sources, network=network
+            )
 
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
-            allow_merged, allow_counts, allow_formats, _, allow_exceptions = self._fetch_sources(allow_sources)
+            allow_merged, allow_counts, allow_formats, _, allow_exceptions = self._fetch_sources(
+                allow_sources, network=network
+            )
             allow_merged |= block_exceptions | allow_exceptions
 
             alert_sources = self._config.get("alert_rules", "sources", default=[]) or []
-            alert_merged, alert_counts, alert_formats, alert_domain_source, _ = self._fetch_sources(alert_sources)
+            alert_merged, alert_counts, alert_formats, alert_domain_source, _ = self._fetch_sources(
+                alert_sources, network=network
+            )
             manual_alert_domains = {
                 d.strip().rstrip(".").lower() for d in (self._config.get("alert_rules", "domains", default=[]) or [])
                 if d.strip()
@@ -569,7 +601,9 @@ class BlocklistManager:
                 if not group_sources:
                     continue
                 name = group.get("name", "")
-                g_merged, g_counts, g_formats, g_domain_source, g_exceptions = self._fetch_sources(group_sources)
+                g_merged, g_counts, g_formats, g_domain_source, g_exceptions = self._fetch_sources(
+                    group_sources, network=network
+                )
                 group_blocked[name] = frozenset(g_merged - g_exceptions)
                 group_domain_source[name] = g_domain_source
                 group_source_counts[name] = g_counts
@@ -577,7 +611,7 @@ class BlocklistManager:
 
             answer_ip_sources = self._config.get("blocked_answer_ip_sources", default=[]) or []
             answer_ip_merged, answer_ip_counts, answer_ip_formats, answer_ip_source, _ = self._fetch_sources(
-                answer_ip_sources, parser=parse_ip_list, describer=describe_ip_format
+                answer_ip_sources, parser=parse_ip_list, describer=describe_ip_format, network=network
             )
             manual_answer_ips = {
                 v.strip() for v in (self._config.get("blocked_answer_ips", default=[]) or []) if v.strip()
@@ -617,17 +651,26 @@ class BlocklistManager:
                 self._answer_ip_source = answer_ip_source
                 self._answer_ip_source_counts = answer_ip_counts
                 self._answer_ip_source_formats = answer_ip_formats
-                self._last_refresh = time.time()
+                if network:
+                    self._last_refresh = time.time()
             logger.info(
-                "blocklist refresh complete: %d blocked domains from %d sources, "
+                "blocklist %s complete: %d blocked domains from %d sources, "
                 "%d allow-listed domains from %d sources, %d client group(s) with extra sources, "
                 "%d alert-rule domain(s), %d blocked destination IP entries from %d sources",
+                "refresh" if network else "warm start from disk cache",
                 len(merged), len(counts), len(allow_merged), len(allow_counts), len(group_blocked),
                 len(alert_merged), len(answer_ip_exact) + len(answer_ip_nets), len(answer_ip_counts),
             )
 
     def start(self) -> None:
-        self.refresh()
+        # Load whatever was cached on disk from the last successful fetch
+        # synchronously (no network, effectively instant) so DNS/web start
+        # already protected - then fetch live in the background thread. Only
+        # a truly first-ever run (nothing cached yet) waits on the network.
+        try:
+            self.refresh(network=False)
+        except Exception:
+            logger.exception("blocklist warm start from disk cache failed")
         self._thread = threading.Thread(target=self._loop, name="blocklist-refresh", daemon=True)
         self._thread.start()
 
@@ -635,6 +678,7 @@ class BlocklistManager:
         self._stop_event.set()
 
     def _loop(self) -> None:
+        self.refresh()
         while not self._stop_event.is_set():
             hours = self._config.get("blocklists", "refresh_interval_hours", default=24) or 24
             interval = max(float(hours), 0.25) * 3600
