@@ -150,6 +150,58 @@ refresh). The pause-blocking bar at the top is visible to Administrator
 accounts only - see **Multi-user accounts, roles, and the public view**
 below.
 
+## Networking: host mode by default
+
+The shipped `docker-compose.yml` runs the container with
+`network_mode: host` rather than the usual bridge network + `ports:`
+list. This isn't just for DHCP (see below) - **it's what lets DNS-shield
+see each device's real IP address at all.** With bridge networking and
+published ports, Docker forwards traffic to the container through NAT
+(and, for UDP in particular, its own userland proxy), which replaces
+every client's real source address with Docker's own gateway address
+(typically `172.17.0.1`) before your query ever reaches the resolver.
+Since almost every feature here is keyed on the querying client's IP -
+client groups, per-client stats, blocked-clients rules, anomaly
+detection, alert rules, DHCP, rogue-DHCP detection, and the
+[client-domain graph](#client-domain-graph) - bridge mode
+silently breaks all of them at once: every device on your network looks
+like the same one "client" to DNS-shield. Host networking removes Docker's
+NAT entirely, so `handler.client_address` (and anything built on it) is
+the genuine LAN IP.
+
+The trade-off: with `network_mode: host` there's no `ports:` list to
+edit (Docker ignores it in this mode) - the container binds directly to
+whatever ports its own config asks for on the host: `53` for DNS, `3000`
+for the dashboard, plus `80`/`443` if you turn on the
+[reverse proxy](#reverse-proxy-optional), `853` for DNS-over-TLS, or `67`
+for DHCP, each only when its own feature is actually enabled. Make sure
+nothing else on the host is already bound to a port you plan to use -
+most commonly `53`: many Linux distributions run `systemd-resolved`'s
+own stub listener on `127.0.0.1:53` by default, which doesn't conflict,
+but a full local resolver bound to `0.0.0.0:53` would (`sudo ss -ulpn
+'sport = :53'` to check).
+
+If you'd rather keep the container network-isolated and don't need
+per-client accuracy (for example, DNS-shield is the last hop behind
+another resolver/forwarder that already collapses every query to one
+source anyway), you can still switch back to bridge networking:
+
+```yaml
+services:
+  dns-shield:
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "3000:3000/tcp"
+```
+
+(add `80:80/tcp` and `443:443/tcp` too if you're using the reverse
+proxy, and `853:853/tcp` for DNS-over-TLS). Just be aware every client
+will then show up as Docker's gateway address, `mac:` matching in
+[client groups](#per-clientgroup-policies) won't see your
+LAN's real ARP table, and DHCP won't work at all (see
+[DHCP server](#dhcp-server-optional) below).
+
 ## Configuration
 
 Every setting is editable from the dashboard's **Settings** section - no
@@ -590,9 +642,11 @@ client_groups:
 contains entries for devices DNS-shield's host has actually talked to at
 the link layer, and it's only populated with real LAN entries when the
 container shares the host's network (`network_mode: host` in
-`docker-compose.yml`, or a macvlan setup); the default bridge networking
-in the shipped `docker-compose.yml` only sees its own bridge, so `mac:`
-patterns won't match anything there. `host:` matching uses the same
+`docker-compose.yml`, which is the shipped default - see
+[Networking: host mode by default](#networking-host-mode-by-default) -
+or a macvlan setup); if you've switched to bridge networking instead, it
+only sees its own bridge, so `mac:` patterns won't match anything there.
+`host:` matching uses the same
 resolved-hostname cache as `dns.resolve_client_names` above and requires
 that setting to be on - a client's hostname is only known once resolution
 has completed for it at least once, so the very first query from a new
@@ -814,9 +868,12 @@ certificate the client doesn't trust, i.e. a MITM, which this project
 deliberately doesn't do. Off by default; changing either field requires a
 container restart, same as the DNS listen address/port.
 
-Running in Docker: the container only publishes 53/udp, 53/tcp, and
-3000/tcp by default - uncomment the port mapping in `docker-compose.yml`
-(matching whatever `block_page_port` you set) to actually reach this from
+Running in Docker: with the shipped `docker-compose.yml`'s host
+networking (see
+[Networking: host mode by default](#networking-host-mode-by-default)),
+this is reachable from other devices as soon as you enable it - no port
+mapping to add. If you've switched to bridge networking instead, publish
+whatever `block_page_port` you set yourself to actually reach this from
 other devices on your network.
 
 ### Query log browser, quick-block, and quick-hide
@@ -952,11 +1009,15 @@ domain), a **minimum queries per edge** filter to declutter a busy
 graph, a **"suspicious nodes only"** toggle that dims everything else
 without removing it, and click-to-drill-down: clicking a node opens its
 detail (every domain a client has queried, or every client that's
-queried a domain, with counts) in the side panel. An admin-only
-**Clear graph data** button (`POST /api/graph/clear`) wipes
-`graph.db`'s entire relationship history - it has no effect on the
-query log itself, only on the graph's own memory of who's talked to
-whom.
+queried a domain, with counts) in the side panel. Scroll (or pinch, on
+touch devices) to zoom in and out centered on the pointer, drag the
+background to pan, drag a node to reposition it, and double-click (or
+the **Reset view** button) to snap back to the default zoom/pan - handy
+once a busy network has spread the graph out further than the canvas
+can show at once. An admin-only **Clear graph data** button (`POST
+/api/graph/clear`) wipes `graph.db`'s entire relationship history - it
+has no effect on the query log itself, only on the graph's own memory of
+who's talked to whom.
 
 Like Logs and Stats, the Graph tab is gated behind its own permission -
 **Can see the client-domain graph** (`view_graph`) - and a restricted
@@ -1451,7 +1512,7 @@ Settings -> Anomalies, right below the anomaly-detection settings, is a
 "Watched domains & lists" section where you list exact domains (and their
 subdomains) and/or subscribe to watch lists (same hosts/AdBlock/plain
 formats, fetch/parse/cache behavior as the global Blocklists section -
-see [Blocklists, multiple formats & the Suggested-lists catalog](#blocklists-multiple-formats--the-suggested-lists-catalog)
+see [Blocklist formats and suggested lists](#blocklist-formats-and-suggested-lists)
 above). A dropdown lets you watch a list that's already configured in
 Blocklists with one click (it drops off the dropdown once watched, same
 as the Suggested-lists catalog); there's also a plain name/URL form right
@@ -1836,10 +1897,11 @@ Both listeners run only in the main process, not distributed across
 `DNSSHIELD_DNS_WORKERS` worker processes the way plain UDP/TCP is - the
 web dashboard itself is already single-process-only, and DoH/DoT follow
 that same boundary rather than adding per-worker certificate loading and
-`SO_REUSEPORT` interaction for a comparatively low-volume path. Neither
-is published in the shipped `docker-compose.yml` by default; add a
-`- "853:853/tcp"` mapping (or whatever port you set) once `dns.dot_enabled`
-is on, matching the block page's own port-mapping pattern above.
+`SO_REUSEPORT` interaction for a comparatively low-volume path. With the
+shipped `docker-compose.yml`'s host networking, DoT is reachable as soon
+as `dns.dot_enabled` is on - no port mapping needed. On bridge networking,
+add a `- "853:853/tcp"` mapping (or whatever port you set) yourself,
+matching the block page's own port-mapping pattern above.
 
 ### Prometheus metrics
 
@@ -2000,10 +2062,13 @@ in) so it's driven by the exact same `config.db` as everything else and
 shows up in the exact same dashboard.
 
 **This needs real access to your LAN's broadcast domain.** DHCP relies on
-L2 broadcast, which a default Docker bridge network doesn't forward -
-the container is isolated behind NAT. To actually serve real clients,
-change the `dns-shield` service in `docker-compose.yml` to use the
-host's network directly:
+L2 broadcast, which a bridged Docker network doesn't forward - a
+container behind NAT is isolated from it. The shipped `docker-compose.yml`
+already uses `network_mode: host` (see
+[Networking: host mode by default](#networking-host-mode-by-default)
+below), so the broadcast domain itself isn't the blocker; DHCP just also
+needs two extra capabilities to create/manage VLAN sub-interfaces and open
+the raw sockets it needs on port 67:
 
 ```yaml
 services:
@@ -2014,13 +2079,13 @@ services:
       - NET_RAW
 ```
 
-(drop the `ports:` list - `network_mode: host` ignores it, the container
-already shares the host's ports). `NET_ADMIN`/`NET_RAW` are what let it
-create/manage VLAN sub-interfaces and open the raw sockets DHCP needs on
-port 67. Without host networking, keep DHCP disabled and either run a
-real DHCP server on your router as usual, or run DNS-shield's DHCP
-server on bare metal/a VM with a real network interface instead of in
-this container.
+These aren't in the compose file by default since they're only needed
+once you actually turn DHCP on - add them, then `docker compose up -d`
+to recreate the container with them. If you've switched back to bridge
+networking (see the section below), DHCP can't reach your LAN at all in
+that mode - keep it disabled and either run a real DHCP server on your
+router as usual, or run DNS-shield's DHCP server on bare metal/a VM with
+a real network interface instead of in a bridged container.
 
 **Scopes** are the core unit of configuration - one per subnet/VLAN.
 Each has: a name, the network interface to listen on, an optional
@@ -2097,12 +2162,21 @@ config file from `config.db`, and restarts nginx automatically if it
 ever crashes (a background monitor thread polls it every couple of
 seconds).
 
-**Ports 80 and 443 are not published by default.** `docker-compose.yml`
-only maps 53/tcp+udp and 3000/tcp out of the box, so those two ports
-stay free on the host for anything else running there as long as you
-leave this feature off - which is also the default (`proxy.enabled:
-false`). If you turn the reverse proxy on, add the two ports to the
-`ports:` list yourself:
+**Ports 80 and 443 are not used at all by default.** With the shipped
+`docker-compose.yml`'s `network_mode: host` (see
+[Networking: host mode by default](#networking-host-mode-by-default)),
+nginx binds directly to the host's ports when you turn this feature on -
+there's no `docker-compose.yml` to edit and no container to re-create,
+since there's no `ports:` list to keep in sync with what's enabled. Ports
+80/443 simply stay free on the host for anything else running there as
+long as you leave this feature off, which is also the default
+(`proxy.enabled: false`). Flip the switch, and nginx starts listening on
+80/443 within a few seconds - just make sure nothing else on the host is
+already bound to those ports first.
+
+If you've switched to [bridge networking](#networking-host-mode-by-default)
+instead, you do need to publish the ports yourself once you turn this
+feature on:
 
 ```yaml
 services:
@@ -2414,18 +2488,20 @@ pytest
 
 ## Limitations / roadmap
 
-- No DHCP server, no DoQ (DoH/DoT are supported both as an upstream
-  transport and as a listener for clients - see above). [Parental
+- No DoQ (DoH/DoT are supported both as an upstream transport and as a
+  listener for clients - see above). [Parental
   control](#parental-control--safesearch) is limited to what DNS
   resolution can actually do - forced SafeSearch, per-group category
   blocklists, and per-group bedtime schedules - not per-app limits or
   content inspection.
 - Client groups and `blocked_clients` also match by MAC address or resolved
-  hostname (`mac:`/`host:` patterns, see above), but MAC matching depends
-  on the host's ARP table being visible to the container (host networking)
-  and hostname matching depends on client name resolution being enabled -
-  neither is available out of the box with the default bridge-networked
-  `docker-compose.yml`.
+  hostname (`mac:`/`host:` patterns, see above); MAC matching additionally
+  depends on the host's ARP table being visible to the container, which
+  the shipped `docker-compose.yml`'s host networking already provides (see
+  [Networking: host mode by default](#networking-host-mode-by-default)) -
+  it won't work if you've switched to bridge networking instead. Hostname
+  matching depends on client name resolution being enabled
+  (`dns.resolve_client_names`), which is off by default.
 - HTTPS for the dashboard (see above) is self-signed by default - a
   browser-trusted certificate still means either providing your own or
   putting a reverse proxy with its own ACME client in front of it.
