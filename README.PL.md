@@ -2041,7 +2041,12 @@ publiczny (bez logowania) oraz strona logowania (nie ma jeszcze konta,
 dla którego można by sprawdzić preferencję) zawsze kierują się językiem
 przeglądarki. Tłumaczenie odbywa się całkowicie po stronie przeglądarki,
 na podstawie małej tabeli wbudowanej w samą stronę - nic nie jest nigdzie
-wysyłane, żeby je przetłumaczyć.
+wysyłane, żeby je przetłumaczyć. Sama lista języków (`GET /api/languages`,
+z której korzysta ta rozwijana lista) oraz walidacja po stronie serwera
+tego, co można zapisać, pochodzą z jednej wspólnej listy w backendzie,
+więc dodanie zupełnie nowego języka w przyszłości to dokładnie dwie
+zmiany: jedna linia tam, jeden słownik tłumaczeń w stronie - reszta
+interfejsu nie wymaga żadnych zmian, żeby go obsłużyć.
 
 ### Wersja mobilna
 
@@ -2094,6 +2099,107 @@ było w kopii zapasowej (bez żadnego scalania, bo to własny, natywny format
 DNS-shield i nie ma tu nic do konwersji). Nieodwracalne, chyba że masz
 też kopię zapasową konfiguracji, którą właśnie nadpisujesz - panel
 najpierw prosi o potwierdzenie.
+
+## Serwer DHCP (opcjonalnie)
+
+Ustawienia -> DHCP zawierają wbudowany serwer DHCPv4 - całkowicie
+opcjonalny, domyślnie wyłączony i zaimplementowany natywnie (bez
+dołączonego procesu `dnsmasq`/`Kea`), dzięki czemu korzysta z dokładnie
+tej samej bazy `config.db` co reszta aplikacji i pojawia się w dokładnie
+tym samym panelu.
+
+**Wymaga realnego dostępu do domeny rozgłoszeniowej (broadcast) Twojej
+sieci LAN.** DHCP opiera się na broadcastach warstwy L2, których domyślna
+sieć mostkowa (bridge) Dockera nie przepuszcza - kontener jest odizolowany
+za NAT-em. Żeby faktycznie obsługiwać prawdziwych klientów, zmień usługę
+`dns-shield` w `docker-compose.yml`, żeby korzystała bezpośrednio z sieci
+hosta:
+
+```yaml
+services:
+  dns-shield:
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+```
+
+(usuń przy tym listę `ports:` - `network_mode: host` i tak ją ignoruje,
+kontener dzieli porty bezpośrednio z hostem). `NET_ADMIN`/`NET_RAW` to
+uprawnienia pozwalające tworzyć i zarządzać sub-interfejsami VLAN oraz
+otwierać surowe sockety, których DHCP potrzebuje na porcie 67. Bez sieci
+hosta zostaw DHCP wyłączone i albo korzystaj z serwera DHCP na swoim
+routerze jak dotychczas, albo uruchom serwer DHCP DNS-shield na gołym
+metalu/maszynie wirtualnej z prawdziwym interfejsem sieciowym zamiast w
+tym kontenerze.
+
+**Zakresy (scopes)** to podstawowa jednostka konfiguracji - jeden na
+podsieć/VLAN. Każdy ma: nazwę, interfejs sieciowy do nasłuchiwania,
+opcjonalny numeryczny ID VLAN (DNS-shield sam tworzy i zarządza otagowanym
+sub-interfejsem 802.1q przez netlink - bez ręcznego `ip link`), własny
+adres IP tego serwera w tej sieci ("identyfikator serwera" DHCP), sieć w
+formacie CIDR, zakres puli adresów oraz zwykłe ustawienia dla danej sieci:
+bramę, serwery DNS (domyślnie ten serwer, jeśli puste - to cały sens
+łączenia DHCP z DNS-shield), nazwę domeny, czas dzierżawy, serwery NTP,
+serwery WINS, MTU interfejsu, parę serwer TFTP/nazwa pliku rozruchowego
+dla rozruchu sieciowego PXE, trasy statyczne i adresy IP wykluczone z
+puli. Wszystko, czego nie pokrywa nazwane pole - dowolna z ponad 100
+opcji zdefiniowanych w specyfikacji DHCP - trafia do **niestandardowych
+opcji DHCP**, po jednej na linię jako `kod:typ:wartość` (`typ` to jeden z
+`ip`, `ip_list`, `string`, `uint32`, `hex`), nakładanych na wszystko
+pozostałe.
+
+**Stałe rezerwacje** przypisują konkretny adres MAC do konkretnego IP na
+zawsze (nigdy nie trafia do nikogo innego, nigdy nie wygasa) i mogą
+niezależnie nadpisać serwery DNS dla tego jednego klienta - przydatne dla
+urządzenia, które ma rozwiązywać nazwy przez inny resolwer niż reszta
+zakresu. Dodaj ją ręcznie w danym zakresie, albo kliknij **Zarezerwuj**
+przy istniejącym wpisie w tabeli **Aktywne dzierżawy**, żeby zamienić
+dynamiczną dzierżawę na stałą bez przepisywania jej MAC-a/IP.
+
+Każde żądanie/odpowiedź (DISCOVER/OFFER/REQUEST/ACK/NAK, RELEASE,
+DECLINE, INFORM) jest obsługiwane bezpośrednio, jeden wątek na zakres.
+Dzierżawy są przechowywane we własnym, lokalnym pliku SQLite, niezależnym
+od `config.db`, i wygasają oraz są automatycznie sprzątane. Znane
+ograniczenia: tylko IPv4 i brak obsługi agenta przekazującego DHCP
+(`giaddr`) - serwer musi dzielić segment L2 ze swoimi klientami (agent
+przekazujący z odległej podsieci nie zadziała).
+
+### Wykrywanie obcego serwera DHCP
+
+Druga, niezależna funkcja: Ustawienia -> DHCP -> **Wykrywanie obcego
+serwera DHCP** okresowo wysyła w sieci prawdziwy pakiet DHCPDISCOVER i
+nasłuchuje odpowiedzi DHCPOFFER - od *każdego* serwera DHCP, który na nie
+odpowie, nie tylko od tego wbudowanego. Działa nawet z wyłączonym własnym
+serwerem DHCP DNS-shield, czysto jako test kondycji sieci. Każdy
+odpowiadający adres IP serwera, którego nie ma na liście dozwolonych
+(własne adresy IP identyfikatora serwera z Twoich zakresów są zawsze
+domyślnie dozwolone, plus cokolwiek dodasz ręcznie, np. Twój router)
+zgłasza alert o wysokiej ważności - oznakę drugiego, potencjalnie obcego
+albo po prostu źle skonfigurowanego, serwera DHCP odpowiadającego w tej
+samej sieci, czyli dokładnie to, co powoduje, że przypadkowe urządzenia
+dostają złą bramę/DNS bez oczywistej przyczyny.
+
+### Wykrywanie nowych klientów (DNS i DHCP)
+
+Ustawienia -> DHCP -> **Wykrywanie nowych klientów** ma dwa niezależne
+przełączniki, jeden dla klientów zapytań DNS i jeden dla klientów
+dzierżaw DHCP. Włącz dowolny z nich i ustaw okres uczenia w dniach - przez
+ten czas każdy zaobserwowany klient jest po prostu cicho zapamiętywany,
+budując bazową listę "normalnych" urządzeń w Twojej sieci. Po upływie
+okresu uczenia, pierwsze zaobserwowanie klienta, którego system jeszcze
+nie zna, zgłasza alert o niskiej ważności - "Wykryto nowego klienta DNS"
+albo "Wykryto nowego klienta DHCP" - raz na klienta, nigdy powtórnie dla
+tego samego urządzenia.
+
+Okres uczenia zaczyna się od nowa automatycznie w chwili włączenia
+któregokolwiek przełącznika, a strona DNS restartuje się dodatkowo
+automatycznie za każdym razem, gdy wyczyścisz log zapytań (Ustawienia ->
+Czyszczenie -> **Usuń wszystkie zarejestrowane zapytania**) - log to
+historia Twoich klientów, więc jego wyczyszczenie oznacza rozpoczęcie tej
+historii od nowa. Obie strony mają też własny przycisk **Zresetuj
+uczenie** do ręcznego restartu bez konieczności dotykania żadnego z
+powyższych.
 
 ## Import z AdGuard Home lub Pi-hole
 

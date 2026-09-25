@@ -349,12 +349,26 @@
     </section>
 
     <section class="group">
+      <div class="group-head"><h2>DHCP server</h2><span class="tag">optional</span></div>
+      <p class="group-dek">A native DHCPv4 server sharing the same config and dashboard, off by default.</p>
+      <hr class="rule">
+      <dl class="items">
+        <div class="item"><dt>Per-subnet/VLAN scopes</dt><dd>Address pool, gateway, DNS, domain, lease time, NTP/WINS/TFTP/PXE, static routes, and a custom-option escape hatch.</dd></div>
+        <div class="item"><dt>802.1q VLAN tagging</dt><dd>Creates and manages the tagged sub-interface itself via netlink - no manual `ip link` setup.</dd></div>
+        <div class="item"><dt>Static reservations</dt><dd>Pin a MAC to an IP forever, with its own DNS-server override; one click to promote an active lease.</dd></div>
+        <div class="item"><dt>Rogue DHCP detection</dt><dd>Broadcasts a real DHCPDISCOVER and alerts on any DHCPOFFER from a server IP you haven't allow-listed.</dd></div>
+        <div class="item full"><dt>New-client detection</dt><dd>Learns your network for N days, then alerts the first time it ever sees an unrecognized DNS or DHCP client.</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
       <div class="group-head"><h2>Dashboard</h2><span class="tag">interface</span></div>
       <p class="group-dek">The control surface all of the above is operated through.</p>
       <hr class="rule">
       <dl class="items">
         <div class="item"><dt>Eight color themes</dt><dd>Four dark, four light, each a paired hue.</dd></div>
         <div class="item"><dt>Self-contained UI</dt><dd>No external assets or CDN - the dashboard works fully offline.</dd></div>
+        <div class="item"><dt>Multi-language (i18n)</dt><dd>English and Polski today, per-account or auto-detected from the browser; more languages are a translation dictionary away.</dd></div>
       </dl>
     </section>
 

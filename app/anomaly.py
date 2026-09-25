@@ -11,6 +11,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from app import new_client_detection
+
 logger = logging.getLogger("dnsshield.anomaly")
 
 
@@ -99,6 +101,11 @@ CREATE TABLE IF NOT EXISTS anomalies (
 CREATE INDEX IF NOT EXISTS idx_anomalies_ts ON anomalies(ts);
 CREATE INDEX IF NOT EXISTS idx_anomalies_client_kind ON anomalies(client, kind);
 CREATE INDEX IF NOT EXISTS idx_anomalies_ack ON anomalies(acknowledged);
+
+CREATE TABLE IF NOT EXISTS known_dns_clients (
+    client TEXT PRIMARY KEY,
+    first_seen REAL NOT NULL
+);
 """
 
 KIND_LABELS = {
@@ -108,6 +115,9 @@ KIND_LABELS = {
     "dns_tunneling": "Many distinct subdomains of one domain (possible DNS tunneling)",
     "subdomain_count_burst": "Unusually many distinct subdomains of one domain",
     "ptr_scan": "Many reverse-DNS lookups of local/private IPs (possible internal network scan)",
+    "new_dns_client": "New DNS client detected",
+    "new_dhcp_client": "New DHCP client detected",
+    "rogue_dhcp_server": "Unrecognized DHCP server on the network",
 }
 
 _THREAT_INTEL_SEVERITY_MAP = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
@@ -131,11 +141,36 @@ class AnomalyDetector:
         self._typosquat_watch_last_id: int | None = None
         self._rebinding_watch_last_id: int | None = None
         self._local_tld_watch_last_id: int | None = None
+        self._new_dns_client_watch_last_id: int | None = None
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, timeout=10)
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
+
+    def record_external_alert(
+        self, client: str, kind: str, severity: str, summary: str, details: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        now = time.time()
+        entry = {"ts": now, "client": client, "kind": kind, "severity": severity, "summary": summary}
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 0)",
+                    (now, client, kind, severity, summary, json.dumps(details or {})),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        if self._on_new_anomalies is not None:
+            try:
+                self._on_new_anomalies([entry])
+            except Exception:
+                logger.exception("on_new_anomalies callback failed")
+        return entry
 
     def _excluded_domains(self) -> list[str]:
         return [d.lower().rstrip(".") for d in (self._config.get("anomaly", "excluded_domains", default=[]) or [])]
@@ -221,6 +256,10 @@ class AnomalyDetector:
                 self.check_local_tld_hits()
             except Exception:
                 logger.exception("local-TLD check failed")
+            try:
+                self.check_new_dns_clients()
+            except Exception:
+                logger.exception("new-DNS-client check failed")
 
     def check_once(self) -> list[dict[str, Any]]:
         window_minutes = float(self._config.get("anomaly", "window_minutes", default=15) or 15)
@@ -783,6 +822,75 @@ class AnomalyDetector:
                 except Exception:
                     logger.exception("on_new_anomalies callback failed")
         return found
+
+    def check_new_dns_clients(self) -> list[dict[str, Any]]:
+        if not self._config.get("new_client_detection", "dns_enabled", default=False):
+            return []
+        if self._new_dns_client_watch_last_id is None:
+            self._new_dns_client_watch_last_id = self._stats.max_query_id()
+            return []
+
+        rows = self._stats.queries_since(self._new_dns_client_watch_last_id)
+        if not rows:
+            return []
+        self._new_dns_client_watch_last_id = max(row["id"] for row in rows)
+
+        now = time.time()
+        elapsed = new_client_detection.learning_elapsed(
+            self._config, "new_client_detection", "dns_learning_days", "dns_learning_started_at", now
+        )
+        found: list[dict[str, Any]] = []
+
+        with self._lock:
+            conn = self._connect()
+            try:
+                seen_this_batch: set[str] = set()
+                for row in rows:
+                    client = row["client"]
+                    if client in seen_this_batch:
+                        continue
+                    already_known = conn.execute(
+                        "SELECT 1 FROM known_dns_clients WHERE client = ?", (client,)
+                    ).fetchone()
+                    if already_known:
+                        continue
+                    seen_this_batch.add(client)
+                    conn.execute(
+                        "INSERT OR IGNORE INTO known_dns_clients (client, first_seen) VALUES (?, ?)",
+                        (client, row["ts"]),
+                    )
+                    if not elapsed:
+                        continue
+                    summary = f"New DNS client detected: {client}"
+                    details = {"client": client}
+                    conn.execute(
+                        "INSERT INTO anomalies (ts, client, kind, severity, summary, details_json, acknowledged) "
+                        "VALUES (?, ?, 'new_dns_client', 'low', ?, ?, 0)",
+                        (now, client, summary, json.dumps(details)),
+                    )
+                    found.append({"ts": now, "client": client, "kind": "new_dns_client", "severity": "low", "summary": summary})
+                conn.commit()
+            finally:
+                conn.close()
+
+        if found:
+            logger.info("new-DNS-client check: %d new alert%s flagged", len(found), "" if len(found) == 1 else "s")
+            if self._on_new_anomalies is not None:
+                try:
+                    self._on_new_anomalies(found)
+                except Exception:
+                    logger.exception("on_new_anomalies callback failed")
+        return found
+
+    def reset_new_dns_clients(self) -> None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("DELETE FROM known_dns_clients")
+                conn.commit()
+            finally:
+                conn.close()
+        new_client_detection.reset_learning(self._config, "new_client_detection", "dns_learning_started_at")
 
     @staticmethod
     def _kind_label(kind: str) -> str:
