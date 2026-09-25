@@ -526,6 +526,17 @@ dodanych list może to potrwać kilka sekund. Przycisk Add pokazuje wtedy
 pojawia się krótkie potwierdzenie (toast) - oba zastępują dawną ciszę bez
 żadnego sygnału, że coś się dzieje.
 
+Wszystkie źródła danej kategorii (listy blokujące, listy dozwolone,
+własne listy grupy itd.) są pobierane równolegle, nie po kolei, więc
+dodanie kolejnej listy do już długiego łańcucha nie mnoży czasu
+oczekiwania. Konkretnie przy starcie DNS-shield najpierw wczytuje to, co
+zostało zapisane na dysku z ostatniego udanego pobrania - praktycznie
+natychmiastowo, więc blokowanie jest już aktywne, zanim panel czy serwer
+DNS w ogóle skończą się uruchamiać - a dopiero chwilę później pobiera
+wszystko na żywo w tle. Tylko naprawdę pierwsze uruchomienie, gdy nigdzie
+nic jeszcze nie jest zapisane w pamięci podręcznej, czeka na sieć, zanim
+zacznie chronić.
+
 ### Nowo zarejestrowane domeny (NRD)
 
 Firmowe produkty do bezpieczeństwa DNS (Infoblox BloxOne Threat Defense
@@ -2062,6 +2073,18 @@ Gotowy dashboard Grafany dla tych metryk jest w
 `grafana/dnsshield-dashboard.json` - zaimportuj go w Grafanie (Dashboards
 -> New -> Import, wgraj plik JSON) wskazując dowolne źródło danych
 Prometheus zbierające `GET /metrics`.
+
+### Uruchamianie
+
+Port panelu jest zajmowany tak wcześnie, jak to możliwe - zanim listy
+blokujące, DHCP, reverse proxy czy cokolwiek innego skończy się
+inicjalizować. Wejście na niego zaraz po `docker compose up` pokazuje
+małą, automatycznie odświeżającą się stronę "DNS-shield is starting
+up..." zamiast błędu połączenia, dopóki chwilę później prawdziwy panel
+nie przejmie tego samego portu. Samo blokowanie rusza jeszcze szybciej
+niż to (patrz **Formaty list blokad i sugerowane listy** wyżej -
+rozruch z pamięci podręcznej na dysku) - strona zastępcza dotyczy
+wyłącznie samego *panelu*, nie tego, że zapytania idą niefiltrowane.
 
 ### Sprawdzanie kondycji
 

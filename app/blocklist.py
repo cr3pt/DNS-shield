@@ -496,9 +496,6 @@ class BlocklistManager:
         cache_path = self._cache_path(name)
 
         if not network:
-            # Disk-only warm start (no network I/O) - never touches the in-memory
-            # fetch cache, so the live refresh that follows shortly after isn't
-            # short-circuited by a memoized "just fetched" entry.
             if cache_path.exists():
                 return parser(cache_path.read_text(encoding="utf-8"))
             return (set(), {}, set())
@@ -546,9 +543,6 @@ class BlocklistManager:
         if not enabled:
             return merged, counts, formats, domain_source, exceptions
 
-        # Sources are fetched concurrently (each is an independent HTTP round-trip) -
-        # merged below in original list order so a domain's credited source stays
-        # deterministic regardless of which request happens to finish first.
         results: dict[str, tuple[set[str], dict[str, int], set[str]]] = {}
         with ThreadPoolExecutor(max_workers=min(8, len(enabled))) as executor:
             future_to_name = {
@@ -663,10 +657,6 @@ class BlocklistManager:
             )
 
     def start(self) -> None:
-        # Load whatever was cached on disk from the last successful fetch
-        # synchronously (no network, effectively instant) so DNS/web start
-        # already protected - then fetch live in the background thread. Only
-        # a truly first-ever run (nothing cached yet) waits on the network.
         try:
             self.refresh(network=False)
         except Exception:
