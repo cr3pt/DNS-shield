@@ -1985,13 +1985,7 @@ def create_app(
         domain = domains[idx]
         use_https = bool(domain.get("ssl", {}).get("enabled"))
         resolver = f"127.0.0.1:{config_store.get('dns', 'listen_port', default=53)}"
-        domain_reachable = proxy_healthcheck.check_domain_reachable(domain["hostnames"], use_https, resolver)
-        target = proxy_healthcheck.check_target_reachable(domain.get("rules"), resolver)
-        return {
-            "domain_reachable": domain_reachable,
-            "target_reachable": target["reachable"],
-            "target_checked": target["checked"],
-        }
+        return proxy_healthcheck.check_domain_health(domain["hostnames"], domain.get("rules"), use_https, resolver)
 
     @app.post("/api/proxy/domains/{domain_id}/certbot")
     def issue_proxy_certificate(

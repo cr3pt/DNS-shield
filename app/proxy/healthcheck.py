@@ -4,6 +4,8 @@ import http.client
 import ipaddress
 import socket
 import ssl
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlparse
 
@@ -35,15 +37,21 @@ def resolve_address(hostname: str, resolver: str | None = None) -> str | None:
 
 
 def _check_http(address: str, hostname: str, port: int, use_https: bool) -> bool:
+    # Connects to the resolved address but always presents `hostname` for TLS SNI
+    # and the Host header - conflating the two (e.g. passing `address` as both the
+    # connection target and the SNI/Host value) breaks any site that relies on
+    # name-based virtual hosting, which is most HTTPS hosting today (CDNs, shared
+    # certs, etc.) - it would present the IP as SNI and get the wrong vhost/cert.
     conn: http.client.HTTPConnection | None = None
     try:
+        sock = socket.create_connection((address, port), timeout=_TIMEOUT)
         if use_https:
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-            conn = http.client.HTTPSConnection(address, port, timeout=_TIMEOUT, context=context)
-        else:
-            conn = http.client.HTTPConnection(address, port, timeout=_TIMEOUT)
+            sock = context.wrap_socket(sock, server_hostname=hostname)
+        conn = http.client.HTTPConnection(hostname, port, timeout=_TIMEOUT)
+        conn.sock = sock
         conn.request("HEAD", "/", headers={"Host": hostname})
         resp = conn.getresponse()
         resp.read()
@@ -63,7 +71,21 @@ def check_hostname_reachable(hostname: str, use_https: bool, resolver: str | Non
 
 
 def check_domain_reachable(hostnames: list[str], use_https: bool, resolver: str | None = None) -> bool:
-    return any(check_hostname_reachable(h, use_https, resolver) for h in hostnames)
+    hostnames = [h for h in hostnames or [] if h]
+    if not hostnames:
+        return False
+    # Checked concurrently (one hostname timing out shouldn't make the others
+    # wait their turn) and returns as soon as any one succeeds, without waiting
+    # for slower stragglers still in flight.
+    executor = ThreadPoolExecutor(max_workers=min(8, len(hostnames)))
+    try:
+        futures = [executor.submit(check_hostname_reachable, h, use_https, resolver) for h in hostnames]
+        for future in as_completed(futures):
+            if future.result():
+                return True
+        return False
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def check_url_reachable(url: str, resolver: str | None = None) -> bool | None:
@@ -88,8 +110,27 @@ def check_url_reachable(url: str, resolver: str | None = None) -> bool | None:
 def check_target_reachable(rules: list[dict[str, Any]], resolver: str | None = None) -> dict[str, Any]:
     urls = [r.get("target") if r.get("type") == "redirect" else r.get("upstream") for r in rules or []]
     urls = [u for u in urls if u]
-    results = [check_url_reachable(u, resolver) for u in urls]
+    if not urls:
+        return {"reachable": False, "checked": False}
+    with ThreadPoolExecutor(max_workers=min(8, len(urls))) as executor:
+        results = list(executor.map(lambda u: check_url_reachable(u, resolver), urls))
     checkable = [r for r in results if r is not None]
     if not checkable:
         return {"reachable": False, "checked": False}
     return {"reachable": any(checkable), "checked": True}
+
+
+def check_domain_health(
+    hostnames: list[str], rules: list[dict[str, Any]], use_https: bool, resolver: str | None = None
+) -> dict[str, Any]:
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        domain_future = executor.submit(check_domain_reachable, hostnames, use_https, resolver)
+        target_future = executor.submit(check_target_reachable, rules, resolver)
+        domain_reachable = domain_future.result()
+        target = target_future.result()
+    return {
+        "domain_reachable": domain_reachable,
+        "target_reachable": target["reachable"],
+        "target_checked": target["checked"],
+        "checked_at": time.time(),
+    }
