@@ -2063,6 +2063,24 @@ config file from `config.db`, and restarts nginx automatically if it
 ever crashes (a background monitor thread polls it every couple of
 seconds).
 
+**Ports 80 and 443 are not published by default.** `docker-compose.yml`
+only maps 53/tcp+udp and 3000/tcp out of the box, so those two ports
+stay free on the host for anything else running there as long as you
+leave this feature off - which is also the default (`proxy.enabled:
+false`). If you turn the reverse proxy on, add the two ports to the
+`ports:` list yourself:
+
+```yaml
+services:
+  dns-shield:
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+```
+
+(and re-create the container - `docker compose up -d` - for the new
+port mappings to take effect).
+
 **Domains** are the core unit - one entry per set of hostnames sharing
 the same nginx server block. Each has: one or more hostnames, an
 ordered list of **rules** (each either a **proxy** rule - a path plus an
