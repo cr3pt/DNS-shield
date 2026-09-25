@@ -18,8 +18,17 @@ from app.two_factor import (
 
 _TOKEN_TOUCH_MIN_INTERVAL = 60.0
 
-SUPPORTED_LANGUAGES = ("en", "pl")
-LANGUAGE_NATIVE_NAMES = {"en": "English", "pl": "Polski"}
+SUPPORTED_LANGUAGES = ("en", "pl", "de", "fr", "ar", "zh", "ja", "ko")
+LANGUAGE_NATIVE_NAMES = {
+    "en": "English",
+    "pl": "Polski",
+    "de": "Deutsch",
+    "fr": "Français",
+    "ar": "العربية",
+    "zh": "中文",
+    "ja": "日本語",
+    "ko": "한국어",
+}
 
 DEFAULT_PERMISSIONS: dict[str, Any] = {
     "allowed_clients": [],
