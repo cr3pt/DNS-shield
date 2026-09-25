@@ -449,7 +449,7 @@
     position: relative; border: 1px solid var(--panel-border); border-radius: 8px;
     background: var(--input-bg); overflow: hidden; height: 560px;
   }
-  #graph-canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #graph-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
   #graph-canvas.dragging { cursor: grabbing; }
   #graph-side-panel {
     border: 1px solid var(--panel-border); border-radius: 8px; background: var(--input-bg);
@@ -3270,9 +3270,9 @@ function stepGraphSimulation() {
   const { nodes, edges, width: w, height: h } = graphState;
   const n = nodes.length;
   if (n === 0) return 0;
-  const repulseK = 2600;
+  const idealLen = Math.max(32, Math.min(90, Math.min(w, h) / 6));
+  const repulseK = 2600 * (idealLen / 90) ** 2;
   const springK = 0.02;
-  const idealLen = 90;
   const centerK = 0.01;
   const damping = 0.82;
 
@@ -3305,7 +3305,7 @@ function stepGraphSimulation() {
   }
 
   let maxSpeed = 0;
-  const margin = 24;
+  const margin = Math.max(12, Math.min(24, Math.min(w, h) / 12));
   for (const node of nodes) {
     if (node === graphState.dragging) continue;
     node.vx = (node.vx + node.fx) * damping;
@@ -3411,7 +3411,7 @@ function graphNodeAt(x, y) {
   for (let i = graphState.nodes.length - 1; i >= 0; i--) {
     const node = graphState.nodes[i];
     if (!graphNodeVisible(node)) continue;
-    const r = graphNodeRadius(node) + 2;
+    const r = graphNodeRadius(node) + 8;
     const dx = node.x - x, dy = node.y - y;
     if (dx * dx + dy * dy <= r * r) return node;
   }
@@ -3513,8 +3513,7 @@ function initGraphCanvas() {
   resizeGraphCanvas();
   window.addEventListener("resize", resizeGraphCanvas);
 
-  canvas.addEventListener("mousedown", (evt) => {
-    const { x, y } = graphCanvasCoords(evt);
+  const pointerDown = (x, y) => {
     const node = graphNodeAt(x, y);
     if (node) {
       graphState.dragging = node;
@@ -3522,9 +3521,8 @@ function initGraphCanvas() {
       canvas.classList.add("dragging");
       wakeGraphSimulation();
     }
-  });
-  canvas.addEventListener("mousemove", (evt) => {
-    const { x, y } = graphCanvasCoords(evt);
+  };
+  const pointerMove = (x, y) => {
     if (graphState.dragging) {
       graphState.dragging.x = x;
       graphState.dragging.y = y;
@@ -3540,30 +3538,55 @@ function initGraphCanvas() {
       canvas.style.cursor = node ? "pointer" : "grab";
       renderGraphFrame();
     }
-  });
-  const endDrag = () => {
+  };
+  const pointerUp = () => {
     if (graphState.dragging && !graphState.dragMoved) {
       selectGraphNode(graphState.dragging);
     }
     graphState.dragging = null;
     canvas.classList.remove("dragging");
   };
-  canvas.addEventListener("mouseup", endDrag);
+
+  canvas.addEventListener("mousedown", (evt) => {
+    const { x, y } = graphCanvasCoords(evt);
+    pointerDown(x, y);
+  });
+  canvas.addEventListener("mousemove", (evt) => {
+    const { x, y } = graphCanvasCoords(evt);
+    pointerMove(x, y);
+  });
+  canvas.addEventListener("mouseup", pointerUp);
   canvas.addEventListener("mouseleave", () => {
     if (!graphState.dragging) {
       graphState.hovered = null;
       renderGraphFrame();
     }
   });
+
+  canvas.addEventListener("touchstart", (evt) => {
+    if (evt.touches.length !== 1) return;
+    const { x, y } = graphCanvasCoords(evt.touches[0]);
+    if (graphNodeAt(x, y)) evt.preventDefault();
+    pointerDown(x, y);
+  }, { passive: false });
+  canvas.addEventListener("touchmove", (evt) => {
+    if (evt.touches.length !== 1) return;
+    const { x, y } = graphCanvasCoords(evt.touches[0]);
+    if (graphState.dragging) evt.preventDefault();
+    pointerMove(x, y);
+  }, { passive: false });
+  canvas.addEventListener("touchend", pointerUp);
+  canvas.addEventListener("touchcancel", pointerUp);
 }
 
 async function loadGraph() {
   const minCount = Math.max(1, parseInt(document.getElementById("graph-min-count").value, 10) || 1);
   const summary = document.getElementById("graph-summary");
   summary.textContent = t("common.checking", "Checking...");
+  const limitNodes = window.innerWidth < 640 ? 40 : window.innerWidth < 900 ? 80 : 150;
   let data;
   try {
-    data = await api(`/api/graph?min_count=${minCount}&limit_nodes=150`);
+    data = await api(`/api/graph?min_count=${minCount}&limit_nodes=${limitNodes}`);
   } catch (err) {
     summary.textContent = String(err.message || err);
     return;
