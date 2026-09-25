@@ -31,6 +31,7 @@ from app.mac_resolve import MacResolver
 from app import new_client_detection
 from app.notifications import NotificationSender
 from app.sessions import SessionStore
+from app.startup_page import start_startup_page_server, stop_startup_page_server
 from app.stats import Stats
 from app.upstream_stats import UpstreamStats
 from app.url_ping import UrlPingTask
@@ -100,6 +101,10 @@ def main() -> None:
     config_store.start_backup_thread(interval_hours=12)
     log_level = config_store.get("logging", "level", default=level)
     logging.getLogger().setLevel(log_level)
+
+    web_host = config_store.get("web", "listen_address", default="0.0.0.0")
+    web_port = int(config_store.get("web", "listen_port", default=3000))
+    startup_page_server = start_startup_page_server(web_host, web_port)
 
     stats = Stats(DATA_DIR / "stats.db", config_store)
 
@@ -240,8 +245,6 @@ def main() -> None:
         proxy_manager=proxy_manager,
         client_domain_graph=client_domain_graph,
     )
-    web_host = config_store.get("web", "listen_address", default="0.0.0.0")
-    web_port = int(config_store.get("web", "listen_port", default=3000))
 
     https_enabled = bool(config_store.get("web", "https_enabled", default=False))
     dot_enabled = bool(config_store.get("dns", "dot_enabled", default=False))
@@ -271,6 +274,7 @@ def main() -> None:
         except OSError as exc:
             logger.warning("could not start DoT server on %s:%d: %s", dns_address, dot_port, exc)
 
+    stop_startup_page_server(startup_page_server)
     uvicorn.run(app, host=web_host, port=web_port, log_level="warning", **ssl_kwargs)
     _stop_workers()
 

@@ -2299,6 +2299,23 @@ generuje na nowo konfigurację każdej domeny na podstawie `config.db` i
 automatycznie restartuje nginx, jeśli kiedykolwiek się wywali (wątek w
 tle sprawdza go co kilka sekund).
 
+**Porty 80 i 443 nie są domyślnie publikowane.** `docker-compose.yml`
+mapuje domyślnie tylko 53/tcp+udp oraz 3000/tcp, więc te dwa porty
+zostają wolne na hoście dla czegokolwiek innego, dopóki ta funkcja jest
+wyłączona - a jest wyłączona domyślnie (`proxy.enabled: false`). Jeśli
+włączysz reverse proxy, dodaj oba porty do listy `ports:` samodzielnie:
+
+```yaml
+services:
+  dns-shield:
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+```
+
+(i odtwórz kontener - `docker compose up -d` - żeby nowe mapowanie
+portów zaczęło działać).
+
 **Domeny** to podstawowa jednostka konfiguracji - jeden wpis na zestaw
 nazw hostów współdzielących ten sam blok serwera nginx. Każda ma: jedną
 lub więcej nazw hostów, uporządkowaną listę **reguł** (każda albo typu
