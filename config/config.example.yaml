@@ -186,3 +186,7 @@ new_client_detection:
   dhcp_enabled: false
   dhcp_learning_days: 7
   dhcp_learning_started_at: null
+
+proxy:
+  enabled: false
+  domains: []

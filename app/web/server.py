@@ -21,7 +21,14 @@ from pydantic import BaseModel
 from app.anomaly import _base_domain
 from app.auth import verify_password
 from app.blocklist_catalog import BLOCKLIST_CATALOG
+from app import dns_rewrites
 from app import new_client_detection
+from app.proxy import access as proxy_access
+from app.proxy import certbot_manager as proxy_certbot
+from app.proxy import domain as proxy_domain
+from app.proxy import healthcheck as proxy_healthcheck
+from app.proxy import nginx_manager
+from app.proxy import validate as proxy_validate
 from app.enrichment import enrich as run_enrichment
 from app.enrichment import maybe_alert_on_verdict
 from app.import_adguard import import_config
@@ -289,6 +296,39 @@ class NewClientDetectionSettingsIn(BaseModel):
     dhcp_learning_days: float | None = None
 
 
+class ProxyRuleIn(BaseModel):
+    id: str | None = None
+    type: str = "proxy"
+    path: str = "/"
+    upstream: str | None = None
+    websocket: bool = False
+    target: str | None = None
+    code: int | None = None
+
+
+class ProxySslIn(BaseModel):
+    enabled: bool = False
+    cert_path: str | None = None
+    key_path: str | None = None
+
+
+class ProxyDomainIn(BaseModel):
+    hostnames: list[str] | str
+    rules: list[dict[str, Any]] = []
+    enabled: bool | None = None
+    force_https: bool = False
+    ssl: dict[str, Any] | None = None
+    custom_config: str | None = None
+
+
+class ProxySettingsIn(BaseModel):
+    enabled: bool | None = None
+
+
+class ProxyCertbotIn(BaseModel):
+    email: str
+
+
 class ScheduleWindowIn(BaseModel):
     days: list[int]
     start: str
@@ -360,6 +400,7 @@ class RewriteIn(BaseModel):
     name: str
     type: str
     value: str
+    ttl: int | None = None
 
 
 class WebSettingsIn(BaseModel):
@@ -568,6 +609,7 @@ def create_app(
     audit_log=None,
     dhcp_server=None,
     rogue_dhcp_detector=None,
+    proxy_manager=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
 
@@ -1762,6 +1804,186 @@ def create_app(
         new_client_detection.reset_learning(config_store, "new_client_detection", "dhcp_learning_started_at")
         return {"status": "reset"}
 
+    def _find_proxy_domain_index(domains: list[dict[str, Any]], domain_id: str) -> int:
+        for i, d in enumerate(domains):
+            if d.get("id") == domain_id:
+                return i
+        return -1
+
+    def _normalize_proxy_domain(body: ProxyDomainIn, user: dict[str, Any], existing: dict[str, Any] | None = None):
+        payload = body.model_dump()
+        if payload.get("custom_config") and user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Custom config is only available to administrators")
+        try:
+            normalized = proxy_domain.normalize_domain(payload, existing)
+        except proxy_validate.ValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not proxy_access.is_domain_allowed(user, normalized["hostnames"]):
+            raise HTTPException(status_code=403, detail="You don't have access to one of these domains")
+        return normalized
+
+    @app.get("/api/proxy/domains")
+    def list_proxy_domains(
+        user: dict[str, Any] = Depends(require_permission("can_manage_proxy")),
+    ) -> list[dict[str, Any]]:
+        domains = config_store.get("proxy", "domains", default=[]) or []
+        return [d for d in domains if proxy_access.is_domain_allowed(user, d.get("hostnames"))]
+
+    @app.post("/api/proxy/domains/preview")
+    def preview_proxy_domain(
+        body: ProxyDomainIn, user: dict[str, Any] = Depends(require_permission("can_manage_proxy"))
+    ) -> dict[str, str]:
+        normalized = _normalize_proxy_domain(body, user)
+        return {"config": nginx_manager.preview_domain(normalized)}
+
+    @app.post("/api/proxy/domains")
+    def add_proxy_domain(
+        body: ProxyDomainIn, user: dict[str, Any] = Depends(require_permission("can_manage_proxy"))
+    ) -> dict[str, Any]:
+        normalized = _normalize_proxy_domain(body, user)
+
+        existing_domains = config_store.get("proxy", "domains", default=[]) or []
+        used = {h for d in existing_domains for h in d.get("hostnames", [])}
+        if used & set(normalized["hostnames"]):
+            raise HTTPException(status_code=409, detail="One of these domains is already used by another entry")
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            domains = data.setdefault("proxy", {}).setdefault("domains", [])
+            domains.append(normalized)
+            return domains
+
+        config_store.mutate(_mutate)
+        apply_result = nginx_manager.apply_domain(normalized)
+        return {"domain": normalized, "apply": apply_result}
+
+    @app.put("/api/proxy/domains/{domain_id}")
+    def update_proxy_domain(
+        domain_id: str, body: ProxyDomainIn, user: dict[str, Any] = Depends(require_permission("can_manage_proxy"))
+    ) -> dict[str, Any]:
+        domains = config_store.get("proxy", "domains", default=[]) or []
+        idx = _find_proxy_domain_index(domains, domain_id)
+        if idx < 0 or not proxy_access.is_domain_allowed(user, domains[idx].get("hostnames")):
+            raise HTTPException(status_code=404, detail="Domain not found")
+
+        normalized = _normalize_proxy_domain(body, user, existing=domains[idx])
+        used = {h for i, d in enumerate(domains) if i != idx for h in d.get("hostnames", [])}
+        if used & set(normalized["hostnames"]):
+            raise HTTPException(status_code=409, detail="One of these domains is already used by another entry")
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            domains_ = data.setdefault("proxy", {}).setdefault("domains", [])
+            domains_[idx] = normalized
+            return domains_
+
+        config_store.mutate(_mutate)
+        apply_result = nginx_manager.apply_domain(normalized)
+        return {"domain": normalized, "apply": apply_result}
+
+    @app.delete("/api/proxy/domains/{domain_id}")
+    def delete_proxy_domain(
+        domain_id: str, user: dict[str, Any] = Depends(require_permission("can_manage_proxy"))
+    ) -> dict[str, Any]:
+        domains = config_store.get("proxy", "domains", default=[]) or []
+        idx = _find_proxy_domain_index(domains, domain_id)
+        if idx < 0 or not proxy_access.is_domain_allowed(user, domains[idx].get("hostnames")):
+            raise HTTPException(status_code=404, detail="Domain not found")
+
+        remove_result = nginx_manager.remove_domain_config(domain_id)
+        if not remove_result["ok"]:
+            raise HTTPException(status_code=500, detail=f"Could not remove nginx config: {remove_result['error']}")
+
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            domains_ = data.setdefault("proxy", {}).setdefault("domains", [])
+            domains_.pop(idx)
+            return domains_
+
+        return {"domains": config_store.mutate(_mutate)}
+
+    @app.post("/api/proxy/domains/{domain_id}/toggle")
+    def toggle_proxy_domain(
+        domain_id: str, user: dict[str, Any] = Depends(require_permission("can_manage_proxy"))
+    ) -> dict[str, Any]:
+        domains = config_store.get("proxy", "domains", default=[]) or []
+        idx = _find_proxy_domain_index(domains, domain_id)
+        if idx < 0 or not proxy_access.is_domain_allowed(user, domains[idx].get("hostnames")):
+            raise HTTPException(status_code=404, detail="Domain not found")
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            domains_ = data.setdefault("proxy", {}).setdefault("domains", [])
+            domains_[idx]["enabled"] = not domains_[idx].get("enabled", True)
+            domains_[idx]["updated_at"] = time.time()
+            return domains_[idx]
+
+        updated = config_store.mutate(_mutate)
+        apply_result = nginx_manager.apply_domain(updated)
+        return {"domain": updated, "apply": apply_result}
+
+    @app.get("/api/proxy/domains/{domain_id}/health")
+    def proxy_domain_health(
+        domain_id: str, user: dict[str, Any] = Depends(require_permission("can_manage_proxy"))
+    ) -> dict[str, Any]:
+        domains = config_store.get("proxy", "domains", default=[]) or []
+        idx = _find_proxy_domain_index(domains, domain_id)
+        if idx < 0 or not proxy_access.is_domain_allowed(user, domains[idx].get("hostnames")):
+            raise HTTPException(status_code=404, detail="Domain not found")
+
+        domain = domains[idx]
+        use_https = bool(domain.get("ssl", {}).get("enabled"))
+        resolver = f"127.0.0.1:{config_store.get('dns', 'listen_port', default=53)}"
+        domain_reachable = proxy_healthcheck.check_domain_reachable(domain["hostnames"], use_https, resolver)
+        target = proxy_healthcheck.check_target_reachable(domain.get("rules"), resolver)
+        return {
+            "domain_reachable": domain_reachable,
+            "target_reachable": target["reachable"],
+            "target_checked": target["checked"],
+        }
+
+    @app.post("/api/proxy/domains/{domain_id}/certbot")
+    def issue_proxy_certificate(
+        domain_id: str, body: ProxyCertbotIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        domains = config_store.get("proxy", "domains", default=[]) or []
+        idx = _find_proxy_domain_index(domains, domain_id)
+        if idx < 0:
+            raise HTTPException(status_code=404, detail="Domain not found")
+        if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", body.email):
+            raise HTTPException(status_code=400, detail="Provide a valid email address (required by Let's Encrypt)")
+
+        result = proxy_certbot.issue_certificate(domains[idx]["hostnames"], body.email)
+        if not result["ok"]:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            domains_ = data.setdefault("proxy", {}).setdefault("domains", [])
+            domains_[idx]["ssl"] = {"enabled": True, "cert_path": result["cert_path"], "key_path": result["key_path"]}
+            domains_[idx]["updated_at"] = time.time()
+            return domains_[idx]
+
+        updated = config_store.mutate(_mutate)
+        apply_result = nginx_manager.apply_domain(updated)
+        return {"domain": updated, "apply": apply_result, "certbot": result}
+
+    @app.get("/api/proxy/status")
+    def proxy_status(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        return {"nginx": nginx_manager.test_config()}
+
+    @app.post("/api/proxy/reload")
+    def proxy_reload(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        test = nginx_manager.test_config()
+        if not test["ok"]:
+            raise HTTPException(status_code=400, detail=f"nginx config has errors, reload aborted: {test['stderr'] or test['stdout']}")
+        reload_result = nginx_manager.reload_nginx()
+        return {"ok": reload_result["ok"], "details": reload_result["stderr"] or reload_result["stdout"]}
+
+    @app.patch("/api/settings/proxy")
+    def update_proxy_settings(body: ProxySettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> dict[str, Any]:
+            cfg = data.setdefault("proxy", {})
+            cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            return {"enabled": bool(cfg.get("enabled", False))}
+
+        return config_store.mutate(_mutate)
+
     @app.get("/api/domain-upstreams")
     def list_domain_upstreams(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return config_store.get("domain_upstreams", default=[]) or []
@@ -1797,12 +2019,15 @@ def create_app(
         value = rewrite.value.strip()
         if not name or not value:
             raise HTTPException(status_code=400, detail="Name and value are required")
-        if rtype not in ("A", "AAAA"):
-            raise HTTPException(status_code=400, detail='Type must be "A" or "AAAA"')
+        if rtype not in dns_rewrites.RECORD_TYPES:
+            raise HTTPException(status_code=400, detail=f"Type must be one of: {', '.join(dns_rewrites.RECORD_TYPES)}")
+        ttl = rewrite.ttl or dns_rewrites.DEFAULT_TTL
+        if not 1 <= ttl <= 604800:
+            raise HTTPException(status_code=400, detail="TTL must be between 1 and 604800 seconds")
 
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             rewrites = data.setdefault("dns_rewrites", [])
-            rewrites.append({"name": name, "type": rtype, "value": value})
+            rewrites.append({"name": name, "type": rtype, "value": value, "ttl": ttl})
             return rewrites
 
         return config_store.mutate(_mutate)
@@ -1988,6 +2213,7 @@ To restore into an EXISTING instance (data/config.db already exists):
             "alert_rules": _alert_rules_settings(snap.get("alert_rules", {})),
             "url_ping": _url_ping_settings(snap.get("url_ping", {})),
             "dhcp": {"enabled": bool(snap.get("dhcp", {}).get("enabled", False)), "scope_count": len(snap.get("dhcp", {}).get("scopes", []) or [])},
+            "proxy": {"enabled": bool(snap.get("proxy", {}).get("enabled", False)), "domain_count": len(snap.get("proxy", {}).get("domains", []) or [])},
             "rogue_dhcp_detection": _rogue_dhcp_settings(snap.get("rogue_dhcp_detection", {})),
             "new_client_detection": _new_client_detection_settings(snap.get("new_client_detection", {})),
             "notifications": {

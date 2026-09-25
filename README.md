@@ -1493,6 +1493,13 @@ whatever an admin grants them:
   the global denylist are refused (per-group denylist editing and every
   other Settings change remain Administrator-only regardless).
 - **Can whitelist a domain** - same, for the global allowlist.
+- **Can manage reverse-proxy domains / allowed domains** - lets a User
+  create, edit, and delete entries under Settings -> Reverse proxy, but
+  only for hostnames matching their **allowed domains** list (exact match
+  or subdomain, same matching rule as allowed clients above); leaving
+  that list empty means the permission grants nothing to manage yet.
+  Editing a domain's raw custom-nginx-config escape hatch always stays
+  Administrator-only regardless of this permission.
 
 The Settings tab itself, and the "Blocking active" pause bar, are always
 Administrator-only - a User account never sees them, and the underlying
@@ -1974,6 +1981,65 @@ queries**) - the log is your client history, so wiping it means starting
 that history over. Both sides also have their own **Reset learning**
 button for restarting on demand without needing to touch either
 of those.
+
+## Reverse proxy (optional)
+
+Settings -> Reverse proxy manages a real `nginx` process from inside
+DNS-shield - no separate container, no config file to hand-edit. Off by
+default; the one global toggle at the top of the tab starts
+`nginx -g "daemon off;"` as a child process, regenerates every domain's
+config file from `config.db`, and restarts nginx automatically if it
+ever crashes (a background monitor thread polls it every couple of
+seconds).
+
+**Domains** are the core unit - one entry per set of hostnames sharing
+the same nginx server block. Each has: one or more hostnames, an
+ordered list of **rules** (each either a **proxy** rule - a path plus an
+upstream target nginx forwards to, with `Upgrade`/`Connection` headers
+already wired for websockets - or a **redirect** rule - a path plus a
+target URL and HTTP status code), optional TLS (certificate/key file
+paths, plus "force HTTPS" to also emit an HTTP->HTTPS redirect on port
+80), and an admin-only **custom nginx config** field appended verbatim
+into that domain's server block for anything the structured fields
+don't cover. A **health check** button resolves each hostname (through
+DNS-shield's own resolver, so it reflects whatever routing/rewrites are
+configured) and does an HTTP(S) reachability check against the first
+rule's upstream, so you can tell a broken domain apart from one that's
+just not been visited yet. **Get certificate** issues or renews a
+Let's Encrypt certificate with `certbot certonly --webroot`, using the
+domain's own hostnames and the email address you provide - it needs the
+domain reachable on port 80 for the ACME HTTP-01 challenge to succeed,
+same as any other webroot-based certbot setup.
+
+**Permissions** follow the same pattern as everywhere else in DNS-shield
+(see **Multi-user accounts, roles, and the public view** below): a User
+needs `can_manage_proxy` plus a matching entry in `allowed_domains` to
+touch a given domain at all, and can never set its custom-config field
+regardless.
+
+**What this intentionally does *not* duplicate**, compared to the
+standalone reverse-proxy project this feature's design was based on:
+
+- **Its own JWT-based auth and setup-token bootstrap.** DNS-shield
+  already has its own user accounts, sessions, roles, and per-permission
+  access control (see **Multi-user accounts** below) - bolting on a
+  second, independent auth system for just this one tab would be pure
+  duplication with no benefit, and a second place for credentials to go
+  stale or get out of sync.
+- **Its own bundled mini-DNS-server for resolving proxied hostnames.**
+  DNS-shield already *is* a full DNS server for every hostname on the
+  network, not just the ones being proxied - pointing a proxied hostname
+  at this box is just a normal DNS record (a rewrite, or your router's
+  DHCP-assigned resolver), so a second, narrower DNS server bundled just
+  for the proxy would be redundant and would only know about a subset of
+  what the real one already handles.
+
+**Port 80 collision warning.** DNS-shield's own local "blocked" page
+(Settings -> DNS -> `block_page_port`, see **Local "blocked" page**
+above) defaults to port 80. If you enable both the block page and the
+reverse proxy on the same host, they'll fight over that port - move one
+of them (`block_page_port` for the former, or don't map a domain's rules
+to port 80 for the latter) before turning both on.
 
 ## Importing from AdGuard Home or Pi-hole
 

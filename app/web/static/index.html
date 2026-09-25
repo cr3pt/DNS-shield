@@ -582,6 +582,7 @@
       <button type="button" class="subtab-btn" data-subtab="clients" data-i18n="nav.subtab.clients">Clients</button>
       <button type="button" class="subtab-btn" data-subtab="cleans" data-i18n="nav.subtab.cleans">Cleans</button>
       <button type="button" class="subtab-btn" data-subtab="dhcp" data-i18n="nav.subtab.dhcp">DHCP</button>
+      <button type="button" class="subtab-btn" data-subtab="proxy" data-i18n="nav.subtab.proxy">Reverse proxy</button>
     </div>
   </div>
 
@@ -791,10 +792,12 @@
           </div>
           <div class="field"><label data-i18n="users.allowed_clients">Allowed client IPs/CIDRs (comma-separated)</label><input type="text" id="u-allowed-clients" placeholder="192.168.1.50, 192.168.1.0/28"></div>
           <div class="field"><label data-i18n="users.allowed_groups">Allowed client groups (comma-separated names)</label><input type="text" id="u-allowed-groups" placeholder="Kids, Guests"></div>
+          <div class="field"><label data-i18n="users.allowed_domains">Allowed reverse-proxy domains (comma-separated)</label><input type="text" id="u-allowed-domains" placeholder="app.example.com"></div>
           <div class="field checkbox"><input type="checkbox" id="u-view-threat-intel"><label for="u-view-threat-intel" data-i18n="users.perm.threat_intel">Can see threat-intel Enrich results</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-view-anomalies"><label for="u-view-anomalies" data-i18n="users.perm.anomalies">Can see detected anomalies</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-can-block"><label for="u-can-block" data-i18n="users.perm.block">Can block a domain/host</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-can-whitelist"><label for="u-can-whitelist" data-i18n="users.perm.whitelist">Can whitelist a domain</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-can-manage-proxy"><label for="u-can-manage-proxy" data-i18n="users.perm.manage_proxy">Can manage reverse-proxy domains (limited to Allowed domains above)</label></div>
         </div>
         <p class="hint" data-i18n="users.hint.admin_ignores_perms">The role/permission fields above are ignored for Administrator accounts - an admin always sees and does everything.</p>
         <button type="submit" data-i18n="users.add_user">Add user</button>
@@ -1128,18 +1131,21 @@
 
     <section>
       <h2 data-i18n="dns.custom_records">Custom DNS records</h2>
-      <p class="muted" data-i18n="dns.hint.custom_records">Answer a hostname with an IP you choose, entirely locally - no upstream query, no blocklist involvement. A plain name matches itself and its subdomains; a name with a wildcard (<code>*</code> for any characters, <code>?</code> for one) matches only what the pattern actually covers - e.g. <code>*.internal.example</code> matches <code>vpn.internal.example</code> but not <code>internal.example</code> itself. A/AAAA only.</p>
+      <p class="muted" data-i18n="dns.hint.custom_records">Answer a hostname with a value you choose, entirely locally - no upstream query, no blocklist involvement. A plain name matches itself and its subdomains; a name with a wildcard (<code>*</code> for any characters, <code>?</code> for one) matches only what the pattern actually covers - e.g. <code>*.internal.example</code> matches <code>vpn.internal.example</code> but not <code>internal.example</code> itself. A/AAAA/CNAME/TXT, each with its own TTL.</p>
       <form class="inline" id="add-rewrite-form">
         <input type="text" id="rw-name" placeholder="nas.home or *.internal.example" required>
         <select id="rw-type">
           <option value="A">A (IPv4)</option>
           <option value="AAAA">AAAA (IPv6)</option>
+          <option value="CNAME">CNAME</option>
+          <option value="TXT">TXT</option>
         </select>
         <input type="text" id="rw-value" placeholder="192.168.1.10" required>
+        <input type="number" id="rw-ttl" placeholder="300" min="1" max="604800" style="width:6rem;">
         <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table>
-        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.type">Type</th><th data-i18n="col.value">Value</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.type">Type</th><th data-i18n="col.value">Value</th><th data-i18n="dns.ttl">TTL</th><th></th></tr></thead>
         <tbody id="rewrite-rows"></tbody>
       </table>
     </section>
@@ -1982,6 +1988,47 @@
     </section>
   </div>
 
+  <div id="subtab-proxy" class="subtab-panel">
+    <section>
+      <h2 data-i18n="proxy.title">Reverse proxy</h2>
+      <p class="hint" style="color:var(--muted);" data-i18n="proxy.hint.main">
+        An nginx-based reverse proxy and Let's Encrypt certificate manager, entirely optional and
+        off by default - lets DNS-shield also front your own web apps/services behind their own
+        domains, on the same box. Needs nginx and certbot installed in the image (see README) and
+        ports 80/443 free - watch out for a collision with Settings -> DNS -> "Serve a local
+        blocked page", which also defaults to port 80.
+      </p>
+      <div class="field checkbox">
+        <input type="checkbox" id="s-proxy-enabled">
+        <label for="s-proxy-enabled" data-i18n="proxy.enable">Enable the reverse proxy (requires restart)</label>
+      </div>
+      <div class="inline">
+        <button type="button" id="proxy-settings-save" data-i18n="proxy.save">Save reverse-proxy settings</button>
+        <span id="proxy-nginx-status" class="tag"></span>
+        <button type="button" class="secondary" id="proxy-reload-btn" data-i18n="proxy.reload">Reload nginx</button>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="proxy.domains_title">Domains</h2>
+      <p class="muted" data-i18n="proxy.hint.domains">One entry per site - one or more hostnames, at least one proxy or redirect rule, optional HTTPS via your own certificate or a one-click Let's Encrypt issuance.</p>
+      <form class="field-grid" id="add-proxy-domain-form">
+        <div class="field"><label data-i18n="proxy.field.hostnames">Hostname(s), comma/space separated</label><input type="text" id="proxy-new-hostnames" placeholder="app.example.com" required></div>
+        <div class="field">
+          <label data-i18n="proxy.field.rule_type">First rule type</label>
+          <select id="proxy-new-rule-type">
+            <option value="proxy" data-i18n="proxy.rule.proxy">Proxy</option>
+            <option value="redirect" data-i18n="proxy.rule.redirect">Redirect</option>
+          </select>
+        </div>
+        <div class="field"><label data-i18n="proxy.field.path">Path</label><input type="text" id="proxy-new-path" value="/" required></div>
+        <div class="field"><label data-i18n="proxy.field.upstream">Upstream (proxy) or target (redirect)</label><input type="text" id="proxy-new-target" placeholder="http://127.0.0.1:3000" required></div>
+      </form>
+      <button type="button" id="add-proxy-domain-btn" data-i18n="proxy.add_domain">Add domain</button>
+      <div id="proxy-domain-list" style="margin-top:1rem;"></div>
+    </section>
+  </div>
+
   <div id="subtab-auditlog" class="subtab-panel">
     <section>
       <h2 data-i18n="nav.subtab.auditlog">Audit log</h2>
@@ -2250,7 +2297,8 @@ const I18N = { pl: {
   "dns.hint.dot": "Używa tego samego certyfikatu co ustawienie HTTPS panelu powyżej (samopodpisany jest generowany automatycznie, jeśli nie ustawiłeś własnego). Większość klientów DoT na poziomie systemu (np. \"Prywatny DNS\" w Androidzie, systemd-resolved) całkowicie odrzuca samopodpisany certyfikat - w przeciwieństwie do przeglądarki nie pozwolą Ci przejść przez ostrzeżenie - więc jest to głównie przydatne po skonfigurowaniu prawdziwego certyfikatu zaufanego przez CA. Działa tylko w głównym procesie, nie jest rozłożone na procesy robocze DNS.",
   "dns.hint.upstream_servers": "Po jednym w wierszu - możesz podać ich dowolnie wiele. Wszystkie służą jako rezerwa, gdy wcześniejsze zawiodą; strategia wyboru powyżej decyduje, który jest próbowany jako pierwszy. Wiersz zaczynający się od # jest wyłączony - pozostaje na liście, ale nigdy nie jest używany - tak samo jak przycisk Wyłącz w tabeli poniżej.",
   "dns.hint.per_domain_routing": "Kieruj konkretne domeny do konkretnych resolverów niezależnie od klienta (np. domeny wewnętrzne/firmowe) - ma priorytet nad wszystkim innym.",
-  "dns.hint.custom_records": "Odpowiadaj na nazwę hosta wybranym przez Ciebie adresem IP, całkowicie lokalnie - bez zapytania nadrzędnego, bez udziału list blokujących. Zwykła nazwa pasuje do siebie i swoich subdomen; nazwa z symbolem wieloznacznym (<code>*</code> dla dowolnych znaków, <code>?</code> dla jednego) pasuje tylko do tego, co faktycznie obejmuje wzorzec - np. <code>*.internal.example</code> pasuje do <code>vpn.internal.example</code>, ale nie do samego <code>internal.example</code>. Tylko A/AAAA.",
+  "dns.hint.custom_records": "Odpowiadaj na nazwę hosta wybraną przez Ciebie wartością, całkowicie lokalnie - bez zapytania nadrzędnego, bez udziału list blokujących. Zwykła nazwa pasuje do siebie i swoich subdomen; nazwa z symbolem wieloznacznym (<code>*</code> dla dowolnych znaków, <code>?</code> dla jednego) pasuje tylko do tego, co faktycznie obejmuje wzorzec - np. <code>*.internal.example</code> pasuje do <code>vpn.internal.example</code>, ale nie do samego <code>internal.example</code>. A/AAAA/CNAME/TXT, każdy z własnym TTL.",
+  "dns.ttl": "TTL",
 
   "logging.hint.retention": "Jak długo wpisy pozostają w dzienniku zapytań, zanim zostaną automatycznie usunięte, co godzinę. Zmniejsz tę wartość, jeśli dziennik zajmuje więcej miejsca na dysku niż byś chciał; nigdy nie wpływa to na rozwiązywanie nazw/blokowanie, tylko na to, jak daleko wstecz można przeglądać.",
   "logging.hint.excluded": "Domeny/klienci poniżej są rozwiązywane i blokowane całkowicie normalnie - po prostu nigdy nie są zapisywane w dzienniku zapytań. Przydatne dla hałaśliwego ruchu w tle (NTP, telemetria, którą już zdecydowałeś się dopuścić), który inaczej zagrzebałby to, co faktycznie chcesz widzieć.",
@@ -2586,15 +2634,18 @@ const I18N = { pl: {
   "users.role.admin": "Administrator",
   "users.allowed_clients": "Dozwolone IP/CIDR klientów (oddzielone przecinkami)",
   "users.allowed_groups": "Dozwolone grupy klientów (nazwy, oddzielone przecinkami)",
+  "users.allowed_domains": "Dozwolone domeny reverse-proxy (oddzielone przecinkami)",
   "users.perm.threat_intel": "Widzi wyniki threat-intel (Enrich)",
   "users.perm.anomalies": "Widzi wykryte anomalie",
   "users.perm.block": "Może zablokować domenę/host",
   "users.perm.whitelist": "Może dodać domenę do listy dozwolonych",
+  "users.perm.manage_proxy": "Może zarządzać domenami reverse-proxy (ograniczone do domen dozwolonych powyżej)",
   "users.summary.everything": "wszystko",
   "users.summary.threat_intel": "threat-intel",
   "users.summary.anomalies": "anomalie",
   "users.summary.can_block": "może blokować",
   "users.summary.can_whitelist": "może dodawać do listy dozwolonych",
+  "users.summary.can_manage_proxy": "może zarządzać reverse-proxy",
   "users.summary.read_only": "tylko odczyt",
   "users.summary.nothing_yet": "jeszcze nic",
 
@@ -2828,6 +2879,37 @@ const I18N = { pl: {
   "account.language.save": "Zapisz język",
 
   "nav.subtab.dhcp": "DHCP",
+  "nav.subtab.proxy": "Reverse proxy",
+  "proxy.title": "Reverse proxy",
+  "proxy.hint.main": "Reverse proxy oparty o nginx i menedżer certyfikatów Let's Encrypt, całkowicie opcjonalny i domyślnie wyłączony - pozwala DNS-shield dodatkowo obsługiwać Twoje własne aplikacje/usługi webowe pod ich własnymi domenami, na tym samym serwerze. Wymaga zainstalowanego w obrazie nginx i certbota (patrz README) oraz wolnych portów 80/443 - uwaga na kolizję z Ustawienia -> DNS -> \"Serwuj lokalną stronę blokady\", która też domyślnie używa portu 80.",
+  "proxy.enable": "Włącz reverse proxy (wymaga restartu)",
+  "proxy.save": "Zapisz ustawienia reverse proxy",
+  "proxy.reload": "Przeładuj nginx",
+  "proxy.nginx_ok": "nginx OK",
+  "proxy.nginx_error": "błąd nginx",
+  "proxy.domains_title": "Domeny",
+  "proxy.hint.domains": "Jeden wpis na stronę - jedna lub więcej nazw hosta, co najmniej jedna reguła proxy lub przekierowania, opcjonalne HTTPS z własnym certyfikatem albo jednoklikowe wydanie certyfikatu Let's Encrypt.",
+  "proxy.field.hostnames": "Nazwa(y) hosta, oddzielone przecinkiem/spacją",
+  "proxy.field.rule_type": "Typ pierwszej reguły",
+  "proxy.rule.proxy": "Proxy",
+  "proxy.rule.redirect": "Przekierowanie",
+  "proxy.field.path": "Ścieżka",
+  "proxy.field.upstream": "Cel (proxy) lub adres docelowy (przekierowanie)",
+  "proxy.add_domain": "Dodaj domenę",
+  "proxy.fill_required": "Podaj co najmniej jedną nazwę hosta i cel.",
+  "proxy.confirm_delete": "Usunąć tę domenę reverse-proxy?",
+  "proxy.check_health": "Sprawdź dostępność",
+  "proxy.health_domain": "domena",
+  "proxy.health_target": "cel",
+  "proxy.field.ssl_enabled": "Włącz HTTPS",
+  "proxy.field.force_https": "Przekierowuj HTTP -> HTTPS",
+  "proxy.field.cert_path": "Ścieżka certyfikatu",
+  "proxy.field.key_path": "Ścieżka klucza",
+  "proxy.save_ssl": "Zapisz ustawienia HTTPS",
+  "proxy.email_ph": "ty@example.com",
+  "proxy.get_certificate": "Uzyskaj certyfikat Let's Encrypt",
+  "proxy.add_rule_title": "Dodaj kolejną regułę",
+  "toast.domain_added": "Dodano domenę",
   "dhcp.title": "Serwer DHCP",
   "dhcp.hint.main": "Wbudowany serwer DHCP, całkowicie opcjonalny i domyślnie wyłączony - działa obok własnego resolwera DNS-shield, dzięki czemu dzierżawione urządzenia mogą automatycznie dostać DNS-shield jako swój serwer DNS. Wymaga, żeby kontener realnie widział ruch broadcastowy w sieci LAN (sieć hosta albo sub-interfejs macvlan/VLAN) oraz uprawnień NET_ADMIN/NET_RAW - sieć Dockera typu bridge nie obsłuży prawdziwych klientów DHCP. Dokładna konfiguracja Compose jest w README.",
   "dhcp.enable": "Włącz serwer DHCP (wymaga restartu)",
@@ -4476,6 +4558,220 @@ async function loadDhcpLeases() {
   }
 }
 
+function splitHostnames(value) {
+  return (value || "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+}
+
+async function loadProxyDomains() {
+  let domains;
+  try {
+    domains = await api("/api/proxy/domains");
+  } catch (err) {
+    return;
+  }
+  renderProxyDomains(domains);
+}
+
+function renderProxyRuleRow(rule) {
+  const row = el("div", { class: "inline" });
+  const typeLabel = rule.type === "redirect" ? t("proxy.rule.redirect", "Redirect") : t("proxy.rule.proxy", "Proxy");
+  row.appendChild(el("span", { class: "tag allowed", text: typeLabel }));
+  row.appendChild(el("span", { text: rule.path }));
+  row.appendChild(el("span", { class: "muted", text: rule.type === "redirect" ? `-> ${rule.target} (${rule.code})` : `-> ${rule.upstream}${rule.websocket ? " (WS)" : ""}` }));
+  return row;
+}
+
+function renderProxyDomains(domains) {
+  const container = document.getElementById("proxy-domain-list");
+  container.innerHTML = "";
+  domains.forEach((domain) => {
+    const card = el("div", { class: "group-card" });
+
+    const header = el("div", { class: "row" }, [
+      el("h3", { style: "margin:0;", text: domain.hostnames.join(", ") }),
+      el("span", { class: "tag " + (domain.enabled ? "allowed" : "blocked"), text: domain.enabled ? t("tag.enabled", "enabled") : t("tag.disabled", "disabled") }),
+    ]);
+    card.appendChild(header);
+
+    const rulesWrap = el("div", {});
+    (domain.rules || []).forEach((r) => rulesWrap.appendChild(renderProxyRuleRow(r)));
+    card.appendChild(rulesWrap);
+
+    const toggleBtn = el("button", { class: "secondary", type: "button", text: domain.enabled ? t("dhcp.disable_scope", "Disable") : t("dhcp.enable_scope", "Enable") });
+    toggleBtn.onclick = async () => {
+      await withSpinner(toggleBtn, () => api(`/api/proxy/domains/${domain.id}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+      refreshAll();
+    };
+    const delBtn = el("button", { class: "danger", type: "button", text: t("common.delete", "Delete") });
+    delBtn.onclick = async () => {
+      if (!confirm(t("proxy.confirm_delete", "Delete this reverse-proxy domain?"))) return;
+      await api(`/api/proxy/domains/${domain.id}`, { method: "DELETE" });
+      refreshAll();
+    };
+    const healthBtn = el("button", { class: "secondary", type: "button", text: t("proxy.check_health", "Check health") });
+    const healthResult = el("span", { class: "muted" });
+    healthBtn.onclick = async () => {
+      healthResult.textContent = "...";
+      try {
+        const health = await api(`/api/proxy/domains/${domain.id}/health`);
+        const domainDot = health.domain_reachable ? "🟢" : "🔴";
+        const targetDot = health.target_checked ? (health.target_reachable ? "🟢" : "🔴") : "⚪";
+        healthResult.textContent = `${domainDot} ${t("proxy.health_domain", "domain")} / ${targetDot} ${t("proxy.health_target", "target")}`;
+      } catch (err) {
+        healthResult.textContent = t("common.action_failed", "Action failed");
+      }
+    };
+    card.appendChild(el("div", { class: "inline" }, [toggleBtn, delBtn, healthBtn, healthResult]));
+
+    const sslForm = el("form", { class: "field-grid" });
+    const sslEnabled = el("input", { type: "checkbox" });
+    sslEnabled.checked = !!domain.ssl?.enabled;
+    const forceHttps = el("input", { type: "checkbox" });
+    forceHttps.checked = !!domain.force_https;
+    const certPathInput = el("input", { type: "text", value: domain.ssl?.cert_path || "", placeholder: "/etc/letsencrypt/live/.../fullchain.pem" });
+    const keyPathInput = el("input", { type: "text", value: domain.ssl?.key_path || "", placeholder: "/etc/letsencrypt/live/.../privkey.pem" });
+    sslForm.appendChild(el("div", { class: "field checkbox" }, [sslEnabled, el("label", { text: t("proxy.field.ssl_enabled", "Enable HTTPS") })]));
+    sslForm.appendChild(el("div", { class: "field checkbox" }, [forceHttps, el("label", { text: t("proxy.field.force_https", "Redirect HTTP -> HTTPS") })]));
+    sslForm.appendChild(el("div", { class: "field" }, [el("label", { text: t("proxy.field.cert_path", "Certificate path") }), certPathInput]));
+    sslForm.appendChild(el("div", { class: "field" }, [el("label", { text: t("proxy.field.key_path", "Key path") }), keyPathInput]));
+    sslForm.appendChild(el("button", { type: "submit", text: t("proxy.save_ssl", "Save HTTPS settings") }));
+    sslForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/proxy/domains/${domain.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            hostnames: domain.hostnames, rules: domain.rules, enabled: domain.enabled,
+            force_https: forceHttps.checked,
+            ssl: { enabled: sslEnabled.checked, cert_path: certPathInput.value.trim(), key_path: keyPathInput.value.trim() },
+          }),
+        });
+      });
+      refreshAll();
+      showToast(t("toast.saved", "Saved"));
+    });
+    card.appendChild(sslForm);
+
+    const certbotForm = el("form", { class: "inline" });
+    const emailInput = el("input", { type: "email", placeholder: t("proxy.email_ph", "you@example.com") });
+    certbotForm.appendChild(emailInput);
+    certbotForm.appendChild(el("button", { type: "submit", class: "secondary", text: t("proxy.get_certificate", "Get Let's Encrypt certificate") }));
+    certbotForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!emailInput.value.trim()) return;
+      try {
+        await withDelayedSpinner(e.submitter, async () => {
+          await api(`/api/proxy/domains/${domain.id}/certbot`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: emailInput.value.trim() }),
+          });
+        });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+      showToast(t("toast.saved", "Saved"));
+    });
+    card.appendChild(certbotForm);
+
+    const resWrap = el("div", { class: "rule-editor" });
+    resWrap.appendChild(el("div", { class: "title", text: t("proxy.add_rule_title", "Add another rule") }));
+    const ruleForm = el("form", { class: "inline" });
+    const ruleType = document.createElement("select");
+    [["proxy", t("proxy.rule.proxy", "Proxy")], ["redirect", t("proxy.rule.redirect", "Redirect")]].forEach(([v, label]) => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = label;
+      ruleType.appendChild(opt);
+    });
+    const rulePath = el("input", { type: "text", placeholder: "/api", value: "/" });
+    const ruleTarget = el("input", { type: "text", placeholder: "http://127.0.0.1:8080" });
+    ruleForm.appendChild(ruleType);
+    ruleForm.appendChild(rulePath);
+    ruleForm.appendChild(ruleTarget);
+    ruleForm.appendChild(el("button", { type: "submit", text: t("common.add", "Add") }));
+    ruleForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newRule = ruleType.value === "redirect"
+        ? { type: "redirect", path: rulePath.value.trim() || "/", target: ruleTarget.value.trim(), code: 301 }
+        : { type: "proxy", path: rulePath.value.trim() || "/", upstream: ruleTarget.value.trim(), websocket: false };
+      const rules = [...(domain.rules || []), newRule];
+      try {
+        await api(`/api/proxy/domains/${domain.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hostnames: domain.hostnames, rules, enabled: domain.enabled, force_https: domain.force_https, ssl: domain.ssl }),
+        });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+    });
+    resWrap.appendChild(ruleForm);
+    card.appendChild(resWrap);
+
+    container.appendChild(card);
+  });
+}
+
+document.getElementById("add-proxy-domain-btn").addEventListener("click", async () => {
+  const hostnames = splitHostnames(document.getElementById("proxy-new-hostnames").value);
+  const ruleType = document.getElementById("proxy-new-rule-type").value;
+  const path = document.getElementById("proxy-new-path").value.trim() || "/";
+  const target = document.getElementById("proxy-new-target").value.trim();
+  if (!hostnames.length || !target) {
+    alert(t("proxy.fill_required", "Provide at least one hostname and a target."));
+    return;
+  }
+  const rule = ruleType === "redirect"
+    ? { type: "redirect", path, target, code: 301 }
+    : { type: "proxy", path, upstream: target, websocket: false };
+  try {
+    await api("/api/proxy/domains", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hostnames, rules: [rule] }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  document.getElementById("add-proxy-domain-form").reset();
+  refreshAll();
+  showToast(t("toast.domain_added", "Domain added"));
+});
+
+document.getElementById("proxy-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/proxy", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: document.getElementById("s-proxy-enabled").checked }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("proxy-reload-btn").addEventListener("click", async (e) => {
+  try {
+    await withSpinner(e.currentTarget, () => api("/api/proxy/reload", { method: "POST" }), t("common.saving", "Saving..."));
+    showToast(t("toast.saved", "Saved"));
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+  }
+  loadProxyStatus();
+});
+
+async function loadProxyStatus() {
+  const statusEl = document.getElementById("proxy-nginx-status");
+  try {
+    const status = await api("/api/proxy/status");
+    statusEl.textContent = status.nginx.ok ? t("proxy.nginx_ok", "nginx OK") : t("proxy.nginx_error", "nginx error");
+    statusEl.className = "tag " + (status.nginx.ok ? "allowed" : "blocked");
+  } catch (err) {
+    statusEl.textContent = "";
+  }
+}
+
 async function loadSettings() {
   const s = await api("/api/settings");
 
@@ -4637,6 +4933,7 @@ async function loadSettings() {
   document.getElementById("sso-redirect-uri-hint").textContent = `${location.origin}/api/sso/callback`;
 
   document.getElementById("s-dhcp-enabled").checked = !!(s.dhcp || {}).enabled;
+  document.getElementById("s-proxy-enabled").checked = !!(s.proxy || {}).enabled;
 
   const rogue = s.rogue_dhcp_detection || {};
   document.getElementById("s-rogue-dhcp-enabled").checked = !!rogue.enabled;
@@ -4740,6 +5037,7 @@ async function loadRewrites() {
       el("td", { text: r.name }),
       el("td", { text: r.type }),
       el("td", { text: r.value }),
+      el("td", { text: r.ttl ?? 300 }),
       el("td", {}, [delBtn]),
     ]));
   });
@@ -6240,6 +6538,8 @@ async function refreshAll() {
   await loadClientGroups();
   await loadDhcpScopes();
   await loadDhcpLeases();
+  await loadProxyDomains();
+  await loadProxyStatus();
   await loadSettings();
   await loadLogIgnore();
   await loadUpstreamHealth();
@@ -6384,13 +6684,14 @@ function permissionSummary(u) {
   if (perms.view_anomalies) parts.push(t("users.summary.anomalies", "anomalies"));
   if (perms.can_block) parts.push(t("users.summary.can_block", "can block"));
   if (perms.can_whitelist) parts.push(t("users.summary.can_whitelist", "can whitelist"));
+  if (perms.can_manage_proxy) parts.push(t("users.summary.can_manage_proxy", "can manage reverse proxy"));
   return parts.length ? parts.join(", ") : t("users.summary.read_only", "read-only");
 }
 
 function allowedSummary(u) {
   if (u.role === "admin") return t("users.summary.everything", "everything");
   const perms = u.permissions || {};
-  const parts = [...(perms.allowed_clients || []), ...(perms.allowed_groups || [])];
+  const parts = [...(perms.allowed_clients || []), ...(perms.allowed_groups || []), ...(perms.allowed_domains || [])];
   return parts.length ? parts.join(", ") : t("users.summary.nothing_yet", "nothing yet");
 }
 
@@ -6656,10 +6957,12 @@ document.getElementById("user-create-form").addEventListener("submit", async (e)
     permissions: {
       allowed_clients: splitCsv(document.getElementById("u-allowed-clients").value),
       allowed_groups: splitCsv(document.getElementById("u-allowed-groups").value),
+      allowed_domains: splitCsv(document.getElementById("u-allowed-domains").value),
       view_threat_intel: document.getElementById("u-view-threat-intel").checked,
       view_anomalies: document.getElementById("u-view-anomalies").checked,
       can_block: document.getElementById("u-can-block").checked,
       can_whitelist: document.getElementById("u-can-whitelist").checked,
+      can_manage_proxy: document.getElementById("u-can-manage-proxy").checked,
     },
   };
   try {
@@ -6780,11 +7083,12 @@ document.getElementById("add-rewrite-form").addEventListener("submit", async (e)
   const name = document.getElementById("rw-name").value.trim();
   const type = document.getElementById("rw-type").value;
   const value = document.getElementById("rw-value").value.trim();
+  const ttl = document.getElementById("rw-ttl").value;
   if (!name || !value) return;
   await api("/api/rewrites", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, type, value }),
+    body: JSON.stringify({ name, type, value, ttl: ttl ? parseInt(ttl, 10) : null }),
   });
   e.target.reset();
   refreshAll();
@@ -7143,7 +7447,7 @@ for (const btn of document.querySelectorAll(".tab-btn")) {
 
 document.getElementById("find-domain-btn").addEventListener("click", openFindDomainWindow);
 
-const SUBTAB_NAMES = ["general", "users", "sso", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans", "dhcp"];
+const SUBTAB_NAMES = ["general", "users", "sso", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans", "dhcp", "proxy"];
 
 function setActiveSubtab(subtab) {
   if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";
