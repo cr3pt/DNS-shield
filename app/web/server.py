@@ -50,6 +50,7 @@ from app.users import LANGUAGE_NATIVE_NAMES, SUPPORTED_LANGUAGES, UserStore, pub
 logger = logging.getLogger("dnsshield.web")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+LOCALES_DIR = Path(__file__).resolve().parent.parent / "locales"
 
 
 def _masked_key_preview(key: str | None) -> str:
@@ -2961,6 +2962,15 @@ To restore into an EXISTING instance (data/config.db already exists):
     @app.get("/api/languages")
     def list_languages() -> list[dict[str, str]]:
         return [{"code": code, "name": LANGUAGE_NATIVE_NAMES.get(code, code)} for code in SUPPORTED_LANGUAGES]
+
+    @app.get("/api/locales/{lang}")
+    def get_locale(lang: str) -> Response:
+        if lang not in SUPPORTED_LANGUAGES:
+            raise HTTPException(status_code=404, detail="Unknown language")
+        locale_path = LOCALES_DIR / f"{lang}.json"
+        if locale_path.exists():
+            return FileResponse(locale_path, media_type="application/json")
+        return Response(content="{}", media_type="application/json")
 
     @app.post("/api/account/language")
     def set_own_language(body: LanguageIn, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
