@@ -972,7 +972,7 @@ def create_app(
                     "urlhaus_api_key",
                 )
             )
-            or enr.get("rdap_enabled")
+            or enr.get("rdap_enabled", True)
             or enr.get("crtsh_enabled")
         )
         local_ready = bool(enr.get("local_enabled")) and bool(enr.get("local_url"))
@@ -2238,7 +2238,7 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "shodan_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("shodan_api_key")),
                 "urlhaus_api_key_set": bool(snap.get("enrichment", {}).get("urlhaus_api_key")),
                 "urlhaus_api_key_preview": _masked_key_preview(snap.get("enrichment", {}).get("urlhaus_api_key")),
-                "rdap_enabled": bool(snap.get("enrichment", {}).get("rdap_enabled", False)),
+                "rdap_enabled": bool(snap.get("enrichment", {}).get("rdap_enabled", True)),
                 "crtsh_enabled": bool(snap.get("enrichment", {}).get("crtsh_enabled", False)),
                 "ipinfo_enabled": bool(snap.get("enrichment", {}).get("ipinfo_enabled", False)),
                 "ipinfo_api_key_set": bool(snap.get("enrichment", {}).get("ipinfo_api_key")),
@@ -2393,7 +2393,7 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "shodan_api_key_preview": _masked_key_preview(enr.get("shodan_api_key")),
                 "urlhaus_api_key_set": bool(enr.get("urlhaus_api_key")),
                 "urlhaus_api_key_preview": _masked_key_preview(enr.get("urlhaus_api_key")),
-                "rdap_enabled": bool(enr.get("rdap_enabled", False)),
+                "rdap_enabled": bool(enr.get("rdap_enabled", True)),
                 "crtsh_enabled": bool(enr.get("crtsh_enabled", False)),
                 "ipinfo_enabled": bool(enr.get("ipinfo_enabled", False)),
                 "ipinfo_api_key_set": bool(enr.get("ipinfo_api_key")),

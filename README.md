@@ -1008,16 +1008,28 @@ and exposed-service recon (open ports, known CVEs, abuse tags)
 respectively; [URLhaus](https://urlhaus.abuse.ch/) (abuse.ch, works for
 both domains and IPs, needs a free Auth-Key from their site) checks
 whether the indicator has hosted known malware URLs, live or historical.
-**RDAP domain age** and **[crt.sh](https://crt.sh/) certificate
+**RDAP domain/IP lookup** and **[crt.sh](https://crt.sh/) certificate
 transparency** are the two exceptions to needing an API key at all -
-both domain-only, both free public lookups with no account or key,
-gated only by their own on/off toggle (still behind the public-lookups
-switch, since they're still third-party calls). RDAP flags a domain that
-was registered suspiciously recently - the same instinct behind
+both free public lookups with no account or key, gated only by their own
+on/off toggle (still behind the public-lookups switch, since they're
+still third-party calls); RDAP's toggle defaults to **on** since it costs
+nothing and needs no credentials, while every other source (including
+crt.sh) still defaults to off. RDAP flags a domain that was registered
+suspiciously recently - the same instinct behind
 [Typosquat detection](#typosquat-detection) above, a fresh registration
-next to a near-miss brand name is a classic phishing tell - and crt.sh
-just reports how many certificates and distinct subdomain names are on
-record for the domain, for your own reference. All eight public sources
+next to a near-miss brand name is a classic phishing tell - and also
+surfaces the registrar and, when the registry publishes one and it isn't
+redacted for privacy (common under GDPR/ICANN policy, and filtered out
+rather than shown as if it were real), the registrant/owner organization
+or name. For IP targets, RDAP instead reports the network name, country,
+allocated CIDR block, and organization on record. If a domain's RDAP
+lookup fails outright (no RDAP record, registry not covered by the
+bootstrap service, etc.), DNS-shield automatically falls back to legacy
+WHOIS (raw port 43, via the standard IANA-referral chain) to still
+surface a registrar/owner/expiry where possible - also free, no API key,
+same on/off toggle. crt.sh (domain-only) just reports how many
+certificates and distinct subdomain names are on record for the domain,
+for your own reference. All eight public sources
 degrade the same way: skipped (not an error) for a target type they
 don't support, shown as disabled while the public-lookups switch is off,
 shown as unconfigured while their own key/toggle is off, and shown as
@@ -2260,6 +2272,8 @@ app/
   enrichment.py         VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/RDAP/crt.sh reputation
                         lookups, called either from the "Enrich" button's endpoint or from
                         auto_enrich.py below (see above)
+  whois.py              legacy WHOIS (port 43) client with IANA-referral server discovery,
+                        used as enrichment.py's fallback when a domain's RDAP lookup fails
   enrichment_store.py   local storage for enrichment results: SQLite (data/enrichment.db)
   auto_enrich.py         background worker that runs Enrich once for each newly-seen queried
                         domain when enabled (see Automatically enriching newly-seen domains

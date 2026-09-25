@@ -1129,18 +1129,32 @@ czy coś aktywnie złośliwego) oraz rekonesans wystawionych usług (otwarte
 porty, znane CVE, tagi nadużyć); [URLhaus](https://urlhaus.abuse.ch/)
 (abuse.ch, działa zarówno dla domen, jak i adresów IP, wymaga darmowego
 klucza Auth-Key z ich strony) sprawdza, czy dany wskaźnik hostował znane,
-złośliwe adresy URL - na żywo albo w przeszłości. **Wiek domeny z RDAP**
-oraz **transparentność certyfikatów z [crt.sh](https://crt.sh/)** to
-jedyne dwa źródła, które w ogóle nie wymagają klucza API - obydwa działają
-tylko dla domen, obydwa to darmowe, publiczne wyszukiwania bez konta i bez
-klucza, kontrolowane wyłącznie własnym przełącznikiem on/off (nadal
+złośliwe adresy URL - na żywo albo w przeszłości. **Wyszukiwanie
+RDAP domen/adresów IP** oraz **transparentność certyfikatów z
+[crt.sh](https://crt.sh/)** to jedyne dwa źródła, które w ogóle nie
+wymagają klucza API - obydwa to darmowe, publiczne wyszukiwania bez konta
+i bez klucza, kontrolowane wyłącznie własnym przełącznikiem on/off (nadal
 schowanym za głównym przełącznikiem publicznych wyszukiwań, bo to nadal
-są połączenia z firmami trzecimi). RDAP oznacza domenę zarejestrowaną
-podejrzanie niedawno - ten sam odruch, co przy
+są połączenia z firmami trzecimi); przełącznik RDAP jest domyślnie
+**włączony**, bo nic nie kosztuje i nie wymaga żadnych danych
+uwierzytelniających, podczas gdy każde inne źródło (w tym crt.sh) nadal
+jest domyślnie wyłączone. RDAP oznacza domenę zarejestrowaną podejrzanie
+niedawno - ten sam odruch, co przy
 [wykrywaniu typosquattingu](#wykrywanie-typosquattingu) wyżej: świeża
 rejestracja obok nazwy łudząco podobnej do jakiejś marki to klasyczny
-sygnał phishingu - a crt.sh po prostu, dla Twojej własnej wiedzy, podaje,
-ile certyfikatów i ile odrębnych nazw subdomen jest zarejestrowanych dla
+sygnał phishingu - a dodatkowo pokazuje rejestratora oraz, jeśli rejestr
+go publikuje i nie jest ukryty ze względu na prywatność (powszechne przy
+polityce GDPR/ICANN, wtedy pomijane zamiast pokazywane jako prawdziwe
+dane), organizację lub osobę będącą właścicielem domeny. Dla adresów IP
+RDAP pokazuje zamiast tego nazwę sieci, kraj, przydzieloną pulę adresów
+(CIDR) oraz zarejestrowaną organizację. Jeśli wyszukiwanie RDAP dla danej
+domeny zawiedzie (brak rekordu RDAP, rejestr nieobsługiwany przez usługę
+bootstrap itd.), DNS-shield automatycznie przechodzi na starszy protokół
+WHOIS (surowy port 43, przez standardowy łańcuch odesłań IANA), by mimo
+wszystko spróbować pokazać rejestratora/właściciela/datę wygaśnięcia -
+również za darmo, bez klucza API, pod tym samym przełącznikiem. crt.sh
+(tylko dla domen) po prostu, dla Twojej własnej wiedzy, podaje, ile
+certyfikatów i ile odrębnych nazw subdomen jest zarejestrowanych dla
 danej domeny. Wszystkie osiem publicznych źródeł zawodzi w ten sam,
 przewidywalny sposób: są pomijane (nie jako błąd) dla typu celu, którego
 nie obsługują, pokazywane jako wyłączone, gdy przełącznik publicznych
@@ -2523,6 +2537,9 @@ app/
   enrichment.py         zapytania o reputację do VirusTotal/AbuseIPDB/OTX/GreyNoise/
                         Shodan/URLhaus/RDAP/crt.sh - wywoływane albo z punktu końcowego
                         przycisku "Enrich", albo z auto_enrich.py niżej (zobacz wyżej)
+  whois.py              klient starszego protokołu WHOIS (port 43) z odkrywaniem serwera
+                        przez łańcuch odesłań IANA, używany przez enrichment.py jako
+                        rezerwowe źródło, gdy wyszukiwanie RDAP domeny zawiedzie
   enrichment_store.py   lokalne przechowywanie wyników wzbogacania: SQLite
                        (data/enrichment.db)
   auto_enrich.py         mechanizm w tle, który raz uruchamia Enrich dla każdej nowo
