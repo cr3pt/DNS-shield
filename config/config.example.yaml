@@ -109,7 +109,7 @@ enrichment:
   greynoise_api_key: ""
   shodan_api_key: ""
   urlhaus_api_key: ""
-  rdap_enabled: false
+  rdap_enabled: true
   crtsh_enabled: false
   ipinfo_enabled: false
   ipinfo_api_key: ""

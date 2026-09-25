@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from app.enrichment import _AI_MODELS, enrich, query_ai, query_ipinfo, query_rdap
+from app.enrichment import _AI_MODELS, enrich, query_ai, query_ipinfo, query_rdap, query_rdap_ip
 
 
 def _fake_response(payload):
@@ -65,6 +65,125 @@ def test_query_rdap_flags_very_recently_registered_domain():
 
     assert result["verdict"] == "high"
     assert "recently registered" in result["summary"]
+
+
+def test_query_rdap_extracts_registrant_when_not_redacted():
+    import copy
+
+    payload = copy.deepcopy(RDAP_PAYLOAD)
+    payload["entities"].append(
+        {
+            "objectClassName": "entity",
+            "roles": ["registrant"],
+            "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "Example Owner LLC"]]],
+        }
+    )
+
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.get.return_value = _fake_response(payload)
+        result = query_rdap("example.com")
+
+    assert result["details"]["registrant"] == "Example Owner LLC"
+    assert "owner: Example Owner LLC" in result["summary"]
+
+
+def test_query_rdap_filters_redacted_registrant():
+    import copy
+
+    payload = copy.deepcopy(RDAP_PAYLOAD)
+    payload["entities"].append(
+        {
+            "objectClassName": "entity",
+            "roles": ["registrant"],
+            "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "REDACTED FOR PRIVACY"]]],
+        }
+    )
+
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.get.return_value = _fake_response(payload)
+        result = query_rdap("example.com")
+
+    assert result["details"]["registrant"] is None
+    assert "owner:" not in result["summary"]
+
+
+def test_query_rdap_falls_back_to_whois_on_http_error():
+    whois_record = {
+        "registrar": "Example Registrar Inc.",
+        "registrant_org": "Example Owner LLC",
+        "creation_date": "1995-08-14T04:00:00Z",
+        "expiration_date": "2099-08-13T04:00:00Z",
+        "status": ["active"],
+        "nameservers": ["ns1.example.com"],
+        "server": "whois.example-registry.net",
+    }
+
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.get.return_value = _http_error_response(404)
+        with patch("app.enrichment.whois_lookup_module.whois_lookup", return_value=whois_record):
+            result = query_rdap("example.com")
+
+    assert result["ok"] is True
+    assert result["details"]["registrar"] == "Example Registrar Inc."
+    assert result["details"]["registrant"] == "Example Owner LLC"
+    assert result["details"]["source"] == "whois"
+    assert "via WHOIS" in result["summary"]
+
+
+def test_query_rdap_reports_original_error_when_whois_fallback_finds_nothing():
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.get.return_value = _http_error_response(404)
+        with patch("app.enrichment.whois_lookup_module.whois_lookup", return_value=None):
+            result = query_rdap("example.com")
+
+    assert result["ok"] is False
+    assert "error" in result
+
+
+def test_query_rdap_ip_reports_network_details():
+    payload = {
+        "objectClassName": "ip network",
+        "name": "EXAMPLE-NET",
+        "country": "US",
+        "cidr0_cidrs": [{"v4prefix": "93.184.216.0", "length": 24}],
+        "entities": [
+            {
+                "objectClassName": "entity",
+                "roles": ["registrant"],
+                "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "Example Org"]]],
+            }
+        ],
+    }
+
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.get.return_value = _fake_response(payload)
+        result = query_rdap_ip("93.184.216.34")
+
+    assert result["ok"] is True
+    assert result["details"]["network_name"] == "EXAMPLE-NET"
+    assert result["details"]["organization"] == "Example Org"
+    assert result["details"]["cidrs"] == ["93.184.216.0/24"]
+    assert "owner: Example Org" in result["summary"]
+
+
+def test_enrich_rdap_enabled_by_default_for_domain(config_store):
+    config_store.mutate(lambda d: d.setdefault("enrichment", {}).update({"public_enabled": True}))
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.get.return_value = _fake_response(RDAP_PAYLOAD)
+        result = enrich("example.com", "domain", config_store)
+
+    assert result["sources"]["rdap"]["ok"] is True
+
+
+def test_enrich_rdap_enabled_by_default_for_ip(config_store):
+    config_store.mutate(lambda d: d.setdefault("enrichment", {}).update({"public_enabled": True}))
+    ip_payload = {"objectClassName": "ip network", "name": "EXAMPLE-NET"}
+    with patch("app.enrichment._session") as mock_session:
+        mock_session.get.return_value = _fake_response(ip_payload)
+        result = enrich("93.184.216.34", "ip", config_store)
+
+    assert result["sources"]["rdap"]["ok"] is True
+    assert result["sources"]["crtsh"] is None
 
 
 def test_query_ipinfo_reports_geolocation_and_org():

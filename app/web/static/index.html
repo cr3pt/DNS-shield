@@ -449,7 +449,7 @@
     position: relative; border: 1px solid var(--panel-border); border-radius: 8px;
     background: var(--input-bg); overflow: hidden; height: 560px;
   }
-  #graph-canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #graph-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
   #graph-canvas.dragging { cursor: grabbing; }
   #graph-side-panel {
     border: 1px solid var(--panel-border); border-radius: 8px; background: var(--input-bg);
@@ -611,10 +611,12 @@
           <label for="graph-suspicious-only" data-i18n="graph.suspicious_only">Suspicious nodes only</label>
         </div>
         <button type="button" id="graph-refresh-btn" style="align-self:flex-end;" data-i18n="graph.refresh">Refresh</button>
+        <button type="button" id="graph-reset-view-btn" class="secondary" style="align-self:flex-end;" data-i18n="graph.reset_view">Reset view</button>
         <button type="button" id="graph-clear-btn" class="danger" style="align-self:flex-end; display:none;" data-i18n="graph.clear">Clear graph data</button>
       </div>
       <p class="muted" id="graph-summary"></p>
       <p class="muted" id="graph-truncated-hint" style="display:none; color:var(--danger);" data-i18n="graph.truncated_hint">Too many nodes to show at once - showing only the busiest ones. Narrow the search or raise the minimum query count.</p>
+      <p class="muted" data-i18n="graph.zoom_hint">Scroll or pinch to zoom, drag the background to pan, drag a node to move it, double-click to reset the view.</p>
 
       <div class="graph-layout">
         <div class="graph-canvas-wrap">
@@ -3203,16 +3205,44 @@ const graphState = {
   edges: [],
   canvas: null,
   ctx: null,
+  dpr: 1,
   width: 0,
   height: 0,
   hovered: null,
   selected: null,
   dragging: null,
   dragMoved: false,
+  panning: false,
+  panStart: null,
+  pinch: null,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
   animId: null,
   settled: false,
   loaded: false,
 };
+
+const GRAPH_MIN_ZOOM = 0.3;
+const GRAPH_MAX_ZOOM = 4;
+
+function graphResetView() {
+  graphState.zoom = 1;
+  graphState.panX = 0;
+  graphState.panY = 0;
+}
+
+function graphZoomAt(screenX, screenY, factor) {
+  const oldZoom = graphState.zoom;
+  const newZoom = Math.max(GRAPH_MIN_ZOOM, Math.min(GRAPH_MAX_ZOOM, oldZoom * factor));
+  if (newZoom === oldZoom) return;
+  const worldX = (screenX - graphState.panX) / oldZoom;
+  const worldY = (screenY - graphState.panY) / oldZoom;
+  graphState.zoom = newZoom;
+  graphState.panX = screenX - worldX * newZoom;
+  graphState.panY = screenY - worldY * newZoom;
+  renderGraphFrame();
+}
 
 function graphNodeRadius(node) {
   return Math.max(4, Math.min(20, 4 + Math.log2((node.total || 0) + 1) * 1.6));
@@ -3264,15 +3294,16 @@ function buildGraphNodes(data) {
   graphState.nodeById = nodeById;
   graphState.edges = edges;
   graphState.settled = false;
+  graphResetView();
 }
 
 function stepGraphSimulation() {
   const { nodes, edges, width: w, height: h } = graphState;
   const n = nodes.length;
   if (n === 0) return 0;
-  const repulseK = 2600;
+  const idealLen = Math.max(32, Math.min(90, Math.min(w, h) / 6));
+  const repulseK = 2600 * (idealLen / 90) ** 2;
   const springK = 0.02;
-  const idealLen = 90;
   const centerK = 0.01;
   const damping = 0.82;
 
@@ -3305,7 +3336,7 @@ function stepGraphSimulation() {
   }
 
   let maxSpeed = 0;
-  const margin = 24;
+  const margin = Math.max(12, Math.min(24, Math.min(w, h) / 12));
   for (const node of nodes) {
     if (node === graphState.dragging) continue;
     node.vx = (node.vx + node.fx) * damping;
@@ -3341,9 +3372,13 @@ function recomputeSuspiciousNeighbors() {
 }
 
 function renderGraphFrame() {
-  const { ctx, width: w, height: h, nodes, edges } = graphState;
+  const { ctx, width: w, height: h, nodes, edges, zoom, panX, panY, dpr } = graphState;
   if (!ctx) return;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  ctx.translate(panX, panY);
+  ctx.scale(zoom, zoom);
   const style = getComputedStyle(document.documentElement);
   const resolve = (v) => (v.startsWith("var(") ? style.getPropertyValue(v.slice(4, -1)).trim() : v);
   const borderColor = resolve("var(--panel-border)");
@@ -3388,6 +3423,7 @@ function renderGraphFrame() {
     }
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function animateGraph() {
@@ -3408,19 +3444,29 @@ function wakeGraphSimulation() {
 }
 
 function graphNodeAt(x, y) {
+  const slop = 8 / graphState.zoom;
   for (let i = graphState.nodes.length - 1; i >= 0; i--) {
     const node = graphState.nodes[i];
     if (!graphNodeVisible(node)) continue;
-    const r = graphNodeRadius(node) + 2;
+    const r = graphNodeRadius(node) + slop;
     const dx = node.x - x, dy = node.y - y;
     if (dx * dx + dy * dy <= r * r) return node;
   }
   return null;
 }
 
-function graphCanvasCoords(evt) {
+function graphScreenCoords(evt) {
   const rect = graphState.canvas.getBoundingClientRect();
   return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+}
+
+function graphScreenToWorld(sx, sy) {
+  return { x: (sx - graphState.panX) / graphState.zoom, y: (sy - graphState.panY) / graphState.zoom };
+}
+
+function graphCanvasCoords(evt) {
+  const { x, y } = graphScreenCoords(evt);
+  return graphScreenToWorld(x, y);
 }
 
 async function selectGraphNode(node) {
@@ -3495,6 +3541,7 @@ function resizeGraphCanvas() {
   const canvas = graphState.canvas;
   if (!wrap || !canvas) return;
   const dpr = window.devicePixelRatio || 1;
+  graphState.dpr = dpr;
   graphState.width = wrap.clientWidth;
   graphState.height = wrap.clientHeight;
   canvas.width = graphState.width * dpr;
@@ -3513,18 +3560,20 @@ function initGraphCanvas() {
   resizeGraphCanvas();
   window.addEventListener("resize", resizeGraphCanvas);
 
-  canvas.addEventListener("mousedown", (evt) => {
-    const { x, y } = graphCanvasCoords(evt);
+  const pointerDown = (x, y, sx, sy) => {
     const node = graphNodeAt(x, y);
     if (node) {
       graphState.dragging = node;
       graphState.dragMoved = false;
       canvas.classList.add("dragging");
       wakeGraphSimulation();
+    } else {
+      graphState.panning = true;
+      graphState.panStart = { sx, sy, panX: graphState.panX, panY: graphState.panY };
+      canvas.classList.add("dragging");
     }
-  });
-  canvas.addEventListener("mousemove", (evt) => {
-    const { x, y } = graphCanvasCoords(evt);
+  };
+  const pointerMove = (x, y, sx, sy) => {
     if (graphState.dragging) {
       graphState.dragging.x = x;
       graphState.dragging.y = y;
@@ -3534,26 +3583,109 @@ function initGraphCanvas() {
       wakeGraphSimulation();
       return;
     }
+    if (graphState.panning) {
+      graphState.panX = graphState.panStart.panX + (sx - graphState.panStart.sx);
+      graphState.panY = graphState.panStart.panY + (sy - graphState.panStart.sy);
+      renderGraphFrame();
+      return;
+    }
     const node = graphNodeAt(x, y);
     if (node !== graphState.hovered) {
       graphState.hovered = node;
       canvas.style.cursor = node ? "pointer" : "grab";
       renderGraphFrame();
     }
-  });
-  const endDrag = () => {
+  };
+  const pointerUp = () => {
     if (graphState.dragging && !graphState.dragMoved) {
       selectGraphNode(graphState.dragging);
     }
     graphState.dragging = null;
+    graphState.panning = false;
     canvas.classList.remove("dragging");
   };
-  canvas.addEventListener("mouseup", endDrag);
+
+  canvas.addEventListener("mousedown", (evt) => {
+    const s = graphScreenCoords(evt);
+    const w = graphScreenToWorld(s.x, s.y);
+    pointerDown(w.x, w.y, s.x, s.y);
+  });
+  canvas.addEventListener("mousemove", (evt) => {
+    const s = graphScreenCoords(evt);
+    const w = graphScreenToWorld(s.x, s.y);
+    pointerMove(w.x, w.y, s.x, s.y);
+  });
+  canvas.addEventListener("mouseup", pointerUp);
   canvas.addEventListener("mouseleave", () => {
-    if (!graphState.dragging) {
+    if (!graphState.dragging && !graphState.panning) {
       graphState.hovered = null;
       renderGraphFrame();
     }
+  });
+  canvas.addEventListener("wheel", (evt) => {
+    evt.preventDefault();
+    const { x, y } = graphScreenCoords(evt);
+    const factor = Math.exp(-evt.deltaY * 0.0015);
+    graphZoomAt(x, y, factor);
+  }, { passive: false });
+  canvas.addEventListener("dblclick", (evt) => {
+    evt.preventDefault();
+    graphResetView();
+    renderGraphFrame();
+  });
+
+  const touchDist = (t0, t1) => Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+  const touchMid = (t0, t1) => ({ x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 });
+
+  canvas.addEventListener("touchstart", (evt) => {
+    if (evt.touches.length === 2) {
+      evt.preventDefault();
+      graphState.dragging = null;
+      graphState.panning = false;
+      const rect = canvas.getBoundingClientRect();
+      const mid = touchMid(evt.touches[0], evt.touches[1]);
+      graphState.pinch = {
+        startDist: touchDist(evt.touches[0], evt.touches[1]),
+        startZoom: graphState.zoom,
+        startMid: { x: mid.x - rect.left, y: mid.y - rect.top },
+        startPanX: graphState.panX,
+        startPanY: graphState.panY,
+      };
+      return;
+    }
+    if (evt.touches.length !== 1) return;
+    const s = graphScreenCoords(evt.touches[0]);
+    const w = graphScreenToWorld(s.x, s.y);
+    if (graphNodeAt(w.x, w.y)) evt.preventDefault();
+    pointerDown(w.x, w.y, s.x, s.y);
+  }, { passive: false });
+  canvas.addEventListener("touchmove", (evt) => {
+    if (evt.touches.length === 2 && graphState.pinch) {
+      evt.preventDefault();
+      const pinch = graphState.pinch;
+      const dist = touchDist(evt.touches[0], evt.touches[1]);
+      const newZoom = Math.max(GRAPH_MIN_ZOOM, Math.min(GRAPH_MAX_ZOOM, pinch.startZoom * (dist / pinch.startDist)));
+      const worldMidX = (pinch.startMid.x - pinch.startPanX) / pinch.startZoom;
+      const worldMidY = (pinch.startMid.y - pinch.startPanY) / pinch.startZoom;
+      graphState.zoom = newZoom;
+      graphState.panX = pinch.startMid.x - worldMidX * newZoom;
+      graphState.panY = pinch.startMid.y - worldMidY * newZoom;
+      renderGraphFrame();
+      return;
+    }
+    if (evt.touches.length !== 1) return;
+    const s = graphScreenCoords(evt.touches[0]);
+    const w = graphScreenToWorld(s.x, s.y);
+    if (graphState.dragging || graphState.panning) evt.preventDefault();
+    pointerMove(w.x, w.y, s.x, s.y);
+  }, { passive: false });
+  canvas.addEventListener("touchend", (evt) => {
+    if (evt.touches.length < 2) graphState.pinch = null;
+    pointerUp();
+  });
+  canvas.addEventListener("touchcancel", (evt) => {
+    graphState.pinch = null;
+    pointerUp();
   });
 }
 
@@ -3561,9 +3693,10 @@ async function loadGraph() {
   const minCount = Math.max(1, parseInt(document.getElementById("graph-min-count").value, 10) || 1);
   const summary = document.getElementById("graph-summary");
   summary.textContent = t("common.checking", "Checking...");
+  const limitNodes = window.innerWidth < 640 ? 40 : window.innerWidth < 900 ? 80 : 150;
   let data;
   try {
-    data = await api(`/api/graph?min_count=${minCount}&limit_nodes=150`);
+    data = await api(`/api/graph?min_count=${minCount}&limit_nodes=${limitNodes}`);
   } catch (err) {
     summary.textContent = String(err.message || err);
     return;
@@ -3582,6 +3715,10 @@ async function loadGraph() {
 }
 
 document.getElementById("graph-refresh-btn").addEventListener("click", loadGraph);
+document.getElementById("graph-reset-view-btn").addEventListener("click", () => {
+  graphResetView();
+  renderGraphFrame();
+});
 document.getElementById("graph-min-count").addEventListener("change", loadGraph);
 document.getElementById("graph-suspicious-only").addEventListener("change", () => {
   recomputeSuspiciousNeighbors();

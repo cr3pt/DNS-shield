@@ -4,10 +4,7 @@ services:
     image: dns-shield:latest
     container_name: dns-shield
     restart: unless-stopped
-    ports:
-      - "53:53/udp"
-      - "53:53/tcp"
-      - "3000:3000/tcp"
+    network_mode: host
     volumes:
       - ./data:/data
       - ./data/certs:/etc/letsencrypt

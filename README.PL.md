@@ -171,6 +171,60 @@ sekcji Logging & blocklist refresh). Pasek wstrzymania blokowania na
 górze widzą wyłącznie konta administratora - zobacz **Konta
 wieloużytkownikowe, role i widok publiczny** poniżej.
 
+## Sieć: domyślnie tryb host
+
+Dołączony `docker-compose.yml` uruchamia kontener z `network_mode: host`
+zamiast zwykłej sieci typu bridge z listą `ports:`. To nie jest tylko dla
+DHCP (zobacz niżej) - **to jest właśnie to, co pozwala DNS-shield w ogóle
+zobaczyć prawdziwy adres IP każdego urządzenia.** Przy sieci typu bridge
+z opublikowanymi portami Docker przekazuje ruch do kontenera przez NAT
+(a dla UDP w szczególności przez własny proxy w przestrzeni użytkownika),
+co zastępuje prawdziwy adres źródłowy każdego klienta własnym adresem
+bramy Dockera (zwykle `172.17.0.1`), zanim zapytanie w ogóle dotrze do
+resolvera. Ponieważ niemal każda funkcja tutaj jest oparta na adresie IP
+odpytującego klienta - grupy klientów, statystyki per-klient, reguły
+blokowania klientów, wykrywanie anomalii, reguły alertów, DHCP, wykrywanie
+nieautoryzowanego DHCP oraz [graf klient-domena](#graf-klient-domena) -
+tryb bridge po cichu psuje je wszystkie naraz: każde urządzenie w Twojej
+sieci wygląda dla DNS-shield jak ten sam "jeden klient". Tryb host
+całkowicie usuwa NAT Dockera, więc `handler.client_address` (i wszystko,
+co na nim bazuje) to prawdziwy adres IP z Twojej sieci LAN.
+
+Kompromis: przy `network_mode: host` nie ma listy `ports:` do edycji
+(Docker ją ignoruje w tym trybie) - kontener wiąże się bezpośrednio z
+portami, o które prosi jego własna konfiguracja, na hoście: `53` dla DNS,
+`3000` dla panelu, plus `80`/`443` jeśli włączysz
+[reverse proxy](#reverse-proxy-opcjonalnie), `853` dla DNS-over-TLS, albo
+`67` dla DHCP - każdy tylko wtedy, gdy dana funkcja jest faktycznie
+włączona. Upewnij się, że nic innego na hoście nie zajmuje już portu,
+którego zamierzasz użyć - najczęściej chodzi o `53`: wiele dystrybucji
+Linuksa domyślnie uruchamia własny stub-listener `systemd-resolved` na
+`127.0.0.1:53`, co nie koliduje, ale pełny lokalny resolver związany z
+`0.0.0.0:53` już by kolidował (sprawdź poleceniem `sudo ss -ulpn 'sport =
+:53'`).
+
+Jeśli wolisz zachować izolację sieciową kontenera i nie zależy Ci na
+dokładnym rozróżnianiu klientów (na przykład DNS-shield jest ostatnim
+krokiem za innym resolverem/forwarderem, który i tak już zlewa wszystkie
+zapytania do jednego źródła), możesz nadal przełączyć się z powrotem na
+sieć typu bridge:
+
+```yaml
+services:
+  dns-shield:
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "3000:3000/tcp"
+```
+
+(dodaj też `80:80/tcp` i `443:443/tcp`, jeśli korzystasz z reverse proxy,
+oraz `853:853/tcp` dla DNS-over-TLS). Miej tylko na uwadze, że wtedy
+każdy klient będzie widoczny jako adres bramy Dockera, dopasowywanie
+`mac:` w [grupach klientów](#polityki-dla-poszczególnych-klientów-i-grup)
+nie zobaczy prawdziwej tablicy ARP Twojej sieci LAN, a DHCP w ogóle nie
+zadziała (zobacz [Serwer DHCP](#serwer-dhcp-opcjonalnie) niżej).
+
 ## Konfiguracja
 
 Każde ustawienie da się edytować z poziomu panelu, w sekcji **Settings** -
@@ -657,10 +711,12 @@ Dopasowanie po `mac:` czyta tabelę ARP jądra systemu (`/proc/net/arp`) -
 znajdują się w niej tylko wpisy urządzeń, z którymi host DNS-shield
 faktycznie rozmawiał na warstwie łącza, a rzeczywiste wpisy z sieci LAN
 pojawiają się w niej wyłącznie wtedy, gdy kontener współdzieli sieć hosta
-(`network_mode: host` w `docker-compose.yml`, albo konfiguracja typu
-macvlan); domyślna sieć typu bridge w dostarczonym `docker-compose.yml`
-widzi tylko swój własny bridge, więc wzorce `mac:` niczego tam nie
-dopasują. Dopasowanie po `host:` korzysta z tego samego cache rozwiązanych
+(`network_mode: host` w `docker-compose.yml`, co jest dostarczonym
+ustawieniem domyślnym - zobacz
+[Sieć: domyślnie tryb host](#sieć-domyślnie-tryb-host) - albo konfiguracja
+typu macvlan); jeśli przełączyłeś się na sieć typu bridge, widzi ona
+tylko swój własny bridge, więc wzorce `mac:` niczego tam nie dopasują.
+Dopasowanie po `host:` korzysta z tego samego cache rozwiązanych
 nazw hostów, co `dns.resolve_client_names` wyżej, i wymaga włączenia tej
 opcji - nazwa hosta klienta jest znana dopiero po zakończeniu jej
 rozwiązywania choćby raz, więc pierwsze zapytanie od nowego klienta nigdy
@@ -910,10 +966,13 @@ ten projekt celowo nie robi. Domyślnie wyłączone; zmiana któregokolwiek z
 tych dwóch pól wymaga restartu kontenera, tak samo jak zmiana adresu czy
 portu nasłuchu DNS.
 
-Przy uruchomieniu w Dockerze: kontener domyślnie publikuje tylko porty
-53/udp, 53/tcp i 3000/tcp - odkomentuj odpowiednie mapowanie portów w
-`docker-compose.yml` (zgodne z ustawionym `block_page_port`), żeby
-faktycznie dało się to osiągnąć z innych urządzeń w Twojej sieci.
+Przy uruchomieniu w Dockerze: dzięki sieci hosta w dostarczonym
+`docker-compose.yml` (zobacz
+[Sieć: domyślnie tryb host](#sieć-domyślnie-tryb-host)) jest to dostępne
+z innych urządzeń od razu po włączeniu - bez żadnego mapowania portów.
+Jeśli przełączyłeś się na sieć typu bridge, opublikuj samodzielnie port
+zgodny z ustawionym `block_page_port`, żeby faktycznie dało się to
+osiągnąć z innych urządzeń w Twojej sieci.
 
 ### Przeglądarka logu zapytań: szybkie blokowanie i szybkie ukrywanie
 
@@ -1067,10 +1126,16 @@ przełącznikiem **"Suspicious nodes only"**, który przygasza resztę
 grafu bez jej usuwania, oraz możliwością kliknięcia węzła, żeby zobaczyć
 jego szczegóły (wszystkie domeny odpytane przez klienta albo wszystkich
 klientów, którzy odpytali daną domenę, wraz z licznikami) w panelu
-bocznym. Przycisk **Clear graph data**, dostępny wyłącznie dla
-administratora (`POST /api/graph/clear`), czyści całą historię relacji
-w `graph.db` - nie ma to żadnego wpływu na sam log zapytań, tylko na
-pamięć grafu o tym, kto z kim "rozmawiał".
+bocznym. Przewiń kółkiem myszy (albo uszczypnij, na urządzeniu
+dotykowym), żeby przybliżyć lub oddalić względem wskaźnika, przeciągnij
+tło, żeby przesunąć widok, przeciągnij węzeł, żeby go przenieść, a
+podwójne kliknięcie (albo przycisk **Reset view**) przywraca domyślne
+przybliżenie i przesunięcie widoku - przydatne, gdy ruchliwa sieć
+rozciągnęła graf szerzej, niż mieści się na płótnie naraz. Przycisk
+**Clear graph data**, dostępny wyłącznie dla administratora (`POST
+/api/graph/clear`), czyści całą historię relacji w `graph.db` - nie ma
+to żadnego wpływu na sam log zapytań, tylko na pamięć grafu o tym, kto z
+kim "rozmawiał".
 
 Tak jak Logi i Stats, zakładka Graph jest zabezpieczona własnym
 uprawnieniem - **Can see the client-domain graph** (`view_graph`) - a
@@ -1129,18 +1194,32 @@ czy coś aktywnie złośliwego) oraz rekonesans wystawionych usług (otwarte
 porty, znane CVE, tagi nadużyć); [URLhaus](https://urlhaus.abuse.ch/)
 (abuse.ch, działa zarówno dla domen, jak i adresów IP, wymaga darmowego
 klucza Auth-Key z ich strony) sprawdza, czy dany wskaźnik hostował znane,
-złośliwe adresy URL - na żywo albo w przeszłości. **Wiek domeny z RDAP**
-oraz **transparentność certyfikatów z [crt.sh](https://crt.sh/)** to
-jedyne dwa źródła, które w ogóle nie wymagają klucza API - obydwa działają
-tylko dla domen, obydwa to darmowe, publiczne wyszukiwania bez konta i bez
-klucza, kontrolowane wyłącznie własnym przełącznikiem on/off (nadal
+złośliwe adresy URL - na żywo albo w przeszłości. **Wyszukiwanie
+RDAP domen/adresów IP** oraz **transparentność certyfikatów z
+[crt.sh](https://crt.sh/)** to jedyne dwa źródła, które w ogóle nie
+wymagają klucza API - obydwa to darmowe, publiczne wyszukiwania bez konta
+i bez klucza, kontrolowane wyłącznie własnym przełącznikiem on/off (nadal
 schowanym za głównym przełącznikiem publicznych wyszukiwań, bo to nadal
-są połączenia z firmami trzecimi). RDAP oznacza domenę zarejestrowaną
-podejrzanie niedawno - ten sam odruch, co przy
+są połączenia z firmami trzecimi); przełącznik RDAP jest domyślnie
+**włączony**, bo nic nie kosztuje i nie wymaga żadnych danych
+uwierzytelniających, podczas gdy każde inne źródło (w tym crt.sh) nadal
+jest domyślnie wyłączone. RDAP oznacza domenę zarejestrowaną podejrzanie
+niedawno - ten sam odruch, co przy
 [wykrywaniu typosquattingu](#wykrywanie-typosquattingu) wyżej: świeża
 rejestracja obok nazwy łudząco podobnej do jakiejś marki to klasyczny
-sygnał phishingu - a crt.sh po prostu, dla Twojej własnej wiedzy, podaje,
-ile certyfikatów i ile odrębnych nazw subdomen jest zarejestrowanych dla
+sygnał phishingu - a dodatkowo pokazuje rejestratora oraz, jeśli rejestr
+go publikuje i nie jest ukryty ze względu na prywatność (powszechne przy
+polityce GDPR/ICANN, wtedy pomijane zamiast pokazywane jako prawdziwe
+dane), organizację lub osobę będącą właścicielem domeny. Dla adresów IP
+RDAP pokazuje zamiast tego nazwę sieci, kraj, przydzieloną pulę adresów
+(CIDR) oraz zarejestrowaną organizację. Jeśli wyszukiwanie RDAP dla danej
+domeny zawiedzie (brak rekordu RDAP, rejestr nieobsługiwany przez usługę
+bootstrap itd.), DNS-shield automatycznie przechodzi na starszy protokół
+WHOIS (surowy port 43, przez standardowy łańcuch odesłań IANA), by mimo
+wszystko spróbować pokazać rejestratora/właściciela/datę wygaśnięcia -
+również za darmo, bez klucza API, pod tym samym przełącznikiem. crt.sh
+(tylko dla domen) po prostu, dla Twojej własnej wiedzy, podaje, ile
+certyfikatów i ile odrębnych nazw subdomen jest zarejestrowanych dla
 danej domeny. Wszystkie osiem publicznych źródeł zawodzi w ten sam,
 przewidywalny sposób: są pomijane (nie jako błąd) dla typu celu, którego
 nie obsługują, pokazywane jako wyłączone, gdy przełącznik publicznych
@@ -2042,10 +2121,12 @@ między procesy robocze `DNSSHIELD_DNS_WORKERS`, tak jak zwykły UDP/TCP -
 sam panel webowy już jest jednoprocesowy, a DoH/DoT trzymają się tej samej
 granicy, zamiast dokładać ładowanie certyfikatu w każdym procesie roboczym
 i interakcję z `SO_REUSEPORT` dla ścieżki o stosunkowo niskiej
-przepustowości. Żaden z nich nie jest domyślnie publikowany w dostarczonym
-`docker-compose.yml`; dodaj mapowanie `- "853:853/tcp"` (albo inny port,
-jaki ustawiłeś), gdy tylko włączysz `dns.dot_enabled` - dokładnie tak, jak
-przy mapowaniu portu dla strony blokady opisanym wyżej.
+przepustowości. Dzięki sieci hosta w dostarczonym `docker-compose.yml`
+DoT jest dostępny natychmiast po włączeniu `dns.dot_enabled` - bez
+żadnego mapowania portów. Przy sieci typu bridge dodaj mapowanie
+`- "853:853/tcp"` (albo inny port, jaki ustawiłeś) samodzielnie -
+dokładnie tak, jak przy mapowaniu portu dla strony blokady opisanym
+wyżej.
 
 ### Metryki Prometheus
 
@@ -2220,11 +2301,14 @@ tej samej bazy `config.db` co reszta aplikacji i pojawia się w dokładnie
 tym samym panelu.
 
 **Wymaga realnego dostępu do domeny rozgłoszeniowej (broadcast) Twojej
-sieci LAN.** DHCP opiera się na broadcastach warstwy L2, których domyślna
-sieć mostkowa (bridge) Dockera nie przepuszcza - kontener jest odizolowany
-za NAT-em. Żeby faktycznie obsługiwać prawdziwych klientów, zmień usługę
-`dns-shield` w `docker-compose.yml`, żeby korzystała bezpośrednio z sieci
-hosta:
+sieci LAN.** DHCP opiera się na broadcastach warstwy L2, których sieć
+mostkowa (bridge) Dockera nie przepuszcza - kontener odizolowany za NAT-em
+ich nie widzi. Dostarczony `docker-compose.yml` już domyślnie korzysta z
+`network_mode: host` (zobacz
+[Sieć: domyślnie tryb host](#sieć-domyślnie-tryb-host) wyżej), więc sama
+domena rozgłoszeniowa nie jest tu przeszkodą; DHCP potrzebuje jeszcze
+dwóch dodatkowych uprawnień, żeby tworzyć i zarządzać sub-interfejsami
+VLAN oraz otwierać surowe sockety, których potrzebuje na porcie 67:
 
 ```yaml
 services:
@@ -2235,14 +2319,14 @@ services:
       - NET_RAW
 ```
 
-(usuń przy tym listę `ports:` - `network_mode: host` i tak ją ignoruje,
-kontener dzieli porty bezpośrednio z hostem). `NET_ADMIN`/`NET_RAW` to
-uprawnienia pozwalające tworzyć i zarządzać sub-interfejsami VLAN oraz
-otwierać surowe sockety, których DHCP potrzebuje na porcie 67. Bez sieci
-hosta zostaw DHCP wyłączone i albo korzystaj z serwera DHCP na swoim
-routerze jak dotychczas, albo uruchom serwer DHCP DNS-shield na gołym
-metalu/maszynie wirtualnej z prawdziwym interfejsem sieciowym zamiast w
-tym kontenerze.
+Nie ma ich domyślnie w pliku compose, bo są potrzebne dopiero, gdy
+faktycznie włączysz DHCP - dodaj je, a potem `docker compose up -d`, żeby
+odtworzyć kontener już z nimi. Jeśli przełączyłeś się z powrotem na sieć
+typu bridge (zobacz sekcję wyżej), DHCP w ogóle nie dotrze do Twojej
+sieci LAN w tym trybie - zostaw je wyłączone i albo korzystaj z serwera
+DHCP na swoim routerze jak dotychczas, albo uruchom serwer DHCP
+DNS-shield na gołym metalu/maszynie wirtualnej z prawdziwym interfejsem
+sieciowym zamiast w kontenerze z siecią typu bridge.
 
 **Zakresy (scopes)** to podstawowa jednostka konfiguracji - jeden na
 podsieć/VLAN. Każdy ma: nazwę, interfejs sieciowy do nasłuchiwania,
@@ -2322,11 +2406,21 @@ generuje na nowo konfigurację każdej domeny na podstawie `config.db` i
 automatycznie restartuje nginx, jeśli kiedykolwiek się wywali (wątek w
 tle sprawdza go co kilka sekund).
 
-**Porty 80 i 443 nie są domyślnie publikowane.** `docker-compose.yml`
-mapuje domyślnie tylko 53/tcp+udp oraz 3000/tcp, więc te dwa porty
-zostają wolne na hoście dla czegokolwiek innego, dopóki ta funkcja jest
-wyłączona - a jest wyłączona domyślnie (`proxy.enabled: false`). Jeśli
-włączysz reverse proxy, dodaj oba porty do listy `ports:` samodzielnie:
+**Porty 80 i 443 domyślnie w ogóle nie są używane.** Dzięki
+`network_mode: host` w dostarczonym `docker-compose.yml` (zobacz
+[Sieć: domyślnie tryb host](#sieć-domyślnie-tryb-host)) nginx wiąże się
+bezpośrednio z portami hosta w momencie włączenia tej funkcji - nie trzeba
+edytować `docker-compose.yml` ani odtwarzać kontenera, bo nie ma listy
+`ports:`, którą trzeba by synchronizować z tym, co jest włączone. Porty
+80/443 po prostu zostają wolne na hoście dla czegokolwiek innego, dopóki
+ta funkcja jest wyłączona - a jest wyłączona domyślnie (`proxy.enabled:
+false`). Przełącz ją, a nginx zacznie nasłuchiwać na 80/443 w ciągu
+kilku sekund - upewnij się tylko wcześniej, że nic innego na hoście nie
+zajmuje już tych portów.
+
+Jeśli przełączyłeś się na
+[sieć typu bridge](#sieć-domyślnie-tryb-host) zamiast trybu host, musisz
+samodzielnie opublikować porty w momencie włączenia tej funkcji:
 
 ```yaml
 services:
@@ -2523,6 +2617,9 @@ app/
   enrichment.py         zapytania o reputację do VirusTotal/AbuseIPDB/OTX/GreyNoise/
                         Shodan/URLhaus/RDAP/crt.sh - wywoływane albo z punktu końcowego
                         przycisku "Enrich", albo z auto_enrich.py niżej (zobacz wyżej)
+  whois.py              klient starszego protokołu WHOIS (port 43) z odkrywaniem serwera
+                        przez łańcuch odesłań IANA, używany przez enrichment.py jako
+                        rezerwowe źródło, gdy wyszukiwanie RDAP domeny zawiedzie
   enrichment_store.py   lokalne przechowywanie wyników wzbogacania: SQLite
                        (data/enrichment.db)
   auto_enrich.py         mechanizm w tle, który raz uruchamia Enrich dla każdej nowo
@@ -2689,21 +2786,22 @@ pytest
 
 ## Ograniczenia / plany na przyszłość
 
-- Brak serwera DHCP, brak DoQ (DoH/DoT są obsługiwane zarówno jako
-  transport do serwera nadrzędnego, jak i jako nasłuch dla klientów -
-  zobacz wyżej).
+- Brak DoQ (DoH/DoT są obsługiwane zarówno jako transport do serwera
+  nadrzędnego, jak i jako nasłuch dla klientów - zobacz wyżej).
   [Kontrola rodzicielska](#kontrola-rodzicielska--safesearch) jest
   ograniczona do tego, co faktycznie da się zrobić na poziomie
   rozwiązywania DNS - wymuszone SafeSearch, listy blokad kategorii
   przypisane do grup oraz harmonogramy godziny snu przypisane do grup -
   a nie limity na poziomie pojedynczej aplikacji czy inspekcja treści.
 - Grupy klientów i `blocked_clients` dopasowują też po adresie MAC albo
-  rozwiązanej nazwie hosta (wzorce `mac:`/`host:`, zobacz wyżej), ale
-  dopasowywanie po MAC zależy od tego, czy tabela ARP hosta jest w ogóle
-  widoczna dla kontenera (czyli od trybu sieciowego host), a dopasowywanie
-  po nazwie hosta zależy od włączonego rozwiązywania nazw klientów -
-  żadne z nich nie działa od razu, "z pudełka", przy domyślnej,
-  sieciowanej przez bridge konfiguracji `docker-compose.yml`.
+  rozwiązanej nazwie hosta (wzorce `mac:`/`host:`, zobacz wyżej);
+  dopasowywanie po MAC dodatkowo zależy od tego, czy tabela ARP hosta jest
+  widoczna dla kontenera, co dostarczony `docker-compose.yml` zapewnia już
+  dzięki sieci hosta (zobacz
+  [Sieć: domyślnie tryb host](#sieć-domyślnie-tryb-host)) - nie zadziała,
+  jeśli przełączyłeś się na sieć typu bridge. Dopasowywanie po nazwie
+  hosta zależy od włączonego rozwiązywania nazw klientów
+  (`dns.resolve_client_names`), które jest domyślnie wyłączone.
 - HTTPS dla panelu (zobacz wyżej) jest domyślnie samopodpisany -
   certyfikat zaufany przez przeglądarkę wciąż oznacza albo dostarczenie
   własnego certyfikatu, albo postawienie przed panelem reverse proxy z

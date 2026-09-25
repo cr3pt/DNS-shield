@@ -8,10 +8,21 @@ from urllib.parse import quote
 
 import requests
 
+from app import whois as whois_lookup_module
+
 logger = logging.getLogger("dnsshield.enrichment")
 
 _SEVERITY_ORDER = ["safe", "low", "medium", "high", "critical"]
 _TIMEOUT = 10.0
+_REDACTION_MARKERS = ("redacted", "not disclosed", "data protected", "privacy", "withheld", "gdpr")
+
+
+def _looks_redacted(value: str | None) -> bool:
+    if not value:
+        return True
+    lowered = value.lower()
+    return any(marker in lowered for marker in _REDACTION_MARKERS)
+
 
 _session = requests.Session()
 
@@ -351,6 +362,9 @@ def query_rdap(domain: str) -> dict[str, Any]:
         expiration_date = _rdap_event_date(data, "expiration")
         last_changed_date = _rdap_event_date(data, "last changed")
         registrar = _rdap_entity_name(data, "registrar")
+        registrant = _rdap_entity_name(data, "registrant")
+        if _looks_redacted(registrant):
+            registrant = None
         statuses = data.get("status") or []
         nameservers = sorted(
             (ns.get("ldhName") or "").lower() for ns in data.get("nameservers", []) if ns.get("ldhName")
@@ -378,6 +392,8 @@ def query_rdap(domain: str) -> dict[str, Any]:
         summary_parts = [age_note.capitalize()]
         if registrar:
             summary_parts.append(f"registrar: {registrar}")
+        if registrant:
+            summary_parts.append(f"owner: {registrant}")
         if expiration_date:
             summary_parts.append(f"expires: {expiration_date[:10]}")
         if nameservers:
@@ -397,15 +413,146 @@ def query_rdap(domain: str) -> dict[str, Any]:
                 "expiration_date": expiration_date,
                 "last_changed_date": last_changed_date,
                 "registrar": registrar,
+                "registrant": registrant,
                 "status": statuses,
                 "nameservers": nameservers,
             },
             "link": f"https://who.is/whois/{quote(domain, safe='')}",
         }
     except requests.HTTPError as exc:
+        fallback = _query_whois_fallback(domain)
+        if fallback:
+            return fallback
         return {"configured": True, "ok": False, "error": _http_error_message(exc)}
     except Exception as exc:
         logger.warning("RDAP lookup failed for %s: %s", domain, exc)
+        fallback = _query_whois_fallback(domain)
+        if fallback:
+            return fallback
+        return {"configured": True, "ok": False, "error": _network_error_message(exc)}
+
+
+def _query_whois_fallback(domain: str) -> dict[str, Any] | None:
+    try:
+        record = whois_lookup_module.whois_lookup(domain)
+    except Exception as exc:
+        logger.warning("WHOIS fallback lookup failed for %s: %s", domain, exc)
+        return None
+    if not record:
+        return None
+
+    registrar = record.get("registrar")
+    registrant = record.get("registrant_org") or record.get("registrant_name")
+    if _looks_redacted(registrant):
+        registrant = None
+    creation_date = record.get("creation_date")
+    expiration_date = record.get("expiration_date")
+    statuses = record.get("status") or []
+    nameservers = record.get("nameservers") or []
+
+    age_days: int | None = None
+    if creation_date:
+        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d", "%d-%b-%Y", "%Y-%m-%dT%H:%M:%S%z"):
+            try:
+                creation_dt = datetime.strptime(creation_date[:19] if "T" in creation_date else creation_date, fmt)
+                if creation_dt.tzinfo is None:
+                    creation_dt = creation_dt.replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - creation_dt).days
+                break
+            except ValueError:
+                continue
+
+    if age_days is None:
+        verdict, age_note = "safe", "no registration date on record"
+    elif age_days < 7:
+        verdict, age_note = "high", f"registered {age_days} day(s) ago - very recently registered"
+    elif age_days < 30:
+        verdict, age_note = "medium", f"registered {age_days} day(s) ago - recently registered"
+    elif age_days < 90:
+        verdict, age_note = "low", f"registered {age_days} day(s) ago"
+    else:
+        verdict, age_note = "safe", f"registered {age_days} day(s) ago"
+
+    summary_parts = [age_note.capitalize()]
+    if registrar:
+        summary_parts.append(f"registrar: {registrar}")
+    if registrant:
+        summary_parts.append(f"owner: {registrant}")
+    if expiration_date:
+        summary_parts.append(f"expires: {expiration_date[:10]}")
+    if nameservers:
+        summary_parts.append(f"{len(nameservers)} nameserver(s)")
+    summary = ", ".join(summary_parts) + " (via WHOIS)"
+
+    score = {"safe": 0, "low": 20, "medium": 45, "high": 75}[verdict]
+    return {
+        "configured": True,
+        "ok": True,
+        "verdict": verdict,
+        "score": score,
+        "summary": summary,
+        "details": {
+            "age_days": age_days,
+            "registration_date": creation_date,
+            "expiration_date": expiration_date,
+            "registrar": registrar,
+            "registrant": registrant,
+            "status": statuses,
+            "nameservers": nameservers,
+            "source": "whois",
+            "whois_server": record.get("server"),
+        },
+        "link": f"https://who.is/whois/{quote(domain, safe='')}",
+    }
+
+
+def query_rdap_ip(ip: str) -> dict[str, Any]:
+    url = f"https://rdap.org/ip/{quote(ip, safe='')}"
+    try:
+        resp = _session.get(url, headers={"Accept": "application/rdap+json"}, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+
+        network_name = data.get("name")
+        country = data.get("country")
+        org = _rdap_entity_name(data, "registrant") or _rdap_entity_name(data, "administrative")
+        if _looks_redacted(org):
+            org = None
+        cidrs = [
+            f"{cidr.get('v4prefix') or cidr.get('v6prefix')}/{cidr.get('length')}"
+            for cidr in data.get("cidr0_cidrs", []) or []
+            if cidr.get("length") is not None
+        ]
+
+        summary_parts = []
+        if network_name:
+            summary_parts.append(network_name)
+        if org:
+            summary_parts.append(f"owner: {org}")
+        if country:
+            summary_parts.append(f"country: {country}")
+        if cidrs:
+            summary_parts.append(", ".join(cidrs))
+        summary = ", ".join(summary_parts) or "No RDAP network data available"
+
+        return {
+            "configured": True,
+            "ok": True,
+            "verdict": "safe",
+            "score": 0,
+            "summary": summary,
+            "details": {
+                "network_name": network_name,
+                "country": country,
+                "organization": org,
+                "cidrs": cidrs,
+            },
+            "link": f"https://rdap.org/ip/{quote(ip, safe='')}",
+        }
+    except requests.HTTPError as exc:
+        return {"configured": True, "ok": False, "error": _http_error_message(exc)}
+    except Exception as exc:
+        logger.warning("RDAP lookup failed for %s: %s", ip, exc)
         return {"configured": True, "ok": False, "error": _network_error_message(exc)}
 
 
@@ -613,6 +760,8 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
     ai_key = config_store.get("enrichment", "ai_api_key", default="") or ""
     _register_toggle("ai", ai_enabled and bool(ai_key), lambda: query_ai(target, target_type, ai_key))
 
+    rdap_enabled = bool(config_store.get("enrichment", "rdap_enabled", default=True))
+
     if target_type == "ip":
         abuse_key = config_store.get("enrichment", "abuseipdb_api_key", default="") or ""
         _register("abuseipdb", abuse_key, lambda: query_abuseipdb(target, abuse_key))
@@ -626,21 +775,19 @@ def enrich(target: str, target_type: str, config_store) -> dict[str, Any]:
         ipinfo_enabled = bool(config_store.get("enrichment", "ipinfo_enabled", default=False))
         ipinfo_key = config_store.get("enrichment", "ipinfo_api_key", default="") or ""
         _register_toggle("ipinfo", ipinfo_enabled, lambda: query_ipinfo(target, ipinfo_key))
+
+        _register_toggle("rdap", rdap_enabled, lambda: query_rdap_ip(target))
+        sources["crtsh"] = None
     else:
         sources["abuseipdb"] = None
         sources["greynoise"] = None
         sources["shodan"] = None
         sources["ipinfo"] = None
 
-    if target_type == "domain":
-        rdap_enabled = bool(config_store.get("enrichment", "rdap_enabled", default=False))
         _register_toggle("rdap", rdap_enabled, lambda: query_rdap(target))
 
         crtsh_enabled = bool(config_store.get("enrichment", "crtsh_enabled", default=False))
         _register_toggle("crtsh", crtsh_enabled, lambda: query_crtsh(target))
-    else:
-        sources["rdap"] = None
-        sources["crtsh"] = None
 
     local_enabled = bool(config_store.get("enrichment", "local_enabled", default=False))
     local_url = config_store.get("enrichment", "local_url", default="") or ""
