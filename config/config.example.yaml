@@ -190,3 +190,7 @@ new_client_detection:
 proxy:
   enabled: false
   domains: []
+
+graph:
+  suspicious_zscore: 2.5
+  suspicious_min_degree: 15

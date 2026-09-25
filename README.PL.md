@@ -992,6 +992,84 @@ na żywo co 10 sekund, razem z resztą panelu. Tak jak w logu zapytań,
 tabele domen i klientów mają przy każdym wierszu przycisk **Copy**, a
 wiersze klientów dodatkowo przycisk **Block host**.
 
+### Graf klient-domena
+
+Zakładka **Graph** pokazuje, którzy klienci pytają o które domeny, jako
+graf skierowany typu force-directed - klienci po jednej stronie, domeny
+po drugiej, a krawędź dla każdej pary klient/domena, jaka kiedykolwiek
+wystąpiła w zapytaniach. Pomysł jest luźno inspirowany narzędziem
+JPCERT [LogonTracer](https://github.com/JPCERTCC/LogonTracer), które w
+podobny sposób rysuje graf host-konto dla zdarzeń logowania w Windows,
+żeby wykryć ruch lateralny; to, co jest tutaj, to dużo prostszy kuzyn
+tego pomysłu zastosowany do wzorców zapytań DNS, a nie jego
+reimplementacja - nie ma tu ani PageRank, ani HITS, ani bazy grafowej w
+tle, tylko zwykła tabela ważonych krawędzi i heurystyka oparta o stopień
+węzła (patrz niżej).
+
+Domeny są grupowane wg **domeny rejestrowalnej**, a nie naiwnie wg
+dwóch ostatnich etykiet: `app/domain_suffix.py` przepuszcza każdą nazwę
+zapytania przez [`tldextract`](https://github.com/john-kurkowski/tldextract)
+w trybie w pełni offline (`suffix_list_urls=()`, wyłącznie dołączony do
+paczki zrzut listy publicznych sufiksów, bez żadnego pobierania z sieci),
+zanim trafi na wykres - dzięki temu `sub.deep.example.co.uk` i
+`other.example.co.uk` zwijają się w jeden węzeł `example.co.uk`, zamiast
+błędnie podzielić po `co.uk`, jakby to była domena rejestrowalna.
+Odwrotny DNS (`*.in-addr.arpa`/`*.ip6.arpa`) jest z tego całkowicie
+wykluczony, bo rozwiązanie rekordu PTR trudno nazwać "odwiedzeniem"
+czegokolwiek.
+
+Ta historia relacji żyje we własnym magazynie, `data/graph.db`, całkiem
+osobno od `stats.db` i jego czyszczenia wg `logging.retention_days` -
+wątek w tle co ok. 10 sekund sprawdza nowo zalogowane zapytania i
+dokłada je do bieżącego licznika par (klient, domena), więc graf
+zachowuje długoterminową historię relacji klienta nawet wtedy, gdy sam
+log zapytań już wyczyścił albo skrócił surowe zapytania, z których ta
+historia powstała.
+
+Każdy węzeł - klient albo domena - dostaje **stopień** (liczbę
+odrębnych krawędzi: ile różnych domen odpytał dany klient, albo ilu
+różnych klientów odpytało daną domenę) i może zostać oznaczony jako
+**podejrzany** (suspicious): DNS-shield liczy wynik z (z-score) tego
+stopnia względem populacji węzłów tego samego typu (klientów porównuje
+się z klientami, domeny z domenami) i oznacza węzeł, gdy wynik
+przekroczy `graph.suspicious_zscore` (domyślnie **2,5**) *i*
+jednocześnie jego surowy stopień wynosi co najmniej
+`graph.suspicious_min_degree` (domyślnie **15** - próg minimalny, żeby
+węzeł z zaledwie kilkoma krawędziami nie został oznaczony tylko dlatego,
+że wyróżnia się w spokojnej, mało aktywnej sieci) - chodzi o wyłapanie
+klienta odpytującego zauważalnie więcej różnych domen niż reszta sieci,
+albo domeny odpytywanej przez zauważalnie więcej różnych klientów niż
+reszta. Oba progi konfiguruje się z poziomu panelu (to ustawienia
+wyłącznie dla administratora, `PATCH /api/settings/graph`) i są one
+celowo proste: to heurystyka stopień/z-score, a nie analiza grafowa
+oparta o centralność (PageRank, HITS, wykrywanie społeczności), jaką
+potrafi zrobić np. baza Neo4j stojąca za LogonTracerem - wystarczająco
+dobra, żeby wskazać "ten węzeł wygląda nietypowo", ale nie zastępuje
+faktycznego sprawdzenia, o co dany węzeł właściwie pytał.
+
+Sam wykres to ręcznie napisany układ typu force-directed (ta sama
+filozofia co wykres trendu zapytań w inline SVG opisany wyżej - bez
+zewnętrznej biblioteki do wykresów), z **polem wyszukiwania** (filtruje
+po adresie IP klienta albo domenie), filtrem **minimalnej liczby
+zapytań na krawędź**, pozwalającym odchudzić zapełniony graf,
+przełącznikiem **"Suspicious nodes only"**, który przygasza resztę
+grafu bez jej usuwania, oraz możliwością kliknięcia węzła, żeby zobaczyć
+jego szczegóły (wszystkie domeny odpytane przez klienta albo wszystkich
+klientów, którzy odpytali daną domenę, wraz z licznikami) w panelu
+bocznym. Przycisk **Clear graph data**, dostępny wyłącznie dla
+administratora (`POST /api/graph/clear`), czyści całą historię relacji
+w `graph.db` - nie ma to żadnego wpływu na sam log zapytań, tylko na
+pamięć grafu o tym, kto z kim "rozmawiał".
+
+Tak jak Logi i Stats, zakładka Graph jest zabezpieczona własnym
+uprawnieniem - **Can see the client-domain graph** (`view_graph`) - a
+ograniczony użytkownik typu User, któremu przyznano tylko to
+uprawnienie, widzi graf ograniczony wyłącznie do jego własnych
+**allowed clients / groups**, dokładnie tak samo jak filtrowanie po
+stronie serwera opisane w sekcji
+[Konta wieloużytkownikowe, role i widok publiczny](#konta-wieloużytkownikowe-role-i-widok-publiczny)
+niżej, które już dotyczy Logów i Stats.
+
 ### Wzbogacanie threat-intel (VirusTotal / AbuseIPDB / AlienVault OTX / i inne)
 
 Każda domena i adres IP pokazane w zakładkach Query log i Stats mają też
@@ -1656,16 +1734,18 @@ anomalie oraz pasek wstrzymania "Blocking active". **User** ma dostęp
 głównie do odczytu, ograniczony do tego, na co pozwoli administrator:
 
 - **Allowed clients / groups** - wzorce IP/CIDR i/albo nazwy
-  `client_groups`. Logi, Stats i Anomalie ograniczonego użytkownika są w
-  całości filtrowane po stronie serwera, tak by pokazywały tylko tych
-  klientów (to nie jest ukrywanie po stronie przeglądarki - samo API nigdy
-  nie zwraca mu wierszy innego klienta); zostawienie obu pól pustych
-  oznacza, że konto w ogóle nie widzi żadnych danych klientów, dopóki
-  administrator czegoś mu nie przyzna.
+  `client_groups`. Logi, Stats, Anomalie i Graph ograniczonego
+  użytkownika są w całości filtrowane po stronie serwera, tak by
+  pokazywały tylko tych klientów (to nie jest ukrywanie po stronie
+  przeglądarki - samo API nigdy nie zwraca mu wierszy innego klienta);
+  zostawienie obu pól pustych oznacza, że konto w ogóle nie widzi
+  żadnych danych klientów, dopóki administrator czegoś mu nie przyzna.
 - **Can see threat-intel results** - bez tego przyciski Enrich są
   wyłączone, a `/api/enrich` odmawia dostępu.
 - **Can see detected anomalies** - bez tego zakładka Alerts jest
   ukryta, a jej punkty końcowe odmawiają dostępu.
+- **Can see the client-domain graph** - bez tego zakładka Graph jest
+  ukryta, a jej punkty końcowe `/api/graph*` odmawiają dostępu.
 - **Can block a domain/host** - bez tego "Block host" i dodawanie do
   globalnej listy zablokowanych są niedostępne (edycja listy zablokowanej
   danej grupy oraz każda inna zmiana w Settings i tak pozostają wyłącznie

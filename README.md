@@ -886,6 +886,75 @@ of the dashboard. Like the query log, the domain/client tables have a
 **Copy** button on each row, and client rows also get a **Block host**
 button.
 
+### Client-domain graph
+
+The **Graph** tab visualizes which clients query which domains as a
+force-directed node graph - clients on one side, domains on the other,
+an edge for every client/domain pair that's ever been queried. It's
+loosely inspired by JPCERT's [LogonTracer](https://github.com/JPCERTCC/LogonTracer),
+which does the same kind of host-account graphing for Windows logon
+events to spot lateral movement; this is a much simpler cousin of that
+idea applied to DNS query patterns instead, not a reimplementation - there's
+no PageRank, no HITS, and no graph database behind it, just a plain
+weighted-edge table and a degree-based heuristic (below).
+
+Domains are grouped by **registrable domain**, not naively by the last
+two labels: `app/domain_suffix.py` runs every query name through
+[`tldextract`](https://github.com/john-kurkowski/tldextract) in fully
+offline mode (`suffix_list_urls=()`, a bundled public-suffix-list
+snapshot only, no network fetch ever) before it's plotted, so
+`sub.deep.example.co.uk` and `other.example.co.uk` collapse into one
+`example.co.uk` node instead of incorrectly splitting on `co.uk` as if
+it were the registrable domain. Reverse-DNS lookups (`*.in-addr.arpa`/
+`*.ip6.arpa`) are excluded entirely, since resolving a PTR record isn't
+really a "visit" to anything.
+
+This relationship history lives in its own store, `data/graph.db`, kept
+entirely separate from `stats.db` and its `logging.retention_days`
+pruning - a background thread polls for newly-logged queries every ~10
+seconds and folds them into a running per-(client, domain) count, so the
+graph keeps a client's long-term relationship history intact even after
+the query log itself has pruned or cleared the underlying raw queries.
+
+Each node - client or domain - gets a **degree** (its number of distinct
+edges: how many different domains a client has queried, or how many
+different clients have queried a domain) and can be flagged
+**suspicious**: DNS-shield computes a z-score of that degree against the
+population of same-type nodes (clients compared to clients, domains to
+domains) and flags it once the score clears `graph.suspicious_zscore`
+(default **2.5**) *and* its raw degree is at least
+`graph.suspicious_min_degree` (default **15**, a floor so a node with
+only a handful of edges can't get flagged purely for standing out in a
+mostly-quiet network) - a client resolving far more distinct domains
+than everyone else, or a domain resolved by far more distinct clients
+than everyone else, is what this is meant to surface. Both thresholds
+are configurable from the dashboard (they're admin-only settings,
+`PATCH /api/settings/graph`) and are intentionally simple: this is a
+degree/z-score heuristic, not the graph-theoretic centrality analysis
+(PageRank, HITS, community detection) that a tool like LogonTracer's
+Neo4j backend can do - good enough to point at "this node looks
+unusual," not a substitute for actually looking at what it queried.
+
+The canvas itself is a hand-rolled force-directed layout (same
+philosophy as the inline-SVG query-trend chart above - no external
+charting library) with a **search box** (filter to a client IP or
+domain), a **minimum queries per edge** filter to declutter a busy
+graph, a **"suspicious nodes only"** toggle that dims everything else
+without removing it, and click-to-drill-down: clicking a node opens its
+detail (every domain a client has queried, or every client that's
+queried a domain, with counts) in the side panel. An admin-only
+**Clear graph data** button (`POST /api/graph/clear`) wipes
+`graph.db`'s entire relationship history - it has no effect on the
+query log itself, only on the graph's own memory of who's talked to
+whom.
+
+Like Logs and Stats, the Graph tab is gated behind its own permission -
+**Can see the client-domain graph** (`view_graph`) - and a restricted
+User only granted that permission sees a graph filtered down to their
+own **allowed clients / groups**, the same server-side filtering
+[Multi-user accounts, roles, and the public view](#multi-user-accounts-roles-and-the-public-view)
+below already applies to Logs and Stats.
+
 ### Threat-intel enrichment (VirusTotal / AbuseIPDB / AlienVault OTX / your own)
 
 Every domain and IP address shown in the Query log and Stats tabs also has
@@ -1480,7 +1549,7 @@ every client/group, all Settings, threat-intel Enrich, anomalies, and the
 whatever an admin grants them:
 
 - **Allowed clients / groups** - IP/CIDR patterns and/or `client_groups`
-  names. A restricted user's Logs, Stats, and Anomalies are all
+  names. A restricted user's Logs, Stats, Anomalies, and Graph are all
   transparently filtered down to just these clients server-side (not a
   client-side hide - the API itself never returns another client's rows
   to them); leaving both empty means the account sees no client data at
@@ -1489,6 +1558,8 @@ whatever an admin grants them:
   disabled and `/api/enrich` is refused.
 - **Can see detected anomalies** - without this, the Alerts tab is
   hidden and its endpoints are refused.
+- **Can see the client-domain graph** - without this, the Graph tab is
+  hidden and its `/api/graph*` endpoints are refused.
 - **Can block a domain/host** - without this, "Block host" and adding to
   the global denylist are refused (per-group denylist editing and every
   other Settings change remain Administrator-only regardless).

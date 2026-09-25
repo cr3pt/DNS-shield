@@ -444,6 +444,35 @@
   }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.toast-error { border-color: var(--danger); }
+  .graph-layout { display: grid; grid-template-columns: 1fr 300px; gap: 1rem; margin-top: 0.75rem; }
+  .graph-canvas-wrap {
+    position: relative; border: 1px solid var(--panel-border); border-radius: 8px;
+    background: var(--input-bg); overflow: hidden; height: 560px;
+  }
+  #graph-canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #graph-canvas.dragging { cursor: grabbing; }
+  #graph-side-panel {
+    border: 1px solid var(--panel-border); border-radius: 8px; background: var(--input-bg);
+    padding: 0.85rem; overflow-y: auto; max-height: 560px; font-size: 0.85rem;
+  }
+  #graph-side-panel h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+  #graph-side-panel table { width: 100%; font-size: 0.8rem; }
+  .graph-node-title { font-weight: 600; font-size: 0.95rem; word-break: break-all; }
+  .graph-node-badge {
+    display: inline-block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: 0.4rem; vertical-align: middle;
+  }
+  .graph-node-badge.client { background: var(--accent); color: var(--accent-text); }
+  .graph-node-badge.domain { background: var(--good); color: var(--accent-text); }
+  .graph-suspicious-row {
+    display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0;
+    border-bottom: 1px solid var(--panel-border); cursor: pointer; font-size: 0.8rem;
+  }
+  .graph-suspicious-row:hover { color: var(--accent); }
+  @media (max-width: 900px) {
+    .graph-layout { grid-template-columns: 1fr; }
+    .graph-canvas-wrap { height: 420px; }
+  }
 </style>
 </head>
 <body>
@@ -498,6 +527,7 @@
     <button type="button" class="tab-btn" data-tab="logs" data-i18n="nav.logs">Logs</button>
     <button type="button" class="tab-btn" data-tab="anomalies"><span data-i18n="nav.anomalies">Alerts</span><span id="anomaly-count-badge" class="count-badge" style="display:none;"></span></button>
     <button type="button" class="tab-btn" data-tab="stats" data-i18n="nav.stats">Stats</button>
+    <button type="button" class="tab-btn" data-tab="graph" data-i18n="nav.graph">Graph</button>
     <button type="button" class="find-domain-btn" id="find-domain-btn" data-i18n="nav.find_domain">Find domain</button>
     <button type="button" class="tab-btn" data-tab="settings" data-i18n="nav.settings">Settings</button>
   </div>
@@ -561,6 +591,44 @@
       </table>
     </section>
   </div>
+  </div>
+
+  <div id="tab-graph" class="tab-panel">
+    <section>
+      <h2 data-i18n="graph.title">Client-domain graph</h2>
+      <p class="muted" data-i18n="graph.hint">Which clients query which domains (subdomains grouped together), built from a persistent history independent of the query log's own retention window.</p>
+      <div class="row" style="justify-content:flex-start;">
+        <div class="field" style="max-width:220px;">
+          <label for="graph-search" data-i18n="graph.search">Search client or domain</label>
+          <input type="text" id="graph-search" data-i18n-ph="graph.search_ph" placeholder="192.168.1.50 or example.com">
+        </div>
+        <div class="field" style="max-width:140px;">
+          <label for="graph-min-count" data-i18n="graph.min_count">Min. queries per edge</label>
+          <input type="number" id="graph-min-count" value="1" min="1">
+        </div>
+        <div class="field checkbox" style="align-self:flex-end;">
+          <input type="checkbox" id="graph-suspicious-only">
+          <label for="graph-suspicious-only" data-i18n="graph.suspicious_only">Suspicious nodes only</label>
+        </div>
+        <button type="button" id="graph-refresh-btn" style="align-self:flex-end;" data-i18n="graph.refresh">Refresh</button>
+        <button type="button" id="graph-clear-btn" class="danger" style="align-self:flex-end; display:none;" data-i18n="graph.clear">Clear graph data</button>
+      </div>
+      <p class="muted" id="graph-summary"></p>
+      <p class="muted" id="graph-truncated-hint" style="display:none; color:var(--danger);" data-i18n="graph.truncated_hint">Too many nodes to show at once - showing only the busiest ones. Narrow the search or raise the minimum query count.</p>
+
+      <div class="graph-layout">
+        <div class="graph-canvas-wrap">
+          <canvas id="graph-canvas"></canvas>
+        </div>
+        <div id="graph-side-panel">
+          <div id="graph-detail-empty" class="muted" data-i18n="graph.select_hint">Click a node to see its details here.</div>
+          <div id="graph-detail" style="display:none;"></div>
+          <h3 style="margin-top:1.25rem;" data-i18n="graph.suspicious_title">Suspicious nodes</h3>
+          <p class="muted" data-i18n="graph.hint.suspicious">A client visiting an unusually high number of distinct domains, or a domain visited by an unusually high number of clients, compared to the rest of your network.</p>
+          <div id="graph-suspicious-list" class="muted" data-i18n="graph.none_found">None found.</div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div id="tab-settings" class="tab-panel">
@@ -795,6 +863,7 @@
           <div class="field"><label data-i18n="users.allowed_domains">Allowed reverse-proxy domains (comma-separated)</label><input type="text" id="u-allowed-domains" placeholder="app.example.com"></div>
           <div class="field checkbox"><input type="checkbox" id="u-view-threat-intel"><label for="u-view-threat-intel" data-i18n="users.perm.threat_intel">Can see threat-intel Enrich results</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-view-anomalies"><label for="u-view-anomalies" data-i18n="users.perm.anomalies">Can see detected anomalies</label></div>
+          <div class="field checkbox"><input type="checkbox" id="u-view-graph"><label for="u-view-graph" data-i18n="users.perm.graph">Can see the client-domain graph</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-can-block"><label for="u-can-block" data-i18n="users.perm.block">Can block a domain/host</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-can-whitelist"><label for="u-can-whitelist" data-i18n="users.perm.whitelist">Can whitelist a domain</label></div>
           <div class="field checkbox"><input type="checkbox" id="u-can-manage-proxy"><label for="u-can-manage-proxy" data-i18n="users.perm.manage_proxy">Can manage reverse-proxy domains (limited to Allowed domains above)</label></div>
@@ -3127,6 +3196,407 @@ async function loadTrend() {
   const data = await api(`/api/stats/timeseries?range=${trendRange}`);
   renderTrendChart(data);
 }
+
+const graphState = {
+  nodes: [],
+  nodeById: new Map(),
+  edges: [],
+  canvas: null,
+  ctx: null,
+  width: 0,
+  height: 0,
+  hovered: null,
+  selected: null,
+  dragging: null,
+  dragMoved: false,
+  animId: null,
+  settled: false,
+  loaded: false,
+};
+
+function graphNodeRadius(node) {
+  return Math.max(4, Math.min(20, 4 + Math.log2((node.total || 0) + 1) * 1.6));
+}
+
+function graphNodeColor(node) {
+  if (node.suspicious) return "var(--danger)";
+  return node.type === "client" ? "var(--accent)" : "var(--good)";
+}
+
+function graphNodeLabel(node) {
+  if (node.type === "client" && clientNames[node.id]) return `${clientNames[node.id]} (${node.id})`;
+  return node.id;
+}
+
+function buildGraphNodes(data) {
+  const wrap = document.getElementById("graph-canvas-wrap") || document.querySelector(".graph-canvas-wrap");
+  const w = graphState.width || (wrap ? wrap.clientWidth : 800);
+  const h = graphState.height || (wrap ? wrap.clientHeight : 560);
+  const previous = graphState.nodeById;
+  const nodes = [];
+  for (const c of data.clients) {
+    const prev = previous.get("c:" + c.id);
+    nodes.push({
+      key: "c:" + c.id, id: c.id, type: "client",
+      degree: c.degree, total: c.total, blocked: c.blocked, score: c.score, suspicious: c.suspicious,
+      first_seen: c.first_seen, last_seen: c.last_seen,
+      x: prev ? prev.x : w / 2 + (Math.random() - 0.5) * w * 0.6,
+      y: prev ? prev.y : h / 2 + (Math.random() - 0.5) * h * 0.6,
+      vx: 0, vy: 0,
+    });
+  }
+  for (const d of data.domains) {
+    const prev = previous.get("d:" + d.id);
+    nodes.push({
+      key: "d:" + d.id, id: d.id, type: "domain",
+      degree: d.degree, total: d.total, blocked: d.blocked, score: d.score, suspicious: d.suspicious,
+      first_seen: d.first_seen, last_seen: d.last_seen,
+      x: prev ? prev.x : w / 2 + (Math.random() - 0.5) * w * 0.6,
+      y: prev ? prev.y : h / 2 + (Math.random() - 0.5) * h * 0.6,
+      vx: 0, vy: 0,
+    });
+  }
+  const nodeById = new Map(nodes.map((n) => [n.key, n]));
+  const edges = data.edges
+    .map((e) => ({ source: nodeById.get("c:" + e.client), target: nodeById.get("d:" + e.domain), count: e.count, blocked: e.blocked }))
+    .filter((e) => e.source && e.target);
+  graphState.nodes = nodes;
+  graphState.nodeById = nodeById;
+  graphState.edges = edges;
+  graphState.settled = false;
+}
+
+function stepGraphSimulation() {
+  const { nodes, edges, width: w, height: h } = graphState;
+  const n = nodes.length;
+  if (n === 0) return 0;
+  const repulseK = 2600;
+  const springK = 0.02;
+  const idealLen = 90;
+  const centerK = 0.01;
+  const damping = 0.82;
+
+  for (const node of nodes) {
+    if (node === graphState.dragging) continue;
+    node.fx = (w / 2 - node.x) * centerK;
+    node.fy = (h / 2 - node.y) * centerK;
+  }
+  for (let i = 0; i < n; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let distSq = dx * dx + dy * dy;
+      if (distSq < 1) distSq = 1;
+      const dist = Math.sqrt(distSq);
+      const force = repulseK / distSq;
+      const fx = (dx / dist) * force, fy = (dy / dist) * force;
+      a.fx += fx; a.fy += fy;
+      b.fx -= fx; b.fy -= fy;
+    }
+  }
+  for (const e of edges) {
+    const dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
+    const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+    const force = springK * (dist - idealLen) * Math.log2(2 + e.count);
+    const fx = (dx / dist) * force, fy = (dy / dist) * force;
+    e.source.fx += fx; e.source.fy += fy;
+    e.target.fx -= fx; e.target.fy -= fy;
+  }
+
+  let maxSpeed = 0;
+  const margin = 24;
+  for (const node of nodes) {
+    if (node === graphState.dragging) continue;
+    node.vx = (node.vx + node.fx) * damping;
+    node.vy = (node.vy + node.fy) * damping;
+    node.x += node.vx;
+    node.y += node.vy;
+    node.x = Math.max(margin, Math.min(w - margin, node.x));
+    node.y = Math.max(margin, Math.min(h - margin, node.y));
+    maxSpeed = Math.max(maxSpeed, Math.abs(node.vx), Math.abs(node.vy));
+  }
+  return maxSpeed;
+}
+
+function graphNodeVisible(node) {
+  const filter = graphState.searchFilter;
+  const suspiciousOnly = document.getElementById("graph-suspicious-only").checked;
+  if (suspiciousOnly && !node.suspicious && !(graphState.suspiciousNeighborKeys && graphState.suspiciousNeighborKeys.has(node.key))) {
+    return false;
+  }
+  if (!filter) return true;
+  return node.id.toLowerCase().includes(filter) || (node.type === "client" && clientNames[node.id] && clientNames[node.id].toLowerCase().includes(filter));
+}
+
+function recomputeSuspiciousNeighbors() {
+  const keys = new Set();
+  for (const e of graphState.edges) {
+    if (e.source.suspicious || e.target.suspicious) {
+      keys.add(e.source.key);
+      keys.add(e.target.key);
+    }
+  }
+  graphState.suspiciousNeighborKeys = keys;
+}
+
+function renderGraphFrame() {
+  const { ctx, width: w, height: h, nodes, edges } = graphState;
+  if (!ctx) return;
+  ctx.clearRect(0, 0, w, h);
+  const style = getComputedStyle(document.documentElement);
+  const resolve = (v) => (v.startsWith("var(") ? style.getPropertyValue(v.slice(4, -1)).trim() : v);
+  const borderColor = resolve("var(--panel-border)");
+  const mutedColor = resolve("var(--muted)");
+
+  for (const e of edges) {
+    const visible = graphNodeVisible(e.source) && graphNodeVisible(e.target);
+    ctx.strokeStyle = borderColor;
+    ctx.globalAlpha = visible ? Math.min(0.7, 0.15 + Math.log2(1 + e.count) * 0.08) : 0.04;
+    ctx.lineWidth = Math.min(4, 0.6 + Math.log2(1 + e.count) * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(e.source.x, e.source.y);
+    ctx.lineTo(e.target.x, e.target.y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  for (const node of nodes) {
+    const visible = graphNodeVisible(node);
+    const r = graphNodeRadius(node);
+    ctx.globalAlpha = visible ? 1 : 0.12;
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = resolve(graphNodeColor(node));
+    ctx.fill();
+    if (node === graphState.selected) {
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = resolve("var(--text)");
+      ctx.stroke();
+    } else if (node.suspicious) {
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = resolve("var(--danger)");
+      ctx.stroke();
+    }
+    if (visible && (r > 9 || node === graphState.hovered || node === graphState.selected)) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = mutedColor;
+      ctx.font = "10px sans-serif";
+      const label = graphNodeLabel(node);
+      const truncated = label.length > 28 ? label.slice(0, 27) + "…" : label;
+      ctx.fillText(truncated, node.x + r + 3, node.y + 3);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function animateGraph() {
+  const speed = stepGraphSimulation();
+  renderGraphFrame();
+  if (speed > 0.05 || graphState.dragging) {
+    graphState.animId = requestAnimationFrame(animateGraph);
+  } else {
+    graphState.settled = true;
+    graphState.animId = null;
+  }
+}
+
+function wakeGraphSimulation() {
+  if (graphState.animId == null) {
+    graphState.animId = requestAnimationFrame(animateGraph);
+  }
+}
+
+function graphNodeAt(x, y) {
+  for (let i = graphState.nodes.length - 1; i >= 0; i--) {
+    const node = graphState.nodes[i];
+    if (!graphNodeVisible(node)) continue;
+    const r = graphNodeRadius(node) + 2;
+    const dx = node.x - x, dy = node.y - y;
+    if (dx * dx + dy * dy <= r * r) return node;
+  }
+  return null;
+}
+
+function graphCanvasCoords(evt) {
+  const rect = graphState.canvas.getBoundingClientRect();
+  return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+}
+
+async function selectGraphNode(node) {
+  graphState.selected = node;
+  const empty = document.getElementById("graph-detail-empty");
+  const detail = document.getElementById("graph-detail");
+  if (!node) {
+    empty.style.display = "";
+    detail.style.display = "none";
+    return;
+  }
+  empty.style.display = "none";
+  detail.style.display = "";
+  detail.innerHTML = `<span class="graph-node-title">${escapeHtml(graphNodeLabel(node))}</span><span class="graph-node-badge ${node.type}">${node.type === "client" ? t("graph.badge.client", "Client") : t("graph.badge.domain", "Domain")}</span>`;
+  try {
+    const data = node.type === "client"
+      ? await api(`/api/graph/client/${encodeURIComponent(node.id)}`)
+      : await api(`/api/graph/domain/${encodeURIComponent(node.id)}`);
+    const rows = node.type === "client" ? data.domains : data.clients;
+    const rowLabel = node.type === "client" ? t("graph.col.domain", "Domain") : t("graph.col.client", "Client");
+    const table = el("table", {}, [
+      el("thead", {}, [el("tr", {}, [el("th", { text: rowLabel }), el("th", { text: t("col.count", "Count") })])]),
+      el("tbody", {}, rows.slice(0, 100).map((r) => el("tr", {}, [
+        el("td", { text: r.domain || r.client }),
+        el("td", { text: String(r.count) + (r.blocked ? ` (${r.blocked} ${t("graph.blocked_short", "blocked")})` : "") }),
+      ]))),
+    ]);
+    const meta = el("p", { class: "muted" }, []);
+    meta.textContent = `${t("graph.total_count", "Total queries")}: ${data.total_count} · ${
+      node.type === "client" ? t("graph.distinct_domains", "Distinct domains") : t("graph.distinct_clients", "Distinct clients")
+    }: ${node.type === "client" ? data.distinct_domains : data.distinct_clients}`;
+    detail.appendChild(meta);
+    if (node.first_seen) {
+      const seen = el("p", { class: "muted" });
+      seen.textContent = `${t("graph.first_seen", "First seen")}: ${new Date(node.first_seen * 1000).toLocaleString()} · ${t("graph.last_seen", "Last seen")}: ${new Date(node.last_seen * 1000).toLocaleString()}`;
+      detail.appendChild(seen);
+    }
+    detail.appendChild(table);
+  } catch (err) {
+    detail.appendChild(el("p", { class: "muted", text: String(err.message || err) }));
+  }
+}
+
+function renderGraphSuspiciousList() {
+  const container = document.getElementById("graph-suspicious-list");
+  const suspicious = graphState.nodes.filter((n) => n.suspicious).sort((a, b) => b.score - a.score).slice(0, 20);
+  if (!suspicious.length) {
+    container.className = "muted";
+    container.textContent = t("graph.none_found", "None found.");
+    return;
+  }
+  container.className = "";
+  container.innerHTML = "";
+  for (const node of suspicious) {
+    const row = el("div", { class: "graph-suspicious-row" }, [
+      el("span", { text: graphNodeLabel(node) }),
+      el("span", { class: "muted", text: `${node.degree} ${node.type === "client" ? t("graph.distinct_domains_short", "domains") : t("graph.distinct_clients_short", "clients")}` }),
+    ]);
+    row.addEventListener("click", () => {
+      graphState.searchFilter = "";
+      document.getElementById("graph-search").value = "";
+      selectGraphNode(node);
+      wakeGraphSimulation();
+      renderGraphFrame();
+    });
+    container.appendChild(row);
+  }
+}
+
+function resizeGraphCanvas() {
+  const wrap = document.querySelector(".graph-canvas-wrap");
+  const canvas = graphState.canvas;
+  if (!wrap || !canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  graphState.width = wrap.clientWidth;
+  graphState.height = wrap.clientHeight;
+  canvas.width = graphState.width * dpr;
+  canvas.height = graphState.height * dpr;
+  canvas.style.width = graphState.width + "px";
+  canvas.style.height = graphState.height + "px";
+  graphState.ctx = canvas.getContext("2d");
+  graphState.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  renderGraphFrame();
+}
+
+function initGraphCanvas() {
+  if (graphState.canvas) return;
+  const canvas = document.getElementById("graph-canvas");
+  graphState.canvas = canvas;
+  resizeGraphCanvas();
+  window.addEventListener("resize", resizeGraphCanvas);
+
+  canvas.addEventListener("mousedown", (evt) => {
+    const { x, y } = graphCanvasCoords(evt);
+    const node = graphNodeAt(x, y);
+    if (node) {
+      graphState.dragging = node;
+      graphState.dragMoved = false;
+      canvas.classList.add("dragging");
+      wakeGraphSimulation();
+    }
+  });
+  canvas.addEventListener("mousemove", (evt) => {
+    const { x, y } = graphCanvasCoords(evt);
+    if (graphState.dragging) {
+      graphState.dragging.x = x;
+      graphState.dragging.y = y;
+      graphState.dragging.vx = 0;
+      graphState.dragging.vy = 0;
+      graphState.dragMoved = true;
+      wakeGraphSimulation();
+      return;
+    }
+    const node = graphNodeAt(x, y);
+    if (node !== graphState.hovered) {
+      graphState.hovered = node;
+      canvas.style.cursor = node ? "pointer" : "grab";
+      renderGraphFrame();
+    }
+  });
+  const endDrag = () => {
+    if (graphState.dragging && !graphState.dragMoved) {
+      selectGraphNode(graphState.dragging);
+    }
+    graphState.dragging = null;
+    canvas.classList.remove("dragging");
+  };
+  canvas.addEventListener("mouseup", endDrag);
+  canvas.addEventListener("mouseleave", () => {
+    if (!graphState.dragging) {
+      graphState.hovered = null;
+      renderGraphFrame();
+    }
+  });
+}
+
+async function loadGraph() {
+  const minCount = Math.max(1, parseInt(document.getElementById("graph-min-count").value, 10) || 1);
+  const summary = document.getElementById("graph-summary");
+  summary.textContent = t("common.checking", "Checking...");
+  let data;
+  try {
+    data = await api(`/api/graph?min_count=${minCount}&limit_nodes=150`);
+  } catch (err) {
+    summary.textContent = String(err.message || err);
+    return;
+  }
+  buildGraphNodes(data);
+  recomputeSuspiciousNeighbors();
+  renderGraphSuspiciousList();
+  initGraphCanvas();
+  resizeGraphCanvas();
+  wakeGraphSimulation();
+  const truncatedHint = document.getElementById("graph-truncated-hint");
+  truncatedHint.style.display = data.truncated ? "" : "none";
+  summary.textContent = `${data.clients.length} ${t("graph.summary_clients", "clients")} · ${data.domains.length} ${t("graph.summary_domains", "domains")} · ${data.edges.length} ${t("graph.summary_edges", "connections")}`;
+  document.getElementById("graph-clear-btn").style.display = isAdmin ? "" : "none";
+  graphState.loaded = true;
+}
+
+document.getElementById("graph-refresh-btn").addEventListener("click", loadGraph);
+document.getElementById("graph-min-count").addEventListener("change", loadGraph);
+document.getElementById("graph-suspicious-only").addEventListener("change", () => {
+  recomputeSuspiciousNeighbors();
+  renderGraphFrame();
+});
+document.getElementById("graph-search").addEventListener("input", (e) => {
+  graphState.searchFilter = e.target.value.trim().toLowerCase();
+  renderGraphFrame();
+});
+document.getElementById("graph-clear-btn").addEventListener("click", async () => {
+  if (!confirm(t("graph.confirm_clear", "Delete all stored client-domain graph history? This cannot be undone."))) return;
+  await api("/api/graph/clear", { method: "POST" });
+  showToast(t("toast.deleted", "Deleted"));
+  await loadGraph();
+});
 
 async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
   const sources = await api(apiPath);
@@ -5980,6 +6450,7 @@ function permissionSummary(u) {
   const parts = [];
   if (perms.view_threat_intel) parts.push(t("users.summary.threat_intel", "threat-intel"));
   if (perms.view_anomalies) parts.push(t("users.summary.anomalies", "anomalies"));
+  if (perms.view_graph) parts.push(t("users.summary.graph", "graph"));
   if (perms.can_block) parts.push(t("users.summary.can_block", "can block"));
   if (perms.can_whitelist) parts.push(t("users.summary.can_whitelist", "can whitelist"));
   if (perms.can_manage_proxy) parts.push(t("users.summary.can_manage_proxy", "can manage reverse proxy"));
@@ -6258,6 +6729,7 @@ document.getElementById("user-create-form").addEventListener("submit", async (e)
       allowed_domains: splitCsv(document.getElementById("u-allowed-domains").value),
       view_threat_intel: document.getElementById("u-view-threat-intel").checked,
       view_anomalies: document.getElementById("u-view-anomalies").checked,
+      view_graph: document.getElementById("u-view-graph").checked,
       can_block: document.getElementById("u-can-block").checked,
       can_whitelist: document.getElementById("u-can-whitelist").checked,
       can_manage_proxy: document.getElementById("u-can-manage-proxy").checked,
@@ -6726,7 +7198,7 @@ document.getElementById("resume-btn").addEventListener("click", async () => {
   loadStatusAndStats();
 });
 
-const TAB_NAMES = ["logs", "anomalies", "stats", "settings"];
+const TAB_NAMES = ["logs", "anomalies", "stats", "graph", "settings"];
 
 function setActiveTab(tab) {
   if (!TAB_NAMES.includes(tab)) tab = "logs";
@@ -6737,6 +7209,7 @@ function setActiveTab(tab) {
     document.getElementById("tab-" + name).classList.toggle("active", name === tab);
   }
   localStorage.setItem("dnsshield-tab", tab);
+  if (tab === "graph" && currentUser) loadGraph();
 }
 
 for (const btn of document.querySelectorAll(".tab-btn")) {
@@ -6890,9 +7363,15 @@ function applyRoleVisibility() {
   document.querySelector('.tab-btn[data-tab="settings"]').style.display = "none";
   const canViewAnomalies = currentUser.permissions && currentUser.permissions.view_anomalies;
   document.querySelector('.tab-btn[data-tab="anomalies"]').style.display = canViewAnomalies ? "" : "none";
+  const canViewGraph = currentUser.permissions && currentUser.permissions.view_graph;
+  document.querySelector('.tab-btn[data-tab="graph"]').style.display = canViewGraph ? "" : "none";
   document.getElementById("pause-bar").style.display = "none";
   const savedTab = localStorage.getItem("dnsshield-tab");
-  if (savedTab === "settings" || (savedTab === "anomalies" && !canViewAnomalies)) {
+  if (
+    savedTab === "settings" ||
+    (savedTab === "anomalies" && !canViewAnomalies) ||
+    (savedTab === "graph" && !canViewGraph)
+  ) {
     localStorage.setItem("dnsshield-tab", "logs");
   }
 }
