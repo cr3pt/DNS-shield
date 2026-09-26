@@ -97,6 +97,9 @@ def main() -> None:
         )
         num_workers = 1
 
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(DATA_DIR, 0o700)
+
     config_store = ConfigStore(db_path=DATA_DIR / "config.db", backup_path=DATA_DIR / "config.backup.yaml")
     config_store.start_backup_thread(interval_hours=12)
     log_level = config_store.get("logging", "level", default=level)
@@ -265,6 +268,13 @@ def main() -> None:
         logger.info("web UI listening on https://%s:%d", web_host, web_port)
     else:
         logger.info("web UI listening on http://%s:%d", web_host, web_port)
+        if web_host not in ("127.0.0.1", "::1", "localhost"):
+            logger.warning(
+                "web UI is serving plain HTTP on %s - login credentials and session cookies are sent "
+                "unencrypted over the network; enable web.https_enabled (a self-signed certificate is "
+                "generated automatically) or front this with the built-in reverse proxy for a real one",
+                web_host,
+            )
 
     if dot_enabled:
         dot_port = int(config_store.get("dns", "dot_port", default=853))

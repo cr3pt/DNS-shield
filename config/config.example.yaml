@@ -45,6 +45,8 @@ dns:
   local_tld_alert_enabled: false
   local_tld_list: ["local", "lan", "home", "internal", "corp", "home.arpa"]
   local_tld_cooldown_minutes: 30
+  query_acl_enabled: true
+  query_acl_extra_networks: []
 
 blocklists:
   refresh_interval_hours: 24

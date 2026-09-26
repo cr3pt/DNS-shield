@@ -1458,6 +1458,28 @@ strings, and results are cached per distinct domain so a repeat query
 never redoes the comparison - the cache is cleared automatically whenever
 the protected-domains list or max-distance setting changes.
 
+### Query access control (recursion ACL)
+
+Settings -> DNS -> "Query access control" (on by default,
+`dns.query_acl_enabled`) restricts who the resolver will actually answer,
+independent of `dns.listen_address` - the two solve different problems.
+`listen_address` picks which network interface DNS-shield binds to;
+without a separate check on *who's asking*, binding to `0.0.0.0` (needed
+for LAN clients to reach it at all) also means anyone who can route a
+packet to that address - including the open internet, if the host is
+directly exposed - gets a full recursive answer, the classic "open
+resolver" misconfiguration that gets abused as a DNS-amplification
+reflector against third parties and as a cache-poisoning target. With
+the ACL on, a query from a private/LAN address (`10.0.0.0/8`,
+`172.16.0.0/12`, `192.168.0.0/16`, loopback, link-local, and their IPv6
+equivalents) is answered normally; anyone else gets `REFUSED`
+immediately, before any blocklist/cache/upstream work happens. Add a CIDR
+or single address to `dns.query_acl_extra_networks` for a legitimate
+case outside those ranges (a VPN subnet like Tailscale's `100.64.0.0/10`,
+a remote monitoring host) rather than turning the whole thing off; the
+toggle exists for anyone who explicitly wants an open resolver, but that
+should be a deliberate choice, not the default.
+
 ### DNS rebinding protection
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) is an attack
@@ -1860,7 +1882,15 @@ Turning HTTPS on also puts the `Secure` flag on the session cookie
 automatically (see **Security notes** below), so it's worth doing even
 with a self-signed certificate if the dashboard is reachable beyond
 localhost - encrypting the login request and session cookie in transit
-doesn't need a browser-trusted certificate to be worthwhile.
+doesn't need a browser-trusted certificate to be worthwhile. A
+`Strict-Transport-Security` header is also added automatically to every
+response once a request actually arrives over HTTPS. If `web.https_enabled`
+is still off and the dashboard is listening on anything other than
+loopback (`web.listen_address` isn't `127.0.0.1`/`::1`), a startup log
+line calls this out explicitly - login credentials and the session
+cookie are sent unencrypted on the network until you turn this on or put
+a TLS-terminating reverse proxy (the [built-in
+one](#reverse-proxy-optional) works fine for this) in front of it.
 
 ### DNS-over-HTTPS / DNS-over-TLS for clients
 
@@ -2448,6 +2478,32 @@ pytest
   beyond localhost (Settings -> General -> "Your account", or Settings ->
   Users). Passwords are always bcrypt-hashed - see **Multi-user accounts,
   roles, and the public view** above.
+- The DNS resolver itself is also guarded by default - see [Query access
+  control](#query-access-control-recursion-acl) above - so it can't be
+  used as an open resolver/DNS-amplification reflector just because
+  `dns.listen_address` has to be reachable from your LAN.
+- The entire data directory (`./data` on the host, `/data` in the
+  container - `config.db`, `config.backup.yaml`, `stats.db`, TLS keys,
+  everything) is created with `0700` permissions on startup, so only the
+  user the container runs as (root inside the container's own namespace,
+  by default) can read any of it - no other local account on the host can
+  traverse into it or open a file inside, regardless of that file's own
+  permission bits.
+- `GET /openapi.json` (and `/docs`/`/redoc`) are disabled - the API schema,
+  including every settings field name (secret ones like `smtp_password`
+  or `sso.client_secret` included, values never included), isn't exposed
+  to an unauthenticated caller doing reconnaissance.
+- Every response carries a baseline set of security headers
+  (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy`, and a `Content-Security-Policy` that
+  restricts script/style/image/frame/object sources to the dashboard's
+  own origin) plus `Strict-Transport-Security` once a request actually
+  arrives over HTTPS. The CSP still allows inline `<script>`/`<style>` -
+  the dashboard is a single self-contained page with no external
+  resources - so it isn't a full defense against XSS by itself, but it
+  does block a large class of exfiltration/clickjacking payloads that
+  rely on loading something from outside the page's own origin.
 - The login endpoint is rate-limited per source IP (`web.login_max_attempts`,
   default 5 failures before a `web.login_lockout_minutes`-long, default
   15, lockout - a correct password doesn't bypass an active lockout).

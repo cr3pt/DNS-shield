@@ -13,6 +13,11 @@ class _NullStats:
         pass
 
 
+class _FakeHandler:
+    def __init__(self, client_ip: str):
+        self.client_address = (client_ip, 53535)
+
+
 def _resolver(config_store, tmp_path, cache=None):
     blocklist = BlocklistManager(config_store, tmp_path / "cache")
     return FilteringResolver(blocklist, _NullStats(), config_store, cache=cache)
@@ -172,3 +177,69 @@ def test_case_randomization_scrambles_outgoing_qname(config_store, tmp_path, mon
 
     assert len(seen_qnames) > 1
     assert all(q.lower() == "verification.example.com." for q in seen_qnames)
+
+
+def test_query_acl_refuses_public_client_by_default(config_store, tmp_path, monkeypatch):
+    resolver = _resolver(config_store, tmp_path)
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _plain_response("public.example.com")
+    )
+
+    request = DNSRecord.question("public.example.com", qtype="A")
+    response = resolver.resolve(request, _FakeHandler("203.0.113.7"))
+
+    assert response.header.rcode == RCODE.REFUSED
+    assert not response.rr
+
+
+def test_query_acl_allows_private_client_by_default(config_store, tmp_path, monkeypatch):
+    resolver = _resolver(config_store, tmp_path)
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _plain_response("lan.example.com")
+    )
+
+    request = DNSRecord.question("lan.example.com", qtype="A")
+    response = resolver.resolve(request, _FakeHandler("192.168.1.50"))
+
+    assert response.header.rcode == RCODE.NOERROR
+    assert any(rr.rtype == QTYPE.A for rr in response.rr)
+
+
+def test_query_acl_allows_extra_configured_network(config_store, tmp_path, monkeypatch):
+    config_store.mutate(
+        lambda d: d.setdefault("dns", {}).update({"query_acl_extra_networks": ["203.0.113.0/24"]})
+    )
+    resolver = _resolver(config_store, tmp_path)
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _plain_response("vpn.example.com")
+    )
+
+    request = DNSRecord.question("vpn.example.com", qtype="A")
+    response = resolver.resolve(request, _FakeHandler("203.0.113.7"))
+
+    assert response.header.rcode == RCODE.NOERROR
+
+
+def test_query_acl_disabled_allows_any_client(config_store, tmp_path, monkeypatch):
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update({"query_acl_enabled": False}))
+    resolver = _resolver(config_store, tmp_path)
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _plain_response("open.example.com")
+    )
+
+    request = DNSRecord.question("open.example.com", qtype="A")
+    response = resolver.resolve(request, _FakeHandler("203.0.113.7"))
+
+    assert response.header.rcode == RCODE.NOERROR
+
+
+def test_query_acl_allows_when_handler_is_none(config_store, tmp_path, monkeypatch):
+    resolver = _resolver(config_store, tmp_path)
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _plain_response("internal.example.com")
+    )
+
+    request = DNSRecord.question("internal.example.com", qtype="A")
+    response = resolver.resolve(request, None)
+
+    assert response.header.rcode == RCODE.NOERROR

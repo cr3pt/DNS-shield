@@ -52,6 +52,20 @@ logger = logging.getLogger("dnsshield.web")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOCALES_DIR = Path(__file__).resolve().parent.parent / "locales"
 
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), camera=(), microphone=(), payment=(), usb=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
+        "base-uri 'self'; form-action 'self'; object-src 'none'"
+    ),
+}
+
 
 def _masked_key_preview(key: str | None) -> str:
     if not key:
@@ -390,6 +404,8 @@ class DnsSettingsIn(BaseModel):
     local_tld_alert_enabled: bool | None = None
     local_tld_list: list[str] | None = None
     local_tld_cooldown_minutes: float | None = None
+    query_acl_enabled: bool | None = None
+    query_acl_extra_networks: list[str] | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -618,7 +634,7 @@ def create_app(
     proxy_manager=None,
     client_domain_graph=None,
 ) -> FastAPI:
-    app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
+    app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None, openapi_url=None)
 
     users = users if users is not None else UserStore(config_store)
     sessions = sessions if sessions is not None else SessionStore()
@@ -678,6 +694,14 @@ def create_app(
         if not patterns:
             return []
         return [ip for ip in stats.distinct_clients() if any(ip_matches(ip, p) for p in patterns)]
+
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.update(_SECURITY_HEADERS)
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
     _AUDIT_EXCLUDED_PATHS = {"/api/login", "/api/login/totp", "/api/logout"}
 

@@ -946,6 +946,29 @@
         </div>
 
         <div class="settings-group">
+          <h3 data-i18n="dns.query_acl">Query access control</h3>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-query-acl-enabled">
+            <label for="s-dns-query-acl-enabled" data-i18n="dns.query_acl_enabled">Only answer queries from private/LAN clients (recommended)</label>
+          </div>
+          <div class="field-grid" id="s-dns-query-acl-fields">
+            <div class="field">
+              <label data-i18n="dns.query_acl_extra">Additional trusted networks, comma separated</label>
+              <input type="text" id="s-dns-query-acl-extra" placeholder="e.g. 100.64.0.0/10, 203.0.113.5/32">
+            </div>
+          </div>
+          <p class="hint" data-i18n="dns.hint.query_acl">
+            On by default: private/LAN ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, loopback,
+            link-local, and their IPv6 equivalents) always get an answer; anyone else gets REFUSED
+            instead of a full recursive lookup - this is what keeps this resolver from being usable
+            as an open resolver or DNS-amplification reflector if it's ever reachable from outside
+            your LAN. Add a CIDR or single IP above for a legitimate case outside those ranges (a VPN
+            subnet like Tailscale's 100.64.0.0/10, a remote monitoring host, etc.) rather than
+            turning this off entirely.
+          </p>
+        </div>
+
+        <div class="settings-group">
           <h3 data-i18n="dns.upstream_strategy">Upstream selection strategy</h3>
           <p class="muted" style="margin:0 0 0.6rem;" data-i18n="dns.hint.upstream_strategy">The upstream server list itself is managed below, in "Upstream DNS servers" - this only decides which one is tried first.</p>
           <div class="field-grid">
@@ -4683,6 +4706,8 @@ async function loadSettings() {
   document.getElementById("s-dns-listen-address").value = s.dns.listen_address ?? "";
   document.getElementById("s-dns-listen-port").value = s.dns.listen_port ?? "";
   document.getElementById("s-dns-upstream-timeout").value = s.dns.upstream_timeout_seconds ?? "";
+  document.getElementById("s-dns-query-acl-enabled").checked = s.dns.query_acl_enabled !== false;
+  document.getElementById("s-dns-query-acl-extra").value = (s.dns.query_acl_extra_networks || []).join(", ");
   document.getElementById("s-dns-block-mode").value = s.dns.block_mode ?? "nxdomain";
   document.getElementById("s-dns-blocked-ipv4").value = s.dns.blocked_ipv4 ?? "";
   document.getElementById("s-dns-blocked-ipv6").value = s.dns.blocked_ipv6 ?? "";
@@ -6474,6 +6499,8 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
         listen_address: document.getElementById("s-dns-listen-address").value.trim(),
         listen_port: intField("s-dns-listen-port"),
         upstream_timeout_seconds: floatField("s-dns-upstream-timeout"),
+        query_acl_enabled: document.getElementById("s-dns-query-acl-enabled").checked,
+        query_acl_extra_networks: document.getElementById("s-dns-query-acl-extra").value.split(",").map((s) => s.trim()).filter(Boolean),
         block_mode: document.getElementById("s-dns-block-mode").value,
         blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
         blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),

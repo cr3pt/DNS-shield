@@ -1631,6 +1631,30 @@ odrębnej domeny, więc powtórne zapytanie nigdy nie powtarza tego samego
 porównania - cache jest czyszczony automatycznie za każdym razem, gdy
 zmieni się lista chronionych domen albo ustawienie maksymalnej odległości.
 
+### Kontrola dostępu do zapytań (ACL rekursji)
+
+Settings -> DNS -> "Kontrola dostępu do zapytań" (domyślnie włączona,
+`dns.query_acl_enabled`) ogranicza, komu resolver w ogóle odpowiada,
+niezależnie od `dns.listen_address` - te dwa ustawienia rozwiązują różne
+problemy. `listen_address` decyduje, na którym interfejsie sieciowym
+DNS-shield nasłuchuje; bez osobnego sprawdzenia, *kto pyta*, związanie z
+`0.0.0.0` (potrzebne, żeby klienci z LAN mogli w ogóle dotrzeć do
+serwera) oznacza też, że każdy, kto potrafi wysłać pakiet pod ten adres -
+w tym cały internet, jeśli host jest wystawiony bezpośrednio - dostaje
+pełną, rekursywną odpowiedź. To klasyczna konfiguracja "otwartego
+resolvera", wykorzystywana jako reflektor w atakach DNS amplification
+wobec osób trzecich oraz jako cel ataków cache poisoning. Przy włączonym
+ACL zapytanie z adresu prywatnego/LAN (`10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`, loopback, link-local oraz ich odpowiedniki IPv6) jest
+obsługiwane normalnie; każdy inny klient dostaje od razu `REFUSED`,
+zanim jeszcze cokolwiek z listami blokad/cache/serwerem nadrzędnym się
+wydarzy. Dla uzasadnionego przypadku spoza tych zakresów (sieć VPN, jak
+np. `100.64.0.0/10` w Tailscale, zdalny host monitorujący) dodaj CIDR
+albo pojedynczy adres do `dns.query_acl_extra_networks`, zamiast
+wyłączać całą tę ochronę - przełącznik istnieje dla kogoś, kto świadomie
+chce mieć otwarty resolver, ale to powinien być świadomy wybór, a nie
+ustawienie domyślne.
+
 ### Ochrona przed DNS rebindingiem
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) to atak, w
@@ -2080,7 +2104,15 @@ sesji (zobacz **Uwagi o bezpieczeństwie** niżej), więc warto to zrobić
 nawet z samopodpisanym certyfikatem, jeśli panel jest osiągalny spoza
 localhost - zaszyfrowanie żądania logowania i ciasteczka sesji w
 transmisji ma sens, nawet gdy certyfikat nie jest zaufany przez
-przeglądarkę.
+przeglądarkę. Nagłówek `Strict-Transport-Security` jest też automatycznie
+dodawany do każdej odpowiedzi, gdy żądanie faktycznie przyszło przez
+HTTPS. Jeśli `web.https_enabled` jest nadal wyłączone, a panel nasłuchuje
+na czymkolwiek innym niż loopback (`web.listen_address` nie jest
+`127.0.0.1`/`::1`), w logu przy starcie pojawia się wyraźne ostrzeżenie -
+dane logowania i ciasteczko sesji są wysyłane w sieci bez szyfrowania,
+dopóki tego nie włączysz albo nie postawisz przed panelem reverse proxy
+kończącego TLS (do tego świetnie nadaje się [wbudowany reverse
+proxy](#reverse-proxy-opcjonalnie)).
 
 ### DNS-over-HTTPS / DNS-over-TLS dla klientów
 
@@ -2739,6 +2771,35 @@ pytest
   localhost (Settings -> General -> "Your account", albo Settings ->
   Users). Hasła są zawsze haszowane bcryptem - zobacz **Konta
   wieloużytkownikowe, role i widok publiczny** wyżej.
+- Sam resolver DNS też jest domyślnie zabezpieczony - zobacz [Kontrola
+  dostępu do zapytań](#kontrola-dostępu-do-zapytań-acl-rekursji) wyżej -
+  więc nie da się go wykorzystać jako otwartego resolvera/reflektora w
+  atakach DNS amplification tylko dlatego, że `dns.listen_address` musi
+  być osiągalny z Twojej sieci LAN.
+- Cały katalog danych (`./data` na hoście, `/data` w kontenerze -
+  `config.db`, `config.backup.yaml`, `stats.db`, klucze TLS, wszystko) jest
+  tworzony z uprawnieniami `0700` przy starcie, więc tylko użytkownik, na
+  którym działa kontener (domyślnie root wewnątrz własnej przestrzeni nazw
+  kontenera), może cokolwiek z niego odczytać - żadne inne lokalne konto
+  na hoście nie może wejść do tego katalogu ani otworzyć znajdującego się
+  w nim pliku, niezależnie od uprawnień samego pliku.
+- `GET /openapi.json` (a także `/docs`/`/redoc`) są wyłączone - schemat API,
+  w tym nazwy wszystkich pól ustawień (również tych z sekretami, jak
+  `smtp_password` czy `sso.client_secret` - same wartości nigdy nie są w
+  nim zawarte), nie jest wystawiony na rekonesans nieautoryzowanego
+  gościa.
+- Każda odpowiedź niesie ze sobą podstawowy zestaw nagłówków
+  bezpieczeństwa (`X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy` oraz `Content-Security-Policy`
+  ograniczającą źródła skryptów/stylów/obrazów/ramek/obiektów do
+  własnego pochodzenia panelu) plus `Strict-Transport-Security`, gdy
+  tylko żądanie faktycznie przyjdzie przez HTTPS. CSP nadal dopuszcza
+  wbudowane `<script>`/`<style>` - panel to samodzielna, pojedyncza
+  strona bez żadnych zasobów zewnętrznych - więc sama w sobie nie jest
+  pełną ochroną przed XSS, ale blokuje sporą klasę ataków polegających na
+  eksfiltracji danych czy clickjackingu, które wymagają załadowania
+  czegoś spoza własnego pochodzenia strony.
 - Punkt końcowy logowania ma limit prób liczony osobno dla każdego adresu
   IP źródłowego (`web.login_max_attempts`, domyślnie 5 błędnych prób,
   zanim nastąpi blokada trwająca `web.login_lockout_minutes`, domyślnie
