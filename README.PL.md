@@ -599,6 +599,18 @@ wszystko na żywo w tle. Tylko naprawdę pierwsze uruchomienie, gdy nigdzie
 nic jeszcze nie jest zapisane w pamięci podręcznej, czeka na sieć, zanim
 zacznie chronić.
 
+Adres URL dodany tutaj (albo w Allow sources, we własnych dodatkowych
+listach grupy klientów, czy na liście obserwowanej w Alert rules) jest
+najpierw rozwiązywany i sprawdzany, zanim DNS-shield w ogóle go pobierze:
+nazwa hosta wskazująca na adres prywatny, loopback, link-local albo
+inaczej niepubliczny jest odrzucana z błędem zamiast zostać pobrana - więc
+konto administratora nie da się użyć do zmuszenia serwera, by wysłał
+żądanie do Twojej własnej sieci LAN albo do `127.0.0.1` (SSRF), wpisując
+w pole "publicznej listy blokad" adres wewnętrzny. To sprawdzenie dotyczy
+konkretnie pól URL typu subskrypcja - nie obejmuje `enrichment.local_url`,
+adresów sprawdzania dostępności (ping) ani webhooków powiadomień, które z
+założenia mają móc wskazywać na Twoje własne usługi wewnętrzne.
+
 ### Nowo zarejestrowane domeny (NRD)
 
 Firmowe produkty do bezpieczeństwa DNS (Infoblox BloxOne Threat Defense
@@ -658,8 +670,7 @@ jakiejkolwiek subskrypcji listy.
 ### Lista zablokowana wg wyrażeń regularnych (eksperymentalne)
 
 `denylist_regex` blokuje każde zapytanie o nazwę pasującą do wyrażenia
-regularnego Pythona, sprawdzaną funkcją `re.search()` względem pełnej
-nazwy - np. wzorzec `^ads?[0-9]*\.` wyłapuje naraz, we wszystkich
+regularnego - np. wzorzec `^ads?[0-9]*\.` wyłapuje naraz, we wszystkich
 domenach, subdomeny w stylu `ad.`/`ad1.`/`ads2.`, czego zwykły wpis na
 liście zablokowanej (domena albo subdomena) nie potrafi wyrazić. Funkcja
 jest domyślnie wyłączona (`dns.regex_denylist_enabled`) i nieprzypadkowo
@@ -672,6 +683,21 @@ garści ręcznie dobranych reguł, nie dla pełnej listy. Nieprawidłowy wzorzec
 jest od razu odrzucany z błędem przy próbie dodania, a nie po cichu
 pomijany później. Zarządzaj tym z panelu (Settings -> Regex denylist) albo
 edytując `denylist_regex` bezpośrednio.
+
+Wzorzec skonstruowany pod [katastrofalny
+backtracking](https://en.wikipedia.org/wiki/ReDoS) (np. `(a+)+$`) jest
+odrzucany już przy próbie dodania - najpierw jest sprawdzany na garści
+złośliwych ciągów testowych, i wzorzec, który na którymkolwiek z nich
+trwa zbyt długo, nigdy nie trafia do `denylist_regex`. Dotyczy to wzorca
+dodanego z panelu, przez API, jak i wzorców regex-deny wciąganych przy
+imporcie z Pi-hole. Samo dopasowywanie też ma ograniczony czas na
+zapytanie (silnik `regex` zamiast wbudowanego w Pythona `re`, który nie
+ma jak ograniczyć czasu dopasowania) - wzorzec, który mimo to okaże się
+zbyt wolny dla jednego konkretnego zapytania, po prostu "przepuszcza" to
+jedno zapytanie (zalogowane jako ostrzeżenie, traktowane jak brak
+dopasowania) zamiast zawieszać resolver albo panel dla wszystkich. Bez
+tego zabezpieczenia jedna spreparowana, ok. 30-znakowa nazwa zapytania
+mogła zablokować DNS i panel WWW na ponad minutę.
 
 ### Nazwy hostów klientów (odwrotny DNS)
 
@@ -1672,7 +1698,7 @@ dzięki temu JavaScript serwowany z tej domeny może sięgnąć w głąb własne
 sieci LAN ofiary: do panelu administracyjnego routera, do NAS-a, do
 wewnętrznego API - omijając zabezpieczenia same-origin, które normalnie
 powstrzymałyby publiczną stronę przed czymś takim. Settings -> DNS ma
-przełącznik "DNS rebinding protection" (domyślnie wyłączony), który
+przełącznik "DNS rebinding protection" (**domyślnie włączony**), który
 wyłapuje to już w momencie rozwiązywania: każda odpowiedź A/AAAA wracająca
 od serwera nadrzędnego jest sprawdzana funkcją
 [`ipaddress.is_private`](https://docs.python.org/3/library/ipaddress.html)
@@ -1680,11 +1706,11 @@ od serwera nadrzędnego jest sprawdzana funkcją
 IPv6 ULA), a jeśli odpytywana domena rozwiązuje się do adresu prywatnego,
 o tym, co dzieje się dalej z tą odpowiedzią, decyduje `dns.rebinding_action`:
 
-- `"alert"` (domyślnie) - rozwiąż normalnie, po prostu zgłoś alert. W
-  odpowiedzi nic się nie zmienia.
-- `"block"` - odpowiedz zamiast tego jako zablokowane, dokładnie w tej
-  samej formie, co trafienie w listę blokad, z powodem zapisanym jako
-  `DNS rebinding protection (<ip>)`.
+- `"block"` (domyślnie) - odpowiedz zamiast tego jako zablokowane,
+  dokładnie w tej samej formie, co trafienie w listę blokad, z powodem
+  zapisanym jako `DNS rebinding protection (<ip>)`.
+- `"alert"` - rozwiąż normalnie, po prostu zgłoś alert. W odpowiedzi nic
+  się nie zmienia.
 
 Dwie rzeczy są z tego sprawdzania całkowicie zwolnione, bo *legalnie*
 rozwiązują się do adresów prywatnych: domeny z tej samej listy lokalnych
@@ -2863,14 +2889,36 @@ pytest
   `cap_add: [NET_BIND_SERVICE]` i użytkownikiem innym niż root w polu
   `user:`.
 - Klucze API do threat-intel (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/
-  URLhaus, oraz Twoja własna, lokalna usługa) są przechowywane w
-  `config.db`/`config.backup.yaml` tak samo, jak każde inne ustawienie -
-  każdy, kto ma dostęp do panelu webowego albo do woluminu `./data`, może
-  je odczytać i użyć. Strona Settings oraz `GET /api/settings` nigdy nie
-  zwracają samego klucza z powrotem, tylko informację, czy jest ustawiony.
-  Pole `local_url` jest przechowywane i pokazywane jawnym tekstem (to
-  adres URL, nie sekret) - nie umieszczaj w nim żadnych poświadczeń, do
-  tego służy osobne pole na lokalny klucz API.
+  URLhaus, oraz Twoja własna, lokalna usługa), sekret klienta SSO oraz
+  hasło SMTP są przechowywane w `config.db`/`config.backup.yaml` tak samo,
+  jak każde inne ustawienie - każdy, kto ma dostęp do panelu webowego albo
+  do woluminu `./data`, może je odczytać i użyć. Strona Settings oraz
+  `GET /api/settings` nigdy nie zwracają samego klucza z powrotem, tylko
+  informację, czy jest ustawiony (i zamaskowany podgląd pierwszego/
+  ostatniego znaku). Każde z tych pól ma swój przycisk **Wyczyść** obok -
+  wycofanie klucza (zrotowany, unieważniony, już niepotrzebny) nie wymaga
+  więc wklejania jakiejś zastępczej wartości, żeby go nadpisać. Zapisanie
+  formularza z tym polem pozostawionym pustym zawsze zachowuje to, co już
+  jest zapisane - z założenia - co właśnie sprawia, że jawny sposób na
+  faktyczne usunięcie klucza jest potrzebny. Pole `local_url` jest
+  przechowywane i pokazywane jawnym tekstem (to adres URL, nie sekret) -
+  nie umieszczaj w nim żadnych poświadczeń, do tego służy osobne pole na
+  lokalny klucz API.
+- Pobieranie adresu URL źródła (listy blokad/dozwolonej/obserwowanej)
+  odrzuca nazwę hosta, która rozwiązuje się do adresu prywatnego,
+  loopback, link-local albo inaczej niepublicznego (ochrona przed SSRF) -
+  zobacz [Formaty list blokad i sugerowane
+  listy](#formaty-list-blokad-i-sugerowane-listy) wyżej. Wzorzec dodany do
+  listy zablokowanej wg wyrażeń regularnych (z panelu, przez API, czy przy
+  imporcie z Pi-hole), który wykazuje cechy katastrofalnego backtrackingu,
+  jest odrzucany jeszcze przed zapisaniem, a dopasowywanie do żywych
+  zapytań ma i tak ograniczony czas - zobacz [Lista zablokowana wg wyrażeń
+  regularnych](#lista-zablokowana-wg-wyrażeń-regularnych-eksperymentalne)
+  wyżej.
+- Zależności są utrzymywane w wersjach z załatanymi CVE
+  (`fastapi`/`starlette`, `cryptography`, `pyOpenSSL`, `Authlib`,
+  `python-multipart`) i podbijane w miarę ujawniania nowych CVE względem
+  tego, co jest przypięte w `requirements.txt`.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") jest domyślnie wyłączone i to właśnie ono decyduje o
   tym, czy VirusTotal/AbuseIPDB/OTX są w ogóle kiedykolwiek kontaktowane -

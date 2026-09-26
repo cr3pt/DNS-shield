@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from app.blocklist import check_regex_pattern_safety
+
 _REGEX_MODIFIER_RE = re.compile(r"\s*;\s*\w+\s*=.*$")
 
 
@@ -63,6 +65,7 @@ def convert_domainlist(conn: sqlite3.Connection) -> tuple[list[str], list[str], 
     skipped_disabled = 0
     skipped_regex_allow = 0
     skipped_invalid_regex: list[str] = []
+    skipped_unsafe_regex: list[str] = []
 
     for domain, list_type, enabled in rows:
         if not domain:
@@ -84,6 +87,11 @@ def convert_domainlist(conn: sqlite3.Connection) -> tuple[list[str], list[str], 
             except re.error:
                 skipped_invalid_regex.append(domain)
                 continue
+            try:
+                check_regex_pattern_safety(pattern)
+            except ValueError:
+                skipped_unsafe_regex.append(domain)
+                continue
             denylist_regex.append(pattern)
 
     if skipped_disabled:
@@ -98,6 +106,12 @@ def convert_domainlist(conn: sqlite3.Connection) -> tuple[list[str], list[str], 
         warnings.append(
             f"{len(skipped_invalid_regex)} regex deny entr(y/ies) didn't compile as a Python regex "
             f"and were skipped, e.g.: {sample}"
+        )
+    if skipped_unsafe_regex:
+        sample = ", ".join(repr(p) for p in skipped_unsafe_regex[:5])
+        warnings.append(
+            f"{len(skipped_unsafe_regex)} regex deny entr(y/ies) were too slow against adversarial "
+            f"input (catastrophic backtracking risk) and were skipped, e.g.: {sample}"
         )
 
     return allowlist, denylist, denylist_regex, warnings

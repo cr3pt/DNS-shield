@@ -539,6 +539,17 @@ fetches everything live in the background a moment later. Only a
 genuinely first-ever run, with nothing cached yet anywhere, waits on the
 network before it's protected.
 
+A URL you add here (or under Allow sources, a client group's own extra
+lists, or Alert rules' own watch lists) is resolved and checked before
+DNS-shield ever fetches it: a hostname resolving to a private, loopback,
+link-local, or otherwise non-public address is rejected with an error
+instead of being fetched, so an admin account can't be used to make the
+server issue a request into your own LAN or at `127.0.0.1` (SSRF) by
+pointing a "public blocklist" field at an internal address. This check is
+scoped to subscription-style URL fields specifically - it does not apply
+to `enrichment.local_url`, ping-check URLs, or notification webhook URLs,
+which are meant to be able to target your own internal services.
+
 ### Newly registered domains (NRD)
 
 Enterprise DNS security products (Infoblox's BloxOne Threat Defense calls
@@ -592,19 +603,34 @@ independent of any list subscription.
 
 ### Regex denylist (experimental)
 
-`denylist_regex` blocks any query name matching a Python regular
-expression, checked with `re.search()` against the full name - e.g.
-`^ads?[0-9]*\.` catches `ad.`/`ad1.`/`ads2.`-style subdomains across every
-domain at once, something a plain domain/subdomain denylist entry can't
-express. It's off by default (`dns.regex_denylist_enabled`) and marked
-experimental in the dashboard for a reason: every enabled pattern is
-checked against **every single query**, so the per-query CPU cost grows
-with how many patterns you have. Patterns are compiled once and cached in
-memory - never recompiled per query - but the matching itself is still
-real work, so this is meant for a handful of hand-picked rules, not a
-full list. An invalid pattern is rejected with an error when you try to
-add it, rather than silently skipped later. Manage it from the dashboard
-(Settings -> Regex denylist) or by editing `denylist_regex` directly.
+`denylist_regex` blocks any query name matching a regular expression,
+checked against the full name - e.g. `^ads?[0-9]*\.` catches
+`ad.`/`ad1.`/`ads2.`-style subdomains across every domain at once,
+something a plain domain/subdomain denylist entry can't express. It's off
+by default (`dns.regex_denylist_enabled`) and marked experimental in the
+dashboard for a reason: every enabled pattern is checked against **every
+single query**, so the per-query CPU cost grows with how many patterns you
+have. Patterns are compiled once and cached in memory - never recompiled
+per query - but the matching itself is still real work, so this is meant
+for a handful of hand-picked rules, not a full list. An invalid pattern is
+rejected with an error when you try to add it, rather than silently
+skipped later. Manage it from the dashboard (Settings -> Regex denylist)
+or by editing `denylist_regex` directly.
+
+A pattern crafted for [catastrophic
+backtracking](https://en.wikipedia.org/wiki/ReDoS) (e.g. `(a+)+$`) is
+rejected outright when you try to add it - a handful of adversarial probe
+strings are matched against it first, and a pattern that takes too long
+against any of them never makes it into `denylist_regex` at all. This
+applies whether the pattern comes from the dashboard, the API, or a
+Pi-hole import's own regex-deny rules. Matching itself is also
+time-boxed per query (using the third-party `regex` engine instead of
+Python's built-in `re`, which has no way to bound match time) - a pattern
+that somehow still runs too long against one specific query name just
+fails open for that single query (logged, treated as no match) instead of
+blocking the resolver or the dashboard for everyone. Without this, a
+single crafted ~30-character query name could stall DNS resolution and
+the web UI for well over a minute.
 
 ### Client hostnames (reverse DNS)
 
@@ -1495,17 +1521,18 @@ it) is made to resolve to a private/internal IP address, so JavaScript
 served from that domain can reach into the victim's own LAN - a router's
 admin panel, a NAS, an internal API - past same-origin protections that
 would normally stop a public web page from doing that. Settings -> DNS has
-a "DNS rebinding protection" toggle (off by default) that catches this at
-resolution time: every A/AAAA answer coming back from upstream is checked
-against [`ipaddress.is_private`](https://docs.python.org/3/library/ipaddress.html)
+a "DNS rebinding protection" toggle (**on by default**) that catches this
+at resolution time: every A/AAAA answer coming back from upstream is
+checked against [`ipaddress.is_private`](https://docs.python.org/3/library/ipaddress.html)
 (covers RFC1918, loopback, link-local, and IPv6 ULA in one call), and if a
 queried domain resolves to a private address, `dns.rebinding_action`
 decides what happens to that answer:
 
-- `"alert"` (default) - resolve normally, just raise an alert. Nothing
-  about the answer changes.
-- `"block"` - answer as blocked instead, the same shape as a blocklist hit,
-  with the reason recorded as `DNS rebinding protection (<ip>)`.
+- `"block"` (default) - answer as blocked instead, the same shape as a
+  blocklist hit, with the reason recorded as `DNS rebinding protection
+  (<ip>)`.
+- `"alert"` - resolve normally, just raise an alert. Nothing about the
+  answer changes.
 
 Two things are exempt from this check entirely, since they *legitimately*
 resolve to private addresses: domains under the same local-TLD list used by
@@ -2559,13 +2586,31 @@ pytest
   provided image runs as root for this (same approach as the official
   AdGuard Home / Pi-hole images). Run rootless via a compose override with
   `cap_add: [NET_BIND_SERVICE]` and a non-root `user:` if you need that.
-- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/your own local service)
-  are stored in `config.db`/`config.backup.yaml` like any other setting -
-  anyone with access to the web UI or `./data` volume can read or use
-  them. The Settings page and `GET /api/settings` never echo a key back,
-  only whether one is set. `local_url` is stored and shown in plain text
-  (it's a URL, not a secret) - don't put credentials in it, use the
-  separate local API key field for that.
+- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/your own local service),
+  the SSO client secret, and the SMTP password are stored in
+  `config.db`/`config.backup.yaml` like any other setting - anyone with
+  access to the web UI or `./data` volume can read or use them. The
+  Settings page and `GET /api/settings` never echo a key back, only
+  whether one is set (and a masked first/last-character preview). Each of
+  these fields has its own **Clear** button next to it, so retiring a key
+  (rotated, revoked, no longer needed) doesn't require pasting in a
+  throwaway value to overwrite it - saving a field's form with it left
+  blank always keeps whatever is already stored, by design, which is what
+  makes an explicit way to actually remove one necessary. `local_url` is
+  stored and shown in plain text (it's a URL, not a secret) - don't put
+  credentials in it, use the separate local API key field for that.
+- Fetching a blocklist/allow-list/watch-list source URL rejects a
+  hostname that resolves to a private, loopback, link-local, or otherwise
+  non-public address (SSRF protection) - see [Blocklist formats and
+  suggested lists](#blocklist-formats-and-suggested-lists) above. A
+  pattern added to the regex denylist (dashboard, API, or Pi-hole import)
+  that shows signs of catastrophic backtracking is rejected before it's
+  saved, and matching against live queries is time-boxed regardless - see
+  [Regex denylist](#regex-denylist-experimental) above.
+- Dependencies are kept on CVE-patched versions (`fastapi`/`starlette`,
+  `cryptography`, `pyOpenSSL`, `Authlib`, `python-multipart`) and bumped
+  as new CVEs are disclosed against whatever's pinned in
+  `requirements.txt`.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") is off by default and is the actual gate on whether
   VirusTotal/AbuseIPDB/OTX are ever contacted - saving a key for one of

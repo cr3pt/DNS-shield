@@ -4,6 +4,8 @@
   "common.checking": "確認中...",
   "common.loading": "読み込み中...",
   "common.action_failed": "操作に失敗しました",
+  "common.clear_key": "消去",
+  "common.confirm_clear_key": "この保存済みキーを消去しますか?元に戻せません。",
   "common.analysis_failed": "解析に失敗しました",
   "general.hint.web_ui": "現在ご覧になっているこの管理パネル自体の待受アドレス/ポート、ログイン、外観に関する設定です。",
   "general.hint.https": "証明書/鍵のパスを設定しない場合、DNS-shieldは自己署名証明書を生成し(データボリュームに保存)、それを使い続けます - 信頼された認証局が発行したものではないため初回接続時にブラウザがセキュリティ警告を表示しますが、通信自体はいずれにせよ暗号化されています。正式な証明書がある場合(例: リバースプロキシのACMEクライアントが発行し、コンテナにマウントしたもの)は、証明書/鍵ファイルへの独自のパスを指定してください。いずれの場合もコンテナの再起動が必要です。",
@@ -715,5 +717,6 @@
   "users.perm.graph": "クライアント・ドメイングラフを閲覧できる",
   "users.summary.graph": "グラフ",
   "toast.deleted": "削除しました",
-  "toast.https_migrated": "HTTPSが有効になりました - 反映させるにはコンテナを再起動してください"
+  "toast.https_migrated": "HTTPSが有効になりました - 反映させるにはコンテナを再起動してください",
+  "toast.key_cleared": "キーを消去しました"
 }

@@ -4,6 +4,8 @@
   "common.checking": "正在检查...",
   "common.loading": "正在加载...",
   "common.action_failed": "操作失败",
+  "common.clear_key": "清除",
+  "common.confirm_clear_key": "清除这个已保存的密钥吗?此操作无法撤销。",
   "common.analysis_failed": "分析失败",
   "general.hint.web_ui": "您正在查看的管理面板本身 - 其自身的监听地址/端口、登录方式与外观。",
   "general.hint.https": "如果不设置证书/密钥的路径,DNS-shield 会生成并反复使用自己的自签名证书(保存在数据卷中) - 浏览器在首次连接时会显示安全警告,因为该证书并非由受信任机构签发,但连接本身仍是加密的。如果你有真实证书(例如来自反向代理 ACME 客户端并挂载到容器中),请在上方填写自己的证书/密钥文件路径。两种情况都需要重启容器。",
@@ -715,5 +717,6 @@
   "users.perm.graph": "可以查看客户端-域名关系图",
   "users.summary.graph": "关系图",
   "toast.deleted": "已删除",
-  "toast.https_migrated": "HTTPS 已启用 - 重启容器后生效"
+  "toast.https_migrated": "HTTPS 已启用 - 重启容器后生效",
+  "toast.key_cleared": "密钥已清除"
 }

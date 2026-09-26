@@ -907,7 +907,7 @@
           </div>
           <div class="field"><label data-i18n="sso.client_id">Client ID</label><input type="text" id="s-sso-client-id" autocomplete="off"></div>
           <div class="field">
-            <label><span data-i18n="sso.client_secret">Client secret</span> <span id="sso-client-secret-status" class="muted"></span></label>
+            <label><span data-i18n="sso.client_secret">Client secret</span> <span id="sso-client-secret-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="sso.client_secret" data-status-id="sso-client-secret-status" data-input-id="s-sso-client-secret" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-sso-client-secret" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field"><label data-i18n="sso.scopes">Scopes</label><input type="text" id="s-sso-scopes" placeholder="openid email profile"></div>
@@ -1297,27 +1297,27 @@
         </p>
         <div class="field-grid">
           <div class="field">
-            <label><span data-i18n="ti.vt_key">VirusTotal API key</span> <span id="vt-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.vt_key">VirusTotal API key</span> <span id="vt-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.virustotal_api_key" data-status-id="vt-key-status" data-input-id="s-vt-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-vt-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.abuseipdb_key">AbuseIPDB API key</span> <span id="abuseipdb-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.abuseipdb_key">AbuseIPDB API key</span> <span id="abuseipdb-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.abuseipdb_api_key" data-status-id="abuseipdb-key-status" data-input-id="s-abuseipdb-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-abuseipdb-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.otx_key">AlienVault OTX API key</span> <span id="otx-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.otx_key">AlienVault OTX API key</span> <span id="otx-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.otx_api_key" data-status-id="otx-key-status" data-input-id="s-otx-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-otx-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.greynoise_key">GreyNoise API key</span> <span id="greynoise-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.greynoise_key">GreyNoise API key</span> <span id="greynoise-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.greynoise_api_key" data-status-id="greynoise-key-status" data-input-id="s-greynoise-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-greynoise-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.shodan_key">Shodan API key</span> <span id="shodan-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.shodan_key">Shodan API key</span> <span id="shodan-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.shodan_api_key" data-status-id="shodan-key-status" data-input-id="s-shodan-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-shodan-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.urlhaus_key">URLhaus (abuse.ch) Auth-Key</span> <span id="urlhaus-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.urlhaus_key">URLhaus (abuse.ch) Auth-Key</span> <span id="urlhaus-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.urlhaus_api_key" data-status-id="urlhaus-key-status" data-input-id="s-urlhaus-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-urlhaus-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
@@ -1348,7 +1348,7 @@
           <label for="s-enrich-ipinfo-enabled" data-i18n="ti.ipinfo">IP geolocation/ownership lookup (ipinfo.io)</label>
         </div>
         <div class="field">
-          <label><span data-i18n="ti.ipinfo_key">ipinfo.io API token (optional)</span> <span id="ipinfo-key-status" class="muted"></span></label>
+          <label><span data-i18n="ti.ipinfo_key">ipinfo.io API token (optional)</span> <span id="ipinfo-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.ipinfo_api_key" data-status-id="ipinfo-key-status" data-input-id="s-enrich-ipinfo-key" data-i18n="common.clear_key">Clear</button></label>
           <input type="password" id="s-enrich-ipinfo-key" placeholder="leave blank to keep current" autocomplete="off">
         </div>
         <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.ipinfo">
@@ -1363,7 +1363,7 @@
           <label for="s-enrich-ai-enabled" data-i18n="ti.ai">AI context lookup (Google Gemini)</label>
         </div>
         <div class="field">
-          <label><span data-i18n="ti.ai_key">Gemini API key</span> <span id="ai-key-status" class="muted"></span></label>
+          <label><span data-i18n="ti.ai_key">Gemini API key</span> <span id="ai-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.ai_api_key" data-status-id="ai-key-status" data-input-id="s-enrich-ai-key" data-i18n="common.clear_key">Clear</button></label>
           <input type="password" id="s-enrich-ai-key" placeholder="leave blank to keep current" autocomplete="off">
         </div>
         <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.ai">
@@ -1391,7 +1391,7 @@
             <input type="text" id="s-enrich-local-url" placeholder="https://reputation.internal.example/check" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.local_key">Local service API key (optional)</span> <span id="local-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.local_key">Local service API key (optional)</span> <span id="local-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.local_api_key" data-status-id="local-key-status" data-input-id="s-enrich-local-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-enrich-local-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
@@ -1653,7 +1653,7 @@
           </div>
           <div class="field"><label data-i18n="notif.smtp_username">SMTP username (optional)</label><input type="text" id="s-notif-smtp-username" autocomplete="off"></div>
           <div class="field">
-            <label><span data-i18n="notif.smtp_password">SMTP password</span> <span id="notif-smtp-password-status" class="muted"></span></label>
+            <label><span data-i18n="notif.smtp_password">SMTP password</span> <span id="notif-smtp-password-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="notifications.email.smtp_password" data-status-id="notif-smtp-password-status" data-input-id="s-notif-smtp-password" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-notif-smtp-password" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field"><label data-i18n="notif.from_address">From address</label><input type="text" id="s-notif-from-address" placeholder="dns-shield@example.com" autocomplete="off"></div>
@@ -6604,6 +6604,27 @@ document.getElementById("s-web-https-migrate-btn").addEventListener("click", asy
   document.getElementById("s-web-https-enabled").checked = true;
   document.getElementById("s-web-https-migrate-field").style.display = "none";
   showToast(t("toast.https_migrated", "HTTPS enabled - restart the container for it to take effect"));
+});
+
+document.querySelectorAll(".clear-key-btn").forEach((btn) => {
+  btn.addEventListener("click", async (evt) => {
+    const button = evt.currentTarget;
+    const path = button.dataset.path;
+    if (!confirm(t("common.confirm_clear_key", "Clear this saved key? This can't be undone."))) return;
+    try {
+      await withSpinner(button, () => api("/api/settings/clear-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      }), t("common.saving", "Saving..."));
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      return;
+    }
+    document.getElementById(button.dataset.statusId).textContent = "(not set)";
+    document.getElementById(button.dataset.inputId).value = "";
+    showToast(t("toast.key_cleared", "Key cleared"));
+  });
 });
 
 document.getElementById("password-form").addEventListener("submit", async (e) => {

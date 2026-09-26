@@ -4,6 +4,8 @@
   "common.checking": "Vérification en cours…",
   "common.loading": "Chargement en cours…",
   "common.action_failed": "Échec de l'opération",
+  "common.clear_key": "Effacer",
+  "common.confirm_clear_key": "Effacer cette clé enregistrée ? Cette action est irréversible.",
   "common.analysis_failed": "Échec de l'analyse",
   "general.hint.web_ui": "Le tableau de bord que vous consultez actuellement - sa propre adresse/port d'écoute, sa connexion et son apparence.",
   "general.hint.https": "Si vous n'indiquez pas de chemin vers un certificat/une clé, DNS-shield générera et réutilisera son propre certificat autosigné (stocké dans le volume de données) - le navigateur affichera un avertissement de sécurité lors de la première connexion, car le certificat ne provient pas d'une autorité de confiance, mais la connexion reste chiffrée. Indiquez vos propres chemins vers le fichier de certificat/clé si vous en possédez un véritable (par ex. issu du client ACME du reverse proxy, monté dans le conteneur). Dans les deux cas, un redémarrage du conteneur est nécessaire.",
@@ -715,5 +717,6 @@
   "users.perm.graph": "Peut voir le graphe client-domaine",
   "users.summary.graph": "graphe",
   "toast.deleted": "Supprimé",
-  "toast.https_migrated": "HTTPS activé - redémarrez le conteneur pour que cela prenne effet"
+  "toast.https_migrated": "HTTPS activé - redémarrez le conteneur pour que cela prenne effet",
+  "toast.key_cleared": "Clé effacée"
 }

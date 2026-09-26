@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from app.anomaly import _base_domain
 from app.auth import verify_password
+from app.blocklist import check_regex_pattern_safety
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app import dns_rewrites
 from app import new_client_detection
@@ -43,6 +44,7 @@ from webauthn.helpers import bytes_to_base64url
 from app.sessions import COOKIE_NAME, SessionStore
 from app.sso import OIDCError, PendingSSOStore, build_authorization_url, exchange_code, verify_id_token
 from app.tls import ensure_self_signed_cert
+from app.url_safety import check_public_url
 from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
@@ -66,6 +68,20 @@ _SECURITY_HEADERS = {
         "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
         "base-uri 'self'; form-action 'self'; object-src 'none'"
     ),
+}
+
+_CLEARABLE_SECRET_PATHS = {
+    "enrichment.virustotal_api_key",
+    "enrichment.abuseipdb_api_key",
+    "enrichment.otx_api_key",
+    "enrichment.greynoise_api_key",
+    "enrichment.shodan_api_key",
+    "enrichment.urlhaus_api_key",
+    "enrichment.ipinfo_api_key",
+    "enrichment.ai_api_key",
+    "enrichment.local_api_key",
+    "sso.client_secret",
+    "notifications.email.smtp_password",
 }
 
 
@@ -436,6 +452,10 @@ class WebSettingsIn(BaseModel):
     https_key_path: str | None = None
     login_max_attempts: int | None = None
     login_lockout_minutes: float | None = None
+
+
+class ClearSecretIn(BaseModel):
+    path: str
 
 
 class LoginIn(BaseModel):
@@ -1256,6 +1276,11 @@ def create_app(
         return config_store.get("blocklists", field, default=[]) or []
 
     def _add_source(field: str, source: BlocklistSourceIn) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocklists", {}).setdefault(field, [])
             sources.append(source.model_dump())
@@ -1390,6 +1415,10 @@ def create_app(
             re.compile(pattern)
         except re.error as exc:
             raise HTTPException(status_code=400, detail=f"Invalid regex: {exc}") from exc
+        try:
+            check_regex_pattern_safety(pattern)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         def _mutate(data: dict[str, Any]) -> list[str]:
             items = data.setdefault("denylist_regex", [])
@@ -1437,6 +1466,11 @@ def create_app(
     def add_answer_ip_source(
         source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_permission("can_block"))
     ) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocked_answer_ip_sources", [])
             sources.append(source.model_dump())
@@ -1681,6 +1715,11 @@ def create_app(
     def add_group_blocklist_source(
         index: int, source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
             sources.append(source.model_dump())
             return sources
@@ -2232,6 +2271,21 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
 
+    @app.post("/api/settings/clear-secret")
+    def clear_secret(body: ClearSecretIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        if body.path not in _CLEARABLE_SECRET_PATHS:
+            raise HTTPException(status_code=400, detail="Unknown or non-clearable field")
+
+        def _mutate(data: dict[str, Any]) -> None:
+            parts = body.path.split(".")
+            node = data
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node[parts[-1]] = ""
+
+        config_store.mutate(_mutate)
+        return {"cleared": body.path}
+
     @app.get("/api/settings")
     def get_settings(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         snap = config_store.snapshot()
@@ -2547,6 +2601,11 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.post("/api/alert-rules/sources")
     def add_alert_source(source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
             sources.append(source.model_dump())

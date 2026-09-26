@@ -4,6 +4,8 @@
   "common.checking": "Sprawdzanie...",
   "common.loading": "Wczytywanie...",
   "common.action_failed": "Operacja nie powiodła się",
+  "common.clear_key": "Wyczyść",
+  "common.confirm_clear_key": "Wyczyścić ten zapisany klucz? Tego nie da się cofnąć.",
   "common.analysis_failed": "Analiza nie powiodła się",
   "general.hint.web_ui": "Panel, który właśnie oglądasz - jego własny adres/port nasłuchu, logowanie i wygląd.",
   "general.hint.https": "Jeśli nie ustawisz ścieżki do certyfikatu/klucza, DNS-shield wygeneruje i będzie ponownie używać własnego, samopodpisanego certyfikatu (przechowywanego w woluminie danych) - przeglądarka pokaże ostrzeżenie bezpieczeństwa przy pierwszym połączeniu, bo certyfikat nie pochodzi od zaufanego urzędu, ale połączenie i tak jest szyfrowane. Podaj własne ścieżki do pliku certyfikatu/klucza, jeśli masz prawdziwy (np. z klienta ACME reverse proxy, zamontowany do kontenera). W obu przypadkach wymaga ponownego uruchomienia kontenera.",
@@ -715,5 +717,6 @@
   "users.perm.graph": "Widzi graf klient-domena",
   "users.summary.graph": "graf",
   "toast.deleted": "Usunięto",
-  "toast.https_migrated": "HTTPS włączone - zrestartuj kontener, żeby zaczęło działać"
+  "toast.https_migrated": "HTTPS włączone - zrestartuj kontener, żeby zaczęło działać",
+  "toast.key_cleared": "Klucz wyczyszczony"
 }

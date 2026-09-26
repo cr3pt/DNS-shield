@@ -4,6 +4,8 @@
   "common.checking": "Wird geprüft …",
   "common.loading": "Wird geladen …",
   "common.action_failed": "Vorgang fehlgeschlagen",
+  "common.clear_key": "Löschen",
+  "common.confirm_clear_key": "Diesen gespeicherten Schlüssel löschen? Das kann nicht rückgängig gemacht werden.",
   "common.analysis_failed": "Analyse fehlgeschlagen",
   "general.hint.web_ui": "Das Dashboard, das Sie gerade sehen - dessen eigene Listen-Adresse/-Port, Anmeldung und Erscheinungsbild.",
   "general.hint.https": "Wenn Sie keinen Pfad zu Zertifikat/Schlüssel angeben, erzeugt DNS-shield ein eigenes, selbstsigniertes Zertifikat (gespeichert im Datenvolume) und verwendet es weiterhin - der Browser zeigt bei der ersten Verbindung eine Sicherheitswarnung, weil das Zertifikat nicht von einer vertrauenswürdigen Stelle stammt, die Verbindung ist aber trotzdem verschlüsselt. Geben Sie eigene Pfade zu Zertifikats-/Schlüsseldatei an, wenn Sie ein echtes Zertifikat besitzen (z. B. vom ACME-Client des Reverse Proxy, in den Container eingebunden). In beiden Fällen ist ein Neustart des Containers erforderlich.",
@@ -715,5 +717,6 @@
   "users.perm.graph": "Darf den Client-Domain-Graphen sehen",
   "users.summary.graph": "Graph",
   "toast.deleted": "Gelöscht",
-  "toast.https_migrated": "HTTPS aktiviert - starten Sie den Container neu, damit es wirksam wird"
+  "toast.https_migrated": "HTTPS aktiviert - starten Sie den Container neu, damit es wirksam wird",
+  "toast.key_cleared": "Schlüssel gelöscht"
 }

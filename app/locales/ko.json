@@ -4,6 +4,8 @@
   "common.checking": "확인 중...",
   "common.loading": "불러오는 중...",
   "common.action_failed": "작업에 실패했습니다",
+  "common.clear_key": "지우기",
+  "common.confirm_clear_key": "저장된 이 키를 지우시겠습니까? 되돌릴 수 없습니다.",
   "common.analysis_failed": "분석에 실패했습니다",
   "general.hint.web_ui": "지금 보고 있는 이 관리 패널 자체의 리슨 주소/포트, 로그인, 화면 표시에 관한 설정입니다.",
   "general.hint.https": "인증서/키 경로를 설정하지 않으면 DNS-shield가 자체 서명 인증서를 생성해 계속 재사용합니다(데이터 볼륨에 저장) - 신뢰된 인증 기관이 발급한 것이 아니므로 최초 접속 시 브라우저가 보안 경고를 표시하지만, 연결 자체는 어쨌든 암호화됩니다. 실제 인증서가 있다면(예: 리버스 프록시의 ACME 클라이언트가 발급해 컨테이너에 마운트한 것) 인증서/키 파일 경로를 직접 지정하세요. 두 경우 모두 컨테이너 재시작이 필요합니다.",
@@ -715,5 +717,6 @@
   "users.perm.graph": "클라이언트-도메인 그래프를 볼 수 있음",
   "users.summary.graph": "그래프",
   "toast.deleted": "삭제되었습니다",
-  "toast.https_migrated": "HTTPS가 활성화되었습니다 - 적용하려면 컨테이너를 재시작하세요"
+  "toast.https_migrated": "HTTPS가 활성화되었습니다 - 적용하려면 컨테이너를 재시작하세요",
+  "toast.key_cleared": "키가 지워졌습니다"
 }

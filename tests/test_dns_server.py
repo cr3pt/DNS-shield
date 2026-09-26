@@ -243,3 +243,16 @@ def test_query_acl_allows_when_handler_is_none(config_store, tmp_path, monkeypat
     response = resolver.resolve(request, None)
 
     assert response.header.rcode == RCODE.NOERROR
+
+
+def test_dns_rebinding_blocked_by_default(config_store, tmp_path, monkeypatch):
+    resolver = _resolver(config_store, tmp_path)
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _plain_response("localtest.me", "127.0.0.1")
+    )
+
+    request = DNSRecord.question("localtest.me", qtype="A")
+    response = resolver.resolve(request, _FakeHandler("10.0.0.5"))
+
+    assert response.header.rcode == RCODE.NXDOMAIN
+    assert not any(rr.rtype == QTYPE.A for rr in response.rr)

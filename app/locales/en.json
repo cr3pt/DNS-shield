@@ -4,6 +4,8 @@
   "common.checking": "Checking...",
   "common.loading": "Loading...",
   "common.action_failed": "Action failed",
+  "common.clear_key": "Clear",
+  "common.confirm_clear_key": "Clear this saved key? This can't be undone.",
   "common.analysis_failed": "Analysis failed",
   "general.hint.web_ui": "The dashboard you're looking at right now - its own listen address/port, login, and appearance.",
   "general.hint.https": "If you don't set a certificate/key path, DNS-shield will generate and reuse its own self-signed certificate (stored in the data volume) - your browser will show a security warning on first connection, because the certificate isn't from a trusted authority, but the connection is still encrypted. Provide your own certificate/key file paths if you have a real one (e.g. from a reverse-proxy ACME client, mounted into the container). Either way, this requires restarting the container.",
@@ -715,5 +717,6 @@
   "users.perm.graph": "Can see the client-domain graph",
   "users.summary.graph": "graph",
   "toast.deleted": "Deleted",
-  "toast.https_migrated": "HTTPS enabled - restart the container for it to take effect"
+  "toast.https_migrated": "HTTPS enabled - restart the container for it to take effect",
+  "toast.key_cleared": "Key cleared"
 }

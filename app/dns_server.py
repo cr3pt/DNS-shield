@@ -128,7 +128,7 @@ class FilteringResolver:
                             rebinding_ip = candidate_ip
 
                 if rebinding_ip is not None and not blocked:
-                    rebinding_action = self._config.get("dns", "rebinding_action", default="alert")
+                    rebinding_action = self._config.get("dns", "rebinding_action", default="block")
                     if rebinding_action == "block":
                         response = self._blocked_reply(request)
                         blocked = True
@@ -161,7 +161,7 @@ class FilteringResolver:
         return any(ip_matches(client_ip, pattern) for pattern in extra)
 
     def _is_rebinding_candidate(self, qname: str, candidate_ip: str) -> bool:
-        if not qname or not self._config.get("dns", "rebinding_protection_enabled", default=False):
+        if not qname or not self._config.get("dns", "rebinding_protection_enabled", default=True):
             return False
         try:
             addr = ipaddress.ip_address(candidate_ip)
