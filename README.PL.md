@@ -146,12 +146,20 @@ docker compose up -d --build
 ```
 
 Przy pierwszym uruchomieniu `./data/config.db` zostaje zasiane danymi z
-`config/config.example.yaml`. Po otwarciu `http://<host>:3000` trafisz na
-publiczny widok tylko do odczytu (trend zapytań i najczęściej blokowane
-domeny, bez logowania) z linkiem "Sign in". Zaloguj się domyślnymi danymi
-`admin` / `changeme`, **od razu zmień hasło** (Settings -> General ->
-"Your account") i skieruj DNS jakiegoś urządzenia na `<host>:53`, żeby to
-przetestować.
+`config/config.example.yaml`. Po otwarciu `https://<host>:3000` trafisz
+na publiczny widok tylko do odczytu (trend zapytań i najczęściej
+blokowane domeny, bez logowania) z linkiem "Sign in". HTTPS jest
+domyślnie włączone, z samopodpisanym certyfikatem, który DNS-shield sam
+sobie generuje przy pierwszym uruchomieniu - przeglądarka pokaże
+ostrzeżenie "niebezpieczne"/"niezaufane" przy pierwszym połączeniu,
+ponieważ nic nie poświadcza samopodpisanego certyfikatu; kliknij przez
+to ostrzeżenie raz (zobacz [HTTPS dla panelu](#https-dla-panelu) niżej,
+gdzie jest opisane faktycznie poprawne rozwiązanie, a także jak wrócić
+do zwykłego HTTP, jeśli wolisz nie zajmować się tym ostrzeżeniem przy
+wdrożeniu ograniczonym do samej sieci LAN). Zaloguj się domyślnymi
+danymi `admin` / `changeme`, **od razu zmień hasło** (Settings ->
+General -> "Your account") i skieruj DNS jakiegoś urządzenia na
+`<host>:53`, żeby to przetestować.
 
 Żeby używać tego w całej sieci, ustaw ten adres jako serwer DNS w
 ustawieniach DHCP routera (albo osobno na każdym urządzeniu).
@@ -2072,12 +2080,15 @@ wpisania nowej wartości zostawia go bez zmian.
 
 ### HTTPS dla panelu
 
-`web.https_enabled` (Settings -> General, domyślnie wyłączone) sprawia,
-że własny port webowy panelu zaczyna serwować HTTPS zamiast zwykłego
-HTTP - to zastępuje dotychczasowy port, nie dodaje drugiego, więc po
-włączeniu do panelu na `web.listen_port` dociera już tylko `https://`.
-Żeby zadziałało, wymaga restartu kontenera, tak samo jak zmiana samego
-adresu czy portu nasłuchu.
+`web.https_enabled` (Settings -> General, **domyślnie włączone**)
+sprawia, że własny port webowy panelu zaczyna serwować HTTPS zamiast
+zwykłego HTTP - to zastępuje dotychczasowy port, nie dodaje drugiego,
+więc dopóki jest włączone, do panelu na `web.listen_port` dociera już
+tylko `https://` ([strona startowa](#uruchamianie) pokazywana, zanim
+reszta usługi wstanie, też serwuje HTTPS, tym samym certyfikatem, więc
+nie ma niezgodności protokołów podczas rozruchu). Zmiana tego ustawienia
+wymaga restartu kontenera, tak samo jak zmiana samego adresu czy portu
+nasłuchu.
 
 Bez skonfigurowanego certyfikatu DNS-shield przy pierwszym uruchomieniu z
 włączonym HTTPS generuje własny, samopodpisany certyfikat i używa go
@@ -2097,21 +2108,24 @@ nazwy domeny faktycznie rozwiązującej się do tego hosta, zamontowaną do
 kontenera obok woluminu danych). DNS-shield sam nigdy nie łączy się z
 żadnym dostawcą ACME - tylko czyta pliki certyfikatu i klucza, które mu
 wskażesz; to ta sama zasada "żadnych połączeń wychodzących, o które nie
-prosiłeś", co wszędzie indziej w tym projekcie.
+prosiłeś", co wszędzie indziej w tym projekcie. Jeśli wolisz w ogóle
+uniknąć ostrzeżenia o samopodpisanym certyfikacie przy wdrożeniu
+ograniczonym do samej sieci LAN, którym się nie martwisz, wyłącz z
+powrotem `web.https_enabled` w Settings -> General (albo zedytuj to w
+konfiguracji przed pierwszym uruchomieniem), żeby wrócić do zwykłego
+HTTP.
 
-Włączenie HTTPS automatycznie dodaje też flagę `Secure` do ciasteczka
-sesji (zobacz **Uwagi o bezpieczeństwie** niżej), więc warto to zrobić
-nawet z samopodpisanym certyfikatem, jeśli panel jest osiągalny spoza
-localhost - zaszyfrowanie żądania logowania i ciasteczka sesji w
-transmisji ma sens, nawet gdy certyfikat nie jest zaufany przez
-przeglądarkę. Nagłówek `Strict-Transport-Security` jest też automatycznie
-dodawany do każdej odpowiedzi, gdy żądanie faktycznie przyszło przez
-HTTPS. Jeśli `web.https_enabled` jest nadal wyłączone, a panel nasłuchuje
-na czymkolwiek innym niż loopback (`web.listen_address` nie jest
-`127.0.0.1`/`::1`), w logu przy starcie pojawia się wyraźne ostrzeżenie -
-dane logowania i ciasteczko sesji są wysyłane w sieci bez szyfrowania,
-dopóki tego nie włączysz albo nie postawisz przed panelem reverse proxy
-kończącego TLS (do tego świetnie nadaje się [wbudowany reverse
+HTTPS automatycznie dodaje też flagę `Secure` do ciasteczka sesji
+(zobacz **Uwagi o bezpieczeństwie** niżej) oraz nagłówek
+`Strict-Transport-Security` do każdej odpowiedzi. Jeśli `web.https_enabled`
+jest wyłączone, a panel nasłuchuje na czymkolwiek innym niż loopback
+(`web.listen_address` nie jest `127.0.0.1`/`::1`), w logu przy starcie
+pojawia się wyraźne ostrzeżenie - dane logowania i ciasteczko sesji są
+wysyłane w sieci bez szyfrowania, dopóki tak jest, niezależnie od tego,
+czy sam wyłączyłeś HTTPS, czy wciąż działasz na konfiguracji sprzed
+czasu, gdy stało się to ustawieniem domyślnym. Włącz z powrotem
+`web.https_enabled` albo postaw przed panelem reverse proxy kończący TLS
+(do tego świetnie nadaje się [wbudowany reverse
 proxy](#reverse-proxy-opcjonalnie)).
 
 ### DNS-over-HTTPS / DNS-over-TLS dla klientów
@@ -2194,10 +2208,15 @@ blokujące, DHCP, reverse proxy czy cokolwiek innego skończy się
 inicjalizować. Wejście na niego zaraz po `docker compose up` pokazuje
 małą, automatycznie odświeżającą się stronę "DNS-shield is starting
 up..." zamiast błędu połączenia, dopóki chwilę później prawdziwy panel
-nie przejmie tego samego portu. Samo blokowanie rusza jeszcze szybciej
-niż to (patrz **Formaty list blokad i sugerowane listy** wyżej -
-rozruch z pamięci podręcznej na dysku) - strona zastępcza dotyczy
-wyłącznie samego *panelu*, nie tego, że zapytania idą niefiltrowane.
+nie przejmie tego samego portu. Ta strona zastępcza mówi tym samym
+protokołem, którym za chwilę będzie mówić prawdziwy panel (zwykłym HTTP,
+albo HTTPS tym samym samopodpisanym/skonfigurowanym certyfikatem, gdy
+tylko będzie gotowy - zobacz [HTTPS dla panelu](#https-dla-panelu)
+wyżej), więc nie ma tu niezgodności protokołów, z którą trzeba by coś
+robić. Samo blokowanie rusza jeszcze szybciej niż to (patrz **Formaty
+list blokad i sugerowane listy** wyżej - rozruch z pamięci podręcznej na
+dysku) - strona zastępcza dotyczy wyłącznie samego *panelu*, nie tego,
+że zapytania idą niefiltrowane.
 
 ### Sprawdzanie kondycji
 
@@ -2808,9 +2827,10 @@ pytest
   siecią LAN coś więcej niż sam formularz logowania, postaw przed panelem
   własne reverse proxy albo VPN. Ciasteczko sesji dostaje flagę `Secure`
   automatycznie, gdy tylko włączysz `web.https_enabled` (zobacz
-  [HTTPS dla panelu](#https-dla-panelu) niżej) - domyślnie jest ona
-  wyłączona, bo przy wdrożeniu w zwykłym HTTP w sieci LAN i tak nigdy nie
-  dałoby się jej odesłać z powrotem.
+  [HTTPS dla panelu](#https-dla-panelu) niżej, domyślnie włączone) -
+  jeśli wyłączyłeś HTTPS z powrotem dla wdrożenia w zwykłym HTTP w
+  sieci LAN, ta flaga też się wyłącza, bo inaczej przeglądarka nigdy nie
+  odesłałaby ciasteczka z powrotem.
 - Tokeny API (`Authorization: Bearer <token>`, zobacz **Tokeny API**
   wyżej) celowo nie mają takiego limitu prób, jak punkt końcowy logowania
   - 256-bitowa, losowa wartość i tak czyni zgadywanie niewykonalnym, w

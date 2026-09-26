@@ -78,7 +78,7 @@ web:
   listen_address: "0.0.0.0"
   listen_port: 3000
   theme: "navy"
-  https_enabled: false
+  https_enabled: true
   https_cert_path: ""
   https_key_path: ""
   login_max_attempts: 5

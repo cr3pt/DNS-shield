@@ -107,7 +107,23 @@ def main() -> None:
 
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))
-    startup_page_server = start_startup_page_server(web_host, web_port)
+
+    https_enabled = bool(config_store.get("web", "https_enabled", default=False))
+    dot_enabled = bool(config_store.get("dns", "dot_enabled", default=False))
+
+    cert_path = key_path = None
+    if https_enabled or dot_enabled:
+        cert_path_cfg = config_store.get("web", "https_cert_path", default="") or ""
+        key_path_cfg = config_store.get("web", "https_key_path", default="") or ""
+        if cert_path_cfg and key_path_cfg:
+            cert_path, key_path = Path(cert_path_cfg), Path(key_path_cfg)
+        else:
+            cert_path, key_path = DATA_DIR / "tls" / "cert.pem", DATA_DIR / "tls" / "key.pem"
+            ensure_self_signed_cert(cert_path, key_path)
+
+    startup_page_server = start_startup_page_server(
+        web_host, web_port, https_enabled=https_enabled, cert_path=cert_path, key_path=key_path
+    )
 
     stats = Stats(DATA_DIR / "stats.db", config_store)
 
@@ -248,19 +264,6 @@ def main() -> None:
         proxy_manager=proxy_manager,
         client_domain_graph=client_domain_graph,
     )
-
-    https_enabled = bool(config_store.get("web", "https_enabled", default=False))
-    dot_enabled = bool(config_store.get("dns", "dot_enabled", default=False))
-
-    cert_path = key_path = None
-    if https_enabled or dot_enabled:
-        cert_path_cfg = config_store.get("web", "https_cert_path", default="") or ""
-        key_path_cfg = config_store.get("web", "https_key_path", default="") or ""
-        if cert_path_cfg and key_path_cfg:
-            cert_path, key_path = Path(cert_path_cfg), Path(key_path_cfg)
-        else:
-            cert_path, key_path = DATA_DIR / "tls" / "cert.pem", DATA_DIR / "tls" / "key.pem"
-            ensure_self_signed_cert(cert_path, key_path)
 
     ssl_kwargs: dict[str, str] = {}
     if https_enabled:

@@ -128,11 +128,18 @@ docker compose up -d --build
 ```
 
 On first start it seeds `./data/config.db` from `config/config.example.yaml`.
-Open `http://<host>:3000` and you'll land on a public, read-only view
+Open `https://<host>:3000` and you'll land on a public, read-only view
 (query trend + top blocked domains, no sign-in needed) with a "Sign in"
-link. Log in with the default `admin` / `changeme` credentials, **change
-the password** (Settings -> General -> "Your account"), and point a
-device's DNS at `<host>:53` to test it.
+link. HTTPS is on by default with a self-signed certificate DNS-shield
+generates for itself on first boot - your browser will show a "not
+secure"/"not trusted" warning the first time you connect, since nothing
+vouches for a self-signed certificate; click through it once (see
+[HTTPS for the dashboard](#https-for-the-dashboard) below for the
+actually-correct fix, and for how to opt back into plain HTTP if you'd
+rather not deal with that warning on a LAN-only deployment). Log in with
+the default `admin` / `changeme` credentials, **change the password**
+(Settings -> General -> "Your account"), and point a device's DNS at
+`<host>:53` to test it.
 
 To use it network-wide, set it as the DNS server in your router's DHCP
 settings (or on individual devices).
@@ -1853,12 +1860,15 @@ if you save the form again without retyping it.
 
 ### HTTPS for the dashboard
 
-`web.https_enabled` (Settings -> General, off by default) makes the
+`web.https_enabled` (Settings -> General, **on by default**) makes the
 dashboard's own web port serve HTTPS instead of plain HTTP - this
-replaces the port, it doesn't add a second one, so once it's on, only
-`https://` reaches the dashboard on `web.listen_port`. Requires
-restarting the container to take effect, same as the listen
-address/port themselves.
+replaces the port, it doesn't add a second one, so as long as it's on,
+only `https://` reaches the dashboard on `web.listen_port` (the
+[startup placeholder page](#startup) shown while the rest of the service
+comes up serves HTTPS too, using the same certificate, so there's no
+protocol mismatch during boot). Requires restarting the container to
+take effect if you change it, same as the listen address/port
+themselves.
 
 With no certificate configured, DNS-shield generates its own self-signed
 certificate the first time it starts with HTTPS on, and reuses that same
@@ -1876,20 +1886,22 @@ certificate and key pair instead (e.g. one an ACME client like
 this host, mounted into the container alongside the data volume).
 DNS-shield never talks to an ACME provider itself - it only ever reads
 whatever cert/key files you point it at, the same "no outbound calls you
-didn't ask for" principle as everything else in this project.
+didn't ask for" principle as everything else in this project. If you'd
+rather skip the self-signed-certificate warning altogether on a
+LAN-only deployment you're not worried about, turn `web.https_enabled`
+back off in Settings -> General (or edit it in the config before first
+boot) to go back to plain HTTP.
 
-Turning HTTPS on also puts the `Secure` flag on the session cookie
-automatically (see **Security notes** below), so it's worth doing even
-with a self-signed certificate if the dashboard is reachable beyond
-localhost - encrypting the login request and session cookie in transit
-doesn't need a browser-trusted certificate to be worthwhile. A
-`Strict-Transport-Security` header is also added automatically to every
-response once a request actually arrives over HTTPS. If `web.https_enabled`
-is still off and the dashboard is listening on anything other than
-loopback (`web.listen_address` isn't `127.0.0.1`/`::1`), a startup log
-line calls this out explicitly - login credentials and the session
-cookie are sent unencrypted on the network until you turn this on or put
-a TLS-terminating reverse proxy (the [built-in
+HTTPS also puts the `Secure` flag on the session cookie automatically
+(see **Security notes** below) and adds a `Strict-Transport-Security`
+header to every response. If `web.https_enabled` is off and the
+dashboard is listening on anything other than loopback
+(`web.listen_address` isn't `127.0.0.1`/`::1`), a startup log line calls
+this out explicitly - login credentials and the session cookie are sent
+unencrypted on the network as long as that's the case, whether you
+turned HTTPS off yourself or are still running a config from before it
+became the default. Turn `web.https_enabled` back on, or put a
+TLS-terminating reverse proxy (the [built-in
 one](#reverse-proxy-optional) works fine for this) in front of it.
 
 ### DNS-over-HTTPS / DNS-over-TLS for clients
@@ -1965,10 +1977,14 @@ blocklists, DHCP, the reverse proxy, or anything else finishes
 initializing - visiting it right after `docker compose up` shows a small
 auto-refreshing "DNS-shield is starting up..." page instead of a
 connection error, until the real dashboard takes over that same port a
-moment later. Blocking itself comes up even faster than that (see
-**Blocklist formats and suggested lists** above for the disk-cache warm
-start) - the placeholder page is purely about the *web UI* not being
-ready yet, not about queries going unfiltered.
+moment later. This placeholder page speaks whichever protocol the real
+dashboard is about to (plain HTTP, or HTTPS with the same self-signed/
+configured certificate once that's ready - see [HTTPS for the
+dashboard](#https-for-the-dashboard) above), so there's no protocol
+mismatch to work around while it's up. Blocking itself comes up even
+faster than that (see **Blocklist formats and suggested lists** above
+for the disk-cache warm start) - the placeholder page is purely about
+the *web UI* not being ready yet, not about queries going unfiltered.
 
 ### Health check
 
@@ -2511,9 +2527,10 @@ pytest
   behind your own reverse proxy / VPN if you're exposing more of it
   outside your LAN than the login form. The session cookie gets the
   `Secure` flag automatically once `web.https_enabled` is on (see
-  [HTTPS for the dashboard](#https-for-the-dashboard) below) - it's left
-  off by default since a plain-HTTP LAN deployment couldn't ever send it
-  back.
+  [HTTPS for the dashboard](#https-for-the-dashboard) below, on by
+  default) - if you've turned HTTPS back off for a plain-HTTP LAN
+  deployment, that flag comes off too, since the browser would otherwise
+  never send the cookie back at all.
 - API tokens (`Authorization: Bearer <token>`, see **API tokens** above)
   are deliberately not rate-limited the way the login endpoint is - a
   256-bit random value makes guessing infeasible regardless, unlike a
