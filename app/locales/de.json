@@ -7,6 +7,8 @@
   "common.analysis_failed": "Analyse fehlgeschlagen",
   "general.hint.web_ui": "Das Dashboard, das Sie gerade sehen - dessen eigene Listen-Adresse/-Port, Anmeldung und Erscheinungsbild.",
   "general.hint.https": "Wenn Sie keinen Pfad zu Zertifikat/Schlüssel angeben, erzeugt DNS-shield ein eigenes, selbstsigniertes Zertifikat (gespeichert im Datenvolume) und verwendet es weiterhin - der Browser zeigt bei der ersten Verbindung eine Sicherheitswarnung, weil das Zertifikat nicht von einer vertrauenswürdigen Stelle stammt, die Verbindung ist aber trotzdem verschlüsselt. Geben Sie eigene Pfade zu Zertifikats-/Schlüsseldatei an, wenn Sie ein echtes Zertifikat besitzen (z. B. vom ACME-Client des Reverse Proxy, in den Container eingebunden). In beiden Fällen ist ein Neustart des Containers erforderlich.",
+  "general.migrate_https": "Jetzt zu HTTPS migrieren",
+  "general.hint.migrate_https": "Ein Klick für Installationen von vor der HTTPS-Standardeinstellung: erzeugt sofort ein selbstsigniertes Zertifikat (falls oben kein Zertifikat-/Schlüsselpfad gesetzt ist) und aktiviert \"Dashboard über HTTPS bereitstellen\" - starten Sie danach nur den Container neu (docker compose restart), damit es wirksam wird.",
   "general.hint.lockout": "Sperrt weitere Anmeldeversuche von einer bestimmten IP-Adresse nach so vielen aufeinanderfolgenden Fehlversuchen, für so viele Minuten - wirkt sofort, ohne Neustart.",
   "general.hint.listen_restart": "Das Ändern von Listen-Adresse/-Port erfordert einen Neustart des Containers.",
   "general.hint.change_password": "Ändern Sie das Passwort für das Konto, mit dem Sie angemeldet sind",
@@ -712,5 +714,6 @@
   "graph.confirm_clear": "Den gesamten gespeicherten Verlauf des Client-Domain-Graphen löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.",
   "users.perm.graph": "Darf den Client-Domain-Graphen sehen",
   "users.summary.graph": "Graph",
-  "toast.deleted": "Gelöscht"
+  "toast.deleted": "Gelöscht",
+  "toast.https_migrated": "HTTPS aktiviert - starten Sie den Container neu, damit es wirksam wird"
 }

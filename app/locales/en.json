@@ -7,6 +7,8 @@
   "common.analysis_failed": "Analysis failed",
   "general.hint.web_ui": "The dashboard you're looking at right now - its own listen address/port, login, and appearance.",
   "general.hint.https": "If you don't set a certificate/key path, DNS-shield will generate and reuse its own self-signed certificate (stored in the data volume) - your browser will show a security warning on first connection, because the certificate isn't from a trusted authority, but the connection is still encrypted. Provide your own certificate/key file paths if you have a real one (e.g. from a reverse-proxy ACME client, mounted into the container). Either way, this requires restarting the container.",
+  "general.migrate_https": "Migrate to HTTPS now",
+  "general.hint.migrate_https": "One click for installs from before HTTPS became the default: generates a self-signed certificate right away (if you haven't set a certificate/key path above) and turns \"Serve the dashboard over HTTPS\" on - just restart the container afterwards (docker compose restart) for it to take effect.",
   "general.hint.lockout": "Blocks further login attempts from a given IP address after this many consecutive failed attempts, for this many minutes - takes effect immediately, no restart needed.",
   "general.hint.listen_restart": "Changing the listen address/port requires restarting the container.",
   "general.hint.change_password": "Change the password for the account you're logged in as",
@@ -712,5 +714,6 @@
   "graph.confirm_clear": "Delete all stored client-domain graph history? This cannot be undone.",
   "users.perm.graph": "Can see the client-domain graph",
   "users.summary.graph": "graph",
-  "toast.deleted": "Deleted"
+  "toast.deleted": "Deleted",
+  "toast.https_migrated": "HTTPS enabled - restart the container for it to take effect"
 }

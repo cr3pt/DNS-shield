@@ -1904,6 +1904,19 @@ became the default. Turn `web.https_enabled` back on, or put a
 TLS-terminating reverse proxy (the [built-in
 one](#reverse-proxy-optional) works fine for this) in front of it.
 
+**If you're running a config from before HTTPS became the default**,
+Settings -> General shows a one-click **"Migrate to HTTPS now"** button
+right below the HTTPS checkbox whenever it's currently off
+(`POST /api/settings/web/migrate-https`, admin-only). It does exactly
+what checking the box and saving would do - generates the self-signed
+certificate immediately (skipped if you've already set your own
+`web.https_cert_path`/`web.https_key_path`) and flips
+`web.https_enabled` on - just packaged as a single action with a clear
+label, so you don't need to go hunting for the right checkbox to adopt
+the new default. A container restart is still required for it to
+actually take effect, same as flipping the checkbox by hand; the button
+disappears once HTTPS is on.
+
 ### DNS-over-HTTPS / DNS-over-TLS for clients
 
 Everything above this point is about DNS-shield as a DoH/DoT *client*

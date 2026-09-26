@@ -699,6 +699,15 @@
           (e.g. from a reverse proxy's ACME client, mounted into the container). Requires
           restarting the container either way.
         </p>
+        <div class="field" id="s-web-https-migrate-field" style="display:none;">
+          <button type="button" id="s-web-https-migrate-btn" class="secondary" data-i18n="general.migrate_https">Migrate to HTTPS now</button>
+          <p class="hint" data-i18n="general.hint.migrate_https">
+            One click for installs from before HTTPS became the default: generates a self-signed
+            certificate right away (if you haven't set a certificate/key path above) and turns
+            "Serve the dashboard over HTTPS" on - just restart the container afterwards
+            (<code>docker compose restart</code>) for it to take effect.
+          </p>
+        </div>
         <div class="field-grid">
           <div class="field"><label data-i18n="general.max_failed_logins">Max failed logins before lockout</label><input type="number" id="s-web-login-max-attempts" min="1" step="1"></div>
           <div class="field"><label data-i18n="general.lockout_duration">Lockout duration (minutes)</label><input type="number" id="s-web-login-lockout" min="1" step="1"></div>
@@ -4757,6 +4766,7 @@ async function loadSettings() {
   document.getElementById("s-web-https-enabled").checked = !!s.web.https_enabled;
   document.getElementById("s-web-https-cert-path").value = s.web.https_cert_path ?? "";
   document.getElementById("s-web-https-key-path").value = s.web.https_key_path ?? "";
+  document.getElementById("s-web-https-migrate-field").style.display = s.web.https_enabled ? "none" : "";
   document.getElementById("s-web-login-max-attempts").value = s.web.login_max_attempts ?? 5;
   document.getElementById("s-web-login-lockout").value = s.web.login_lockout_minutes ?? 15;
   document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
@@ -6581,6 +6591,19 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
     });
   });
   refreshAll();
+});
+
+document.getElementById("s-web-https-migrate-btn").addEventListener("click", async (evt) => {
+  const button = evt.currentTarget;
+  try {
+    await withSpinner(button, () => api("/api/settings/web/migrate-https", { method: "POST" }), t("common.saving", "Saving..."));
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  document.getElementById("s-web-https-enabled").checked = true;
+  document.getElementById("s-web-https-migrate-field").style.display = "none";
+  showToast(t("toast.https_migrated", "HTTPS enabled - restart the container for it to take effect"));
 });
 
 document.getElementById("password-form").addEventListener("submit", async (e) => {

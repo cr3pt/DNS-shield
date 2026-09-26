@@ -2128,6 +2128,19 @@ czasu, gdy stało się to ustawieniem domyślnym. Włącz z powrotem
 (do tego świetnie nadaje się [wbudowany reverse
 proxy](#reverse-proxy-opcjonalnie)).
 
+**Jeśli działasz na konfiguracji sprzed czasu, gdy HTTPS stało się
+domyślne**, Settings -> General pokazuje jednoklikowy przycisk
+**"Migruj na HTTPS teraz"** tuż pod checkboxem HTTPS, gdy tylko jest on
+aktualnie wyłączony (`POST /api/settings/web/migrate-https`, wyłącznie
+dla administratora). Robi dokładnie to samo, co zaznaczenie checkboxa i
+zapisanie ustawień - od razu generuje samopodpisany certyfikat (pomijane,
+jeśli masz już ustawione własne `web.https_cert_path`/`web.https_key_path`)
+i włącza `web.https_enabled` - tylko opakowane w jedną, jasno opisaną
+akcję, żebyś nie musiał szukać właściwego checkboxa, żeby przyjąć nowy
+domyślny tryb. Restart kontenera jest wciąż potrzebny, żeby to faktycznie
+zadziałało, tak samo jak przy ręcznym zaznaczeniu checkboxa; przycisk
+znika, gdy tylko HTTPS jest już włączone.
+
 ### DNS-over-HTTPS / DNS-over-TLS dla klientów
 
 Wszystko powyżej tego punktu dotyczyło DNS-shield jako *klienta* DoH/DoT,

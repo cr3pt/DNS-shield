@@ -263,6 +263,7 @@ def main() -> None:
         rogue_dhcp_detector=rogue_dhcp_detector,
         proxy_manager=proxy_manager,
         client_domain_graph=client_domain_graph,
+        data_dir=DATA_DIR,
     )
 
     ssl_kwargs: dict[str, str] = {}

@@ -7,6 +7,8 @@
   "common.analysis_failed": "Analiza nie powiodła się",
   "general.hint.web_ui": "Panel, który właśnie oglądasz - jego własny adres/port nasłuchu, logowanie i wygląd.",
   "general.hint.https": "Jeśli nie ustawisz ścieżki do certyfikatu/klucza, DNS-shield wygeneruje i będzie ponownie używać własnego, samopodpisanego certyfikatu (przechowywanego w woluminie danych) - przeglądarka pokaże ostrzeżenie bezpieczeństwa przy pierwszym połączeniu, bo certyfikat nie pochodzi od zaufanego urzędu, ale połączenie i tak jest szyfrowane. Podaj własne ścieżki do pliku certyfikatu/klucza, jeśli masz prawdziwy (np. z klienta ACME reverse proxy, zamontowany do kontenera). W obu przypadkach wymaga ponownego uruchomienia kontenera.",
+  "general.migrate_https": "Migruj na HTTPS teraz",
+  "general.hint.migrate_https": "Jedno kliknięcie dla instalacji sprzed czasu, gdy HTTPS stało się domyślne: od razu generuje samopodpisany certyfikat (jeśli nie ustawiłeś powyżej ścieżki do certyfikatu/klucza) i włącza \"Serwuj panel przez HTTPS\" - wystarczy potem zrestartować kontener (docker compose restart), żeby to zaczęło działać.",
   "general.hint.lockout": "Blokuje dalsze próby logowania z danego adresu IP po tylu nieudanych próbach z rzędu, na tyle minut - działa natychmiast, bez potrzeby restartu.",
   "general.hint.listen_restart": "Zmiana adresu/portu nasłuchu wymaga ponownego uruchomienia kontenera.",
   "general.hint.change_password": "Zmień hasło dla konta, na które jesteś zalogowany(-a)",
@@ -712,5 +714,6 @@
   "graph.confirm_clear": "Usunąć całą zapisaną historię grafu klient-domena? Tej operacji nie można cofnąć.",
   "users.perm.graph": "Widzi graf klient-domena",
   "users.summary.graph": "graf",
-  "toast.deleted": "Usunięto"
+  "toast.deleted": "Usunięto",
+  "toast.https_migrated": "HTTPS włączone - zrestartuj kontener, żeby zaczęło działać"
 }

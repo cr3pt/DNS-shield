@@ -7,6 +7,8 @@
   "common.analysis_failed": "Échec de l'analyse",
   "general.hint.web_ui": "Le tableau de bord que vous consultez actuellement - sa propre adresse/port d'écoute, sa connexion et son apparence.",
   "general.hint.https": "Si vous n'indiquez pas de chemin vers un certificat/une clé, DNS-shield générera et réutilisera son propre certificat autosigné (stocké dans le volume de données) - le navigateur affichera un avertissement de sécurité lors de la première connexion, car le certificat ne provient pas d'une autorité de confiance, mais la connexion reste chiffrée. Indiquez vos propres chemins vers le fichier de certificat/clé si vous en possédez un véritable (par ex. issu du client ACME du reverse proxy, monté dans le conteneur). Dans les deux cas, un redémarrage du conteneur est nécessaire.",
+  "general.migrate_https": "Migrer vers HTTPS maintenant",
+  "general.hint.migrate_https": "Un clic pour les installations antérieures à l'activation de HTTPS par défaut : génère immédiatement un certificat auto-signé (si vous n'avez pas défini de chemin de certificat/clé ci-dessus) et active \"Servir le tableau de bord en HTTPS\" - il suffit ensuite de redémarrer le conteneur (docker compose restart) pour que cela prenne effet.",
   "general.hint.lockout": "Bloque toute nouvelle tentative de connexion depuis une adresse IP donnée après ce nombre d'échecs consécutifs, pendant ce nombre de minutes - effet immédiat, sans redémarrage nécessaire.",
   "general.hint.listen_restart": "La modification de l'adresse/du port d'écoute nécessite un redémarrage du conteneur.",
   "general.hint.change_password": "Modifiez le mot de passe du compte avec lequel vous êtes connecté(e)",
@@ -712,5 +714,6 @@
   "graph.confirm_clear": "Supprimer tout l'historique stocké du graphe client-domaine ? Cette opération est irréversible.",
   "users.perm.graph": "Peut voir le graphe client-domaine",
   "users.summary.graph": "graphe",
-  "toast.deleted": "Supprimé"
+  "toast.deleted": "Supprimé",
+  "toast.https_migrated": "HTTPS activé - redémarrez le conteneur pour que cela prenne effet"
 }

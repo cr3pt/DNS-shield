@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import re
 import secrets
 import sqlite3
@@ -41,6 +42,7 @@ from app import passkeys as passkeys_lib
 from webauthn.helpers import bytes_to_base64url
 from app.sessions import COOKIE_NAME, SessionStore
 from app.sso import OIDCError, PendingSSOStore, build_authorization_url, exchange_code, verify_id_token
+from app.tls import ensure_self_signed_cert
 from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
@@ -633,8 +635,10 @@ def create_app(
     rogue_dhcp_detector=None,
     proxy_manager=None,
     client_domain_graph=None,
+    data_dir: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None, openapi_url=None)
+    data_dir = data_dir if data_dir is not None else Path(os.environ.get("DNSSHIELD_DATA_DIR", "/data"))
 
     users = users if users is not None else UserStore(config_store)
     sessions = sessions if sessions is not None else SessionStore()
@@ -2366,6 +2370,23 @@ To restore into an EXISTING instance (data/config.db already exists):
             return web_cfg
 
         return config_store.mutate(_mutate)
+
+    @app.post("/api/settings/web/migrate-https")
+    def migrate_to_https(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        web_cfg = config_store.snapshot().get("web", {})
+        cert_path_cfg = web_cfg.get("https_cert_path", "") or ""
+        key_path_cfg = web_cfg.get("https_key_path", "") or ""
+        if not cert_path_cfg or not key_path_cfg:
+            try:
+                ensure_self_signed_cert(data_dir / "tls" / "cert.pem", data_dir / "tls" / "key.pem")
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"Could not generate a self-signed certificate: {exc}")
+
+        def _mutate(data: dict[str, Any]) -> None:
+            data.setdefault("web", {})["https_enabled"] = True
+
+        config_store.mutate(_mutate)
+        return {"https_enabled": True, "restart_required": True, "restart_note": RESTART_NOTE}
 
     @app.patch("/api/settings/logging")
     def update_logging_settings(body: LoggingSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
