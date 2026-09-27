@@ -39,12 +39,14 @@ dns:
   client_name_cache_seconds: 3600
   dot_enabled: false
   dot_port: 853
-  rebinding_protection_enabled: false
-  rebinding_action: "alert"
+  rebinding_protection_enabled: true
+  rebinding_action: "block"
   rebinding_exempt_domains: []
   local_tld_alert_enabled: false
   local_tld_list: ["local", "lan", "home", "internal", "corp", "home.arpa"]
   local_tld_cooldown_minutes: 30
+  query_acl_enabled: true
+  query_acl_extra_networks: []
 
 blocklists:
   refresh_interval_hours: 24
@@ -76,7 +78,7 @@ web:
   listen_address: "0.0.0.0"
   listen_port: 3000
   theme: "navy"
-  https_enabled: false
+  https_enabled: true
   https_cert_path: ""
   https_key_path: ""
   login_max_attempts: 5

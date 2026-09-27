@@ -699,6 +699,15 @@
           (e.g. from a reverse proxy's ACME client, mounted into the container). Requires
           restarting the container either way.
         </p>
+        <div class="field" id="s-web-https-migrate-field" style="display:none;">
+          <button type="button" id="s-web-https-migrate-btn" class="secondary" data-i18n="general.migrate_https">Migrate to HTTPS now</button>
+          <p class="hint" data-i18n="general.hint.migrate_https">
+            One click for installs from before HTTPS became the default: generates a self-signed
+            certificate right away (if you haven't set a certificate/key path above) and turns
+            "Serve the dashboard over HTTPS" on - just restart the container afterwards
+            (<code>docker compose restart</code>) for it to take effect.
+          </p>
+        </div>
         <div class="field-grid">
           <div class="field"><label data-i18n="general.max_failed_logins">Max failed logins before lockout</label><input type="number" id="s-web-login-max-attempts" min="1" step="1"></div>
           <div class="field"><label data-i18n="general.lockout_duration">Lockout duration (minutes)</label><input type="number" id="s-web-login-lockout" min="1" step="1"></div>
@@ -898,7 +907,7 @@
           </div>
           <div class="field"><label data-i18n="sso.client_id">Client ID</label><input type="text" id="s-sso-client-id" autocomplete="off"></div>
           <div class="field">
-            <label><span data-i18n="sso.client_secret">Client secret</span> <span id="sso-client-secret-status" class="muted"></span></label>
+            <label><span data-i18n="sso.client_secret">Client secret</span> <span id="sso-client-secret-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="sso.client_secret" data-status-id="sso-client-secret-status" data-input-id="s-sso-client-secret" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-sso-client-secret" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field"><label data-i18n="sso.scopes">Scopes</label><input type="text" id="s-sso-scopes" placeholder="openid email profile"></div>
@@ -943,6 +952,29 @@
             <div class="field"><label data-i18n="dns.upstream_timeout">Upstream timeout (seconds)</label><input type="number" step="0.1" id="s-dns-upstream-timeout"></div>
           </div>
           <p class="hint" data-i18n="dns.hint.listener_restart">Listen address/port require restarting the container (docker compose restart). Everything else on this page applies immediately.</p>
+        </div>
+
+        <div class="settings-group">
+          <h3 data-i18n="dns.query_acl">Query access control</h3>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-query-acl-enabled">
+            <label for="s-dns-query-acl-enabled" data-i18n="dns.query_acl_enabled">Only answer queries from private/LAN clients (recommended)</label>
+          </div>
+          <div class="field-grid" id="s-dns-query-acl-fields">
+            <div class="field">
+              <label data-i18n="dns.query_acl_extra">Additional trusted networks, comma separated</label>
+              <input type="text" id="s-dns-query-acl-extra" placeholder="e.g. 100.64.0.0/10, 203.0.113.5/32">
+            </div>
+          </div>
+          <p class="hint" data-i18n="dns.hint.query_acl">
+            On by default: private/LAN ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, loopback,
+            link-local, and their IPv6 equivalents) always get an answer; anyone else gets REFUSED
+            instead of a full recursive lookup - this is what keeps this resolver from being usable
+            as an open resolver or DNS-amplification reflector if it's ever reachable from outside
+            your LAN. Add a CIDR or single IP above for a legitimate case outside those ranges (a VPN
+            subnet like Tailscale's 100.64.0.0/10, a remote monitoring host, etc.) rather than
+            turning this off entirely.
+          </p>
         </div>
 
         <div class="settings-group">
@@ -1265,27 +1297,27 @@
         </p>
         <div class="field-grid">
           <div class="field">
-            <label><span data-i18n="ti.vt_key">VirusTotal API key</span> <span id="vt-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.vt_key">VirusTotal API key</span> <span id="vt-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.virustotal_api_key" data-status-id="vt-key-status" data-input-id="s-vt-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-vt-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.abuseipdb_key">AbuseIPDB API key</span> <span id="abuseipdb-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.abuseipdb_key">AbuseIPDB API key</span> <span id="abuseipdb-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.abuseipdb_api_key" data-status-id="abuseipdb-key-status" data-input-id="s-abuseipdb-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-abuseipdb-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.otx_key">AlienVault OTX API key</span> <span id="otx-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.otx_key">AlienVault OTX API key</span> <span id="otx-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.otx_api_key" data-status-id="otx-key-status" data-input-id="s-otx-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-otx-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.greynoise_key">GreyNoise API key</span> <span id="greynoise-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.greynoise_key">GreyNoise API key</span> <span id="greynoise-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.greynoise_api_key" data-status-id="greynoise-key-status" data-input-id="s-greynoise-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-greynoise-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.shodan_key">Shodan API key</span> <span id="shodan-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.shodan_key">Shodan API key</span> <span id="shodan-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.shodan_api_key" data-status-id="shodan-key-status" data-input-id="s-shodan-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-shodan-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.urlhaus_key">URLhaus (abuse.ch) Auth-Key</span> <span id="urlhaus-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.urlhaus_key">URLhaus (abuse.ch) Auth-Key</span> <span id="urlhaus-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.urlhaus_api_key" data-status-id="urlhaus-key-status" data-input-id="s-urlhaus-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-urlhaus-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
@@ -1316,7 +1348,7 @@
           <label for="s-enrich-ipinfo-enabled" data-i18n="ti.ipinfo">IP geolocation/ownership lookup (ipinfo.io)</label>
         </div>
         <div class="field">
-          <label><span data-i18n="ti.ipinfo_key">ipinfo.io API token (optional)</span> <span id="ipinfo-key-status" class="muted"></span></label>
+          <label><span data-i18n="ti.ipinfo_key">ipinfo.io API token (optional)</span> <span id="ipinfo-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.ipinfo_api_key" data-status-id="ipinfo-key-status" data-input-id="s-enrich-ipinfo-key" data-i18n="common.clear_key">Clear</button></label>
           <input type="password" id="s-enrich-ipinfo-key" placeholder="leave blank to keep current" autocomplete="off">
         </div>
         <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.ipinfo">
@@ -1331,7 +1363,7 @@
           <label for="s-enrich-ai-enabled" data-i18n="ti.ai">AI context lookup (Google Gemini)</label>
         </div>
         <div class="field">
-          <label><span data-i18n="ti.ai_key">Gemini API key</span> <span id="ai-key-status" class="muted"></span></label>
+          <label><span data-i18n="ti.ai_key">Gemini API key</span> <span id="ai-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.ai_api_key" data-status-id="ai-key-status" data-input-id="s-enrich-ai-key" data-i18n="common.clear_key">Clear</button></label>
           <input type="password" id="s-enrich-ai-key" placeholder="leave blank to keep current" autocomplete="off">
         </div>
         <p class="hint" style="color:var(--muted);" data-i18n="ti.hint.ai">
@@ -1359,7 +1391,7 @@
             <input type="text" id="s-enrich-local-url" placeholder="https://reputation.internal.example/check" autocomplete="off">
           </div>
           <div class="field">
-            <label><span data-i18n="ti.local_key">Local service API key (optional)</span> <span id="local-key-status" class="muted"></span></label>
+            <label><span data-i18n="ti.local_key">Local service API key (optional)</span> <span id="local-key-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="enrichment.local_api_key" data-status-id="local-key-status" data-input-id="s-enrich-local-key" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-enrich-local-key" placeholder="leave blank to keep current" autocomplete="off">
           </div>
         </div>
@@ -1621,7 +1653,7 @@
           </div>
           <div class="field"><label data-i18n="notif.smtp_username">SMTP username (optional)</label><input type="text" id="s-notif-smtp-username" autocomplete="off"></div>
           <div class="field">
-            <label><span data-i18n="notif.smtp_password">SMTP password</span> <span id="notif-smtp-password-status" class="muted"></span></label>
+            <label><span data-i18n="notif.smtp_password">SMTP password</span> <span id="notif-smtp-password-status" class="muted"></span> <button type="button" class="secondary clear-key-btn" data-path="notifications.email.smtp_password" data-status-id="notif-smtp-password-status" data-input-id="s-notif-smtp-password" data-i18n="common.clear_key">Clear</button></label>
             <input type="password" id="s-notif-smtp-password" placeholder="leave blank to keep current" autocomplete="off">
           </div>
           <div class="field"><label data-i18n="notif.from_address">From address</label><input type="text" id="s-notif-from-address" placeholder="dns-shield@example.com" autocomplete="off"></div>
@@ -4683,6 +4715,8 @@ async function loadSettings() {
   document.getElementById("s-dns-listen-address").value = s.dns.listen_address ?? "";
   document.getElementById("s-dns-listen-port").value = s.dns.listen_port ?? "";
   document.getElementById("s-dns-upstream-timeout").value = s.dns.upstream_timeout_seconds ?? "";
+  document.getElementById("s-dns-query-acl-enabled").checked = s.dns.query_acl_enabled !== false;
+  document.getElementById("s-dns-query-acl-extra").value = (s.dns.query_acl_extra_networks || []).join(", ");
   document.getElementById("s-dns-block-mode").value = s.dns.block_mode ?? "nxdomain";
   document.getElementById("s-dns-blocked-ipv4").value = s.dns.blocked_ipv4 ?? "";
   document.getElementById("s-dns-blocked-ipv6").value = s.dns.blocked_ipv6 ?? "";
@@ -4732,6 +4766,7 @@ async function loadSettings() {
   document.getElementById("s-web-https-enabled").checked = !!s.web.https_enabled;
   document.getElementById("s-web-https-cert-path").value = s.web.https_cert_path ?? "";
   document.getElementById("s-web-https-key-path").value = s.web.https_key_path ?? "";
+  document.getElementById("s-web-https-migrate-field").style.display = s.web.https_enabled ? "none" : "";
   document.getElementById("s-web-login-max-attempts").value = s.web.login_max_attempts ?? 5;
   document.getElementById("s-web-login-lockout").value = s.web.login_lockout_minutes ?? 15;
   document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
@@ -6474,6 +6509,8 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
         listen_address: document.getElementById("s-dns-listen-address").value.trim(),
         listen_port: intField("s-dns-listen-port"),
         upstream_timeout_seconds: floatField("s-dns-upstream-timeout"),
+        query_acl_enabled: document.getElementById("s-dns-query-acl-enabled").checked,
+        query_acl_extra_networks: document.getElementById("s-dns-query-acl-extra").value.split(",").map((s) => s.trim()).filter(Boolean),
         block_mode: document.getElementById("s-dns-block-mode").value,
         blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
         blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
@@ -6554,6 +6591,40 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
     });
   });
   refreshAll();
+});
+
+document.getElementById("s-web-https-migrate-btn").addEventListener("click", async (evt) => {
+  const button = evt.currentTarget;
+  try {
+    await withSpinner(button, () => api("/api/settings/web/migrate-https", { method: "POST" }), t("common.saving", "Saving..."));
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  document.getElementById("s-web-https-enabled").checked = true;
+  document.getElementById("s-web-https-migrate-field").style.display = "none";
+  showToast(t("toast.https_migrated", "HTTPS enabled - restart the container for it to take effect"));
+});
+
+document.querySelectorAll(".clear-key-btn").forEach((btn) => {
+  btn.addEventListener("click", async (evt) => {
+    const button = evt.currentTarget;
+    const path = button.dataset.path;
+    if (!confirm(t("common.confirm_clear_key", "Clear this saved key? This can't be undone."))) return;
+    try {
+      await withSpinner(button, () => api("/api/settings/clear-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      }), t("common.saving", "Saving..."));
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      return;
+    }
+    document.getElementById(button.dataset.statusId).textContent = "(not set)";
+    document.getElementById(button.dataset.inputId).value = "";
+    showToast(t("toast.key_cleared", "Key cleared"));
+  });
 });
 
 document.getElementById("password-form").addEventListener("submit", async (e) => {

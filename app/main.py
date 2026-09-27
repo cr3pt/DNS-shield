@@ -97,6 +97,9 @@ def main() -> None:
         )
         num_workers = 1
 
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(DATA_DIR, 0o700)
+
     config_store = ConfigStore(db_path=DATA_DIR / "config.db", backup_path=DATA_DIR / "config.backup.yaml")
     config_store.start_backup_thread(interval_hours=12)
     log_level = config_store.get("logging", "level", default=level)
@@ -104,7 +107,23 @@ def main() -> None:
 
     web_host = config_store.get("web", "listen_address", default="0.0.0.0")
     web_port = int(config_store.get("web", "listen_port", default=3000))
-    startup_page_server = start_startup_page_server(web_host, web_port)
+
+    https_enabled = bool(config_store.get("web", "https_enabled", default=False))
+    dot_enabled = bool(config_store.get("dns", "dot_enabled", default=False))
+
+    cert_path = key_path = None
+    if https_enabled or dot_enabled:
+        cert_path_cfg = config_store.get("web", "https_cert_path", default="") or ""
+        key_path_cfg = config_store.get("web", "https_key_path", default="") or ""
+        if cert_path_cfg and key_path_cfg:
+            cert_path, key_path = Path(cert_path_cfg), Path(key_path_cfg)
+        else:
+            cert_path, key_path = DATA_DIR / "tls" / "cert.pem", DATA_DIR / "tls" / "key.pem"
+            ensure_self_signed_cert(cert_path, key_path)
+
+    startup_page_server = start_startup_page_server(
+        web_host, web_port, https_enabled=https_enabled, cert_path=cert_path, key_path=key_path
+    )
 
     stats = Stats(DATA_DIR / "stats.db", config_store)
 
@@ -244,20 +263,8 @@ def main() -> None:
         rogue_dhcp_detector=rogue_dhcp_detector,
         proxy_manager=proxy_manager,
         client_domain_graph=client_domain_graph,
+        data_dir=DATA_DIR,
     )
-
-    https_enabled = bool(config_store.get("web", "https_enabled", default=False))
-    dot_enabled = bool(config_store.get("dns", "dot_enabled", default=False))
-
-    cert_path = key_path = None
-    if https_enabled or dot_enabled:
-        cert_path_cfg = config_store.get("web", "https_cert_path", default="") or ""
-        key_path_cfg = config_store.get("web", "https_key_path", default="") or ""
-        if cert_path_cfg and key_path_cfg:
-            cert_path, key_path = Path(cert_path_cfg), Path(key_path_cfg)
-        else:
-            cert_path, key_path = DATA_DIR / "tls" / "cert.pem", DATA_DIR / "tls" / "key.pem"
-            ensure_self_signed_cert(cert_path, key_path)
 
     ssl_kwargs: dict[str, str] = {}
     if https_enabled:
@@ -265,6 +272,13 @@ def main() -> None:
         logger.info("web UI listening on https://%s:%d", web_host, web_port)
     else:
         logger.info("web UI listening on http://%s:%d", web_host, web_port)
+        if web_host not in ("127.0.0.1", "::1", "localhost"):
+            logger.warning(
+                "web UI is serving plain HTTP on %s - login credentials and session cookies are sent "
+                "unencrypted over the network; enable web.https_enabled (a self-signed certificate is "
+                "generated automatically) or front this with the built-in reverse proxy for a real one",
+                web_host,
+            )
 
     if dot_enabled:
         dot_port = int(config_store.get("dns", "dot_port", default=853))

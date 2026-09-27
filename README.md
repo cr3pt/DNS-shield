@@ -128,11 +128,18 @@ docker compose up -d --build
 ```
 
 On first start it seeds `./data/config.db` from `config/config.example.yaml`.
-Open `http://<host>:3000` and you'll land on a public, read-only view
+Open `https://<host>:3000` and you'll land on a public, read-only view
 (query trend + top blocked domains, no sign-in needed) with a "Sign in"
-link. Log in with the default `admin` / `changeme` credentials, **change
-the password** (Settings -> General -> "Your account"), and point a
-device's DNS at `<host>:53` to test it.
+link. HTTPS is on by default with a self-signed certificate DNS-shield
+generates for itself on first boot - your browser will show a "not
+secure"/"not trusted" warning the first time you connect, since nothing
+vouches for a self-signed certificate; click through it once (see
+[HTTPS for the dashboard](#https-for-the-dashboard) below for the
+actually-correct fix, and for how to opt back into plain HTTP if you'd
+rather not deal with that warning on a LAN-only deployment). Log in with
+the default `admin` / `changeme` credentials, **change the password**
+(Settings -> General -> "Your account"), and point a device's DNS at
+`<host>:53` to test it.
 
 To use it network-wide, set it as the DNS server in your router's DHCP
 settings (or on individual devices).
@@ -532,6 +539,27 @@ fetches everything live in the background a moment later. Only a
 genuinely first-ever run, with nothing cached yet anywhere, waits on the
 network before it's protected.
 
+A URL you add here (or under Allow sources, a client group's own extra
+lists, or Alert rules' own watch lists) is resolved and checked before
+DNS-shield ever fetches it: a hostname resolving to a private, loopback,
+link-local, or otherwise non-public address is rejected with an error
+instead of being fetched, so an admin account can't be used to make the
+server issue a request into your own LAN or at `127.0.0.1` (SSRF) by
+pointing a "public blocklist" field at an internal address. This check is
+scoped to subscription-style URL fields specifically - it does not apply
+to `enrichment.local_url`, ping-check URLs, or notification webhook URLs,
+which are meant to be able to target your own internal services.
+
+That upfront check alone would still leave a narrow
+[DNS-rebinding](https://en.wikipedia.org/wiki/DNS_rebinding)-style gap: a
+malicious DNS server could answer the validation lookup with a public
+address and the fetch's own, separate lookup moments later with a private
+one. The actual fetch is guarded against this too - the private-address
+check is re-applied at the exact moment the connection is opened, using
+the hostname's real resolution for that specific request, not just the
+upfront one - so a source can't pass validation with one address and then
+connect to a different, private one underneath it.
+
 ### Newly registered domains (NRD)
 
 Enterprise DNS security products (Infoblox's BloxOne Threat Defense calls
@@ -585,19 +613,34 @@ independent of any list subscription.
 
 ### Regex denylist (experimental)
 
-`denylist_regex` blocks any query name matching a Python regular
-expression, checked with `re.search()` against the full name - e.g.
-`^ads?[0-9]*\.` catches `ad.`/`ad1.`/`ads2.`-style subdomains across every
-domain at once, something a plain domain/subdomain denylist entry can't
-express. It's off by default (`dns.regex_denylist_enabled`) and marked
-experimental in the dashboard for a reason: every enabled pattern is
-checked against **every single query**, so the per-query CPU cost grows
-with how many patterns you have. Patterns are compiled once and cached in
-memory - never recompiled per query - but the matching itself is still
-real work, so this is meant for a handful of hand-picked rules, not a
-full list. An invalid pattern is rejected with an error when you try to
-add it, rather than silently skipped later. Manage it from the dashboard
-(Settings -> Regex denylist) or by editing `denylist_regex` directly.
+`denylist_regex` blocks any query name matching a regular expression,
+checked against the full name - e.g. `^ads?[0-9]*\.` catches
+`ad.`/`ad1.`/`ads2.`-style subdomains across every domain at once,
+something a plain domain/subdomain denylist entry can't express. It's off
+by default (`dns.regex_denylist_enabled`) and marked experimental in the
+dashboard for a reason: every enabled pattern is checked against **every
+single query**, so the per-query CPU cost grows with how many patterns you
+have. Patterns are compiled once and cached in memory - never recompiled
+per query - but the matching itself is still real work, so this is meant
+for a handful of hand-picked rules, not a full list. An invalid pattern is
+rejected with an error when you try to add it, rather than silently
+skipped later. Manage it from the dashboard (Settings -> Regex denylist)
+or by editing `denylist_regex` directly.
+
+A pattern crafted for [catastrophic
+backtracking](https://en.wikipedia.org/wiki/ReDoS) (e.g. `(a+)+$`) is
+rejected outright when you try to add it - a handful of adversarial probe
+strings are matched against it first, and a pattern that takes too long
+against any of them never makes it into `denylist_regex` at all. This
+applies whether the pattern comes from the dashboard, the API, or a
+Pi-hole import's own regex-deny rules. Matching itself is also
+time-boxed per query (using the third-party `regex` engine instead of
+Python's built-in `re`, which has no way to bound match time) - a pattern
+that somehow still runs too long against one specific query name just
+fails open for that single query (logged, treated as no match) instead of
+blocking the resolver or the dashboard for everyone. Without this, a
+single crafted ~30-character query name could stall DNS resolution and
+the web UI for well over a minute.
 
 ### Client hostnames (reverse DNS)
 
@@ -1458,6 +1501,28 @@ strings, and results are cached per distinct domain so a repeat query
 never redoes the comparison - the cache is cleared automatically whenever
 the protected-domains list or max-distance setting changes.
 
+### Query access control (recursion ACL)
+
+Settings -> DNS -> "Query access control" (on by default,
+`dns.query_acl_enabled`) restricts who the resolver will actually answer,
+independent of `dns.listen_address` - the two solve different problems.
+`listen_address` picks which network interface DNS-shield binds to;
+without a separate check on *who's asking*, binding to `0.0.0.0` (needed
+for LAN clients to reach it at all) also means anyone who can route a
+packet to that address - including the open internet, if the host is
+directly exposed - gets a full recursive answer, the classic "open
+resolver" misconfiguration that gets abused as a DNS-amplification
+reflector against third parties and as a cache-poisoning target. With
+the ACL on, a query from a private/LAN address (`10.0.0.0/8`,
+`172.16.0.0/12`, `192.168.0.0/16`, loopback, link-local, and their IPv6
+equivalents) is answered normally; anyone else gets `REFUSED`
+immediately, before any blocklist/cache/upstream work happens. Add a CIDR
+or single address to `dns.query_acl_extra_networks` for a legitimate
+case outside those ranges (a VPN subnet like Tailscale's `100.64.0.0/10`,
+a remote monitoring host) rather than turning the whole thing off; the
+toggle exists for anyone who explicitly wants an open resolver, but that
+should be a deliberate choice, not the default.
+
 ### DNS rebinding protection
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) is an attack
@@ -1466,17 +1531,18 @@ it) is made to resolve to a private/internal IP address, so JavaScript
 served from that domain can reach into the victim's own LAN - a router's
 admin panel, a NAS, an internal API - past same-origin protections that
 would normally stop a public web page from doing that. Settings -> DNS has
-a "DNS rebinding protection" toggle (off by default) that catches this at
-resolution time: every A/AAAA answer coming back from upstream is checked
-against [`ipaddress.is_private`](https://docs.python.org/3/library/ipaddress.html)
+a "DNS rebinding protection" toggle (**on by default**) that catches this
+at resolution time: every A/AAAA answer coming back from upstream is
+checked against [`ipaddress.is_private`](https://docs.python.org/3/library/ipaddress.html)
 (covers RFC1918, loopback, link-local, and IPv6 ULA in one call), and if a
 queried domain resolves to a private address, `dns.rebinding_action`
 decides what happens to that answer:
 
-- `"alert"` (default) - resolve normally, just raise an alert. Nothing
-  about the answer changes.
-- `"block"` - answer as blocked instead, the same shape as a blocklist hit,
-  with the reason recorded as `DNS rebinding protection (<ip>)`.
+- `"block"` (default) - answer as blocked instead, the same shape as a
+  blocklist hit, with the reason recorded as `DNS rebinding protection
+  (<ip>)`.
+- `"alert"` - resolve normally, just raise an alert. Nothing about the
+  answer changes.
 
 Two things are exempt from this check entirely, since they *legitimately*
 resolve to private addresses: domains under the same local-TLD list used by
@@ -1831,12 +1897,15 @@ if you save the form again without retyping it.
 
 ### HTTPS for the dashboard
 
-`web.https_enabled` (Settings -> General, off by default) makes the
+`web.https_enabled` (Settings -> General, **on by default**) makes the
 dashboard's own web port serve HTTPS instead of plain HTTP - this
-replaces the port, it doesn't add a second one, so once it's on, only
-`https://` reaches the dashboard on `web.listen_port`. Requires
-restarting the container to take effect, same as the listen
-address/port themselves.
+replaces the port, it doesn't add a second one, so as long as it's on,
+only `https://` reaches the dashboard on `web.listen_port` (the
+[startup placeholder page](#startup) shown while the rest of the service
+comes up serves HTTPS too, using the same certificate, so there's no
+protocol mismatch during boot). Requires restarting the container to
+take effect if you change it, same as the listen address/port
+themselves.
 
 With no certificate configured, DNS-shield generates its own self-signed
 certificate the first time it starts with HTTPS on, and reuses that same
@@ -1854,13 +1923,36 @@ certificate and key pair instead (e.g. one an ACME client like
 this host, mounted into the container alongside the data volume).
 DNS-shield never talks to an ACME provider itself - it only ever reads
 whatever cert/key files you point it at, the same "no outbound calls you
-didn't ask for" principle as everything else in this project.
+didn't ask for" principle as everything else in this project. If you'd
+rather skip the self-signed-certificate warning altogether on a
+LAN-only deployment you're not worried about, turn `web.https_enabled`
+back off in Settings -> General (or edit it in the config before first
+boot) to go back to plain HTTP.
 
-Turning HTTPS on also puts the `Secure` flag on the session cookie
-automatically (see **Security notes** below), so it's worth doing even
-with a self-signed certificate if the dashboard is reachable beyond
-localhost - encrypting the login request and session cookie in transit
-doesn't need a browser-trusted certificate to be worthwhile.
+HTTPS also puts the `Secure` flag on the session cookie automatically
+(see **Security notes** below) and adds a `Strict-Transport-Security`
+header to every response. If `web.https_enabled` is off and the
+dashboard is listening on anything other than loopback
+(`web.listen_address` isn't `127.0.0.1`/`::1`), a startup log line calls
+this out explicitly - login credentials and the session cookie are sent
+unencrypted on the network as long as that's the case, whether you
+turned HTTPS off yourself or are still running a config from before it
+became the default. Turn `web.https_enabled` back on, or put a
+TLS-terminating reverse proxy (the [built-in
+one](#reverse-proxy-optional) works fine for this) in front of it.
+
+**If you're running a config from before HTTPS became the default**,
+Settings -> General shows a one-click **"Migrate to HTTPS now"** button
+right below the HTTPS checkbox whenever it's currently off
+(`POST /api/settings/web/migrate-https`, admin-only). It does exactly
+what checking the box and saving would do - generates the self-signed
+certificate immediately (skipped if you've already set your own
+`web.https_cert_path`/`web.https_key_path`) and flips
+`web.https_enabled` on - just packaged as a single action with a clear
+label, so you don't need to go hunting for the right checkbox to adopt
+the new default. A container restart is still required for it to
+actually take effect, same as flipping the checkbox by hand; the button
+disappears once HTTPS is on.
 
 ### DNS-over-HTTPS / DNS-over-TLS for clients
 
@@ -1935,10 +2027,14 @@ blocklists, DHCP, the reverse proxy, or anything else finishes
 initializing - visiting it right after `docker compose up` shows a small
 auto-refreshing "DNS-shield is starting up..." page instead of a
 connection error, until the real dashboard takes over that same port a
-moment later. Blocking itself comes up even faster than that (see
-**Blocklist formats and suggested lists** above for the disk-cache warm
-start) - the placeholder page is purely about the *web UI* not being
-ready yet, not about queries going unfiltered.
+moment later. This placeholder page speaks whichever protocol the real
+dashboard is about to (plain HTTP, or HTTPS with the same self-signed/
+configured certificate once that's ready - see [HTTPS for the
+dashboard](#https-for-the-dashboard) above), so there's no protocol
+mismatch to work around while it's up. Blocking itself comes up even
+faster than that (see **Blocklist formats and suggested lists** above
+for the disk-cache warm start) - the placeholder page is purely about
+the *web UI* not being ready yet, not about queries going unfiltered.
 
 ### Health check
 
@@ -2448,6 +2544,32 @@ pytest
   beyond localhost (Settings -> General -> "Your account", or Settings ->
   Users). Passwords are always bcrypt-hashed - see **Multi-user accounts,
   roles, and the public view** above.
+- The DNS resolver itself is also guarded by default - see [Query access
+  control](#query-access-control-recursion-acl) above - so it can't be
+  used as an open resolver/DNS-amplification reflector just because
+  `dns.listen_address` has to be reachable from your LAN.
+- The entire data directory (`./data` on the host, `/data` in the
+  container - `config.db`, `config.backup.yaml`, `stats.db`, TLS keys,
+  everything) is created with `0700` permissions on startup, so only the
+  user the container runs as (root inside the container's own namespace,
+  by default) can read any of it - no other local account on the host can
+  traverse into it or open a file inside, regardless of that file's own
+  permission bits.
+- `GET /openapi.json` (and `/docs`/`/redoc`) are disabled - the API schema,
+  including every settings field name (secret ones like `smtp_password`
+  or `sso.client_secret` included, values never included), isn't exposed
+  to an unauthenticated caller doing reconnaissance.
+- Every response carries a baseline set of security headers
+  (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy`, and a `Content-Security-Policy` that
+  restricts script/style/image/frame/object sources to the dashboard's
+  own origin) plus `Strict-Transport-Security` once a request actually
+  arrives over HTTPS. The CSP still allows inline `<script>`/`<style>` -
+  the dashboard is a single self-contained page with no external
+  resources - so it isn't a full defense against XSS by itself, but it
+  does block a large class of exfiltration/clickjacking payloads that
+  rely on loading something from outside the page's own origin.
 - The login endpoint is rate-limited per source IP (`web.login_max_attempts`,
   default 5 failures before a `web.login_lockout_minutes`-long, default
   15, lockout - a correct password doesn't bypass an active lockout).
@@ -2455,9 +2577,10 @@ pytest
   behind your own reverse proxy / VPN if you're exposing more of it
   outside your LAN than the login form. The session cookie gets the
   `Secure` flag automatically once `web.https_enabled` is on (see
-  [HTTPS for the dashboard](#https-for-the-dashboard) below) - it's left
-  off by default since a plain-HTTP LAN deployment couldn't ever send it
-  back.
+  [HTTPS for the dashboard](#https-for-the-dashboard) below, on by
+  default) - if you've turned HTTPS back off for a plain-HTTP LAN
+  deployment, that flag comes off too, since the browser would otherwise
+  never send the cookie back at all.
 - API tokens (`Authorization: Bearer <token>`, see **API tokens** above)
   are deliberately not rate-limited the way the login endpoint is - a
   256-bit random value makes guessing infeasible regardless, unlike a
@@ -2473,13 +2596,37 @@ pytest
   provided image runs as root for this (same approach as the official
   AdGuard Home / Pi-hole images). Run rootless via a compose override with
   `cap_add: [NET_BIND_SERVICE]` and a non-root `user:` if you need that.
-- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/your own local service)
-  are stored in `config.db`/`config.backup.yaml` like any other setting -
-  anyone with access to the web UI or `./data` volume can read or use
-  them. The Settings page and `GET /api/settings` never echo a key back,
-  only whether one is set. `local_url` is stored and shown in plain text
-  (it's a URL, not a secret) - don't put credentials in it, use the
-  separate local API key field for that.
+- Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/your own local service),
+  the SSO client secret, and the SMTP password are stored in
+  `config.db`/`config.backup.yaml` like any other setting - anyone with
+  access to the web UI or `./data` volume can read or use them. The
+  Settings page and `GET /api/settings` never echo a key back, only
+  whether one is set (and a masked first/last-character preview). Each of
+  these fields has its own **Clear** button next to it, so retiring a key
+  (rotated, revoked, no longer needed) doesn't require pasting in a
+  throwaway value to overwrite it - saving a field's form with it left
+  blank always keeps whatever is already stored, by design, which is what
+  makes an explicit way to actually remove one necessary. `local_url` is
+  stored and shown in plain text (it's a URL, not a secret) - don't put
+  credentials in it, use the separate local API key field for that.
+- Fetching a blocklist/allow-list/watch-list source URL rejects a
+  hostname that resolves to a private, loopback, link-local, or otherwise
+  non-public address (SSRF protection), re-checked at the moment of the
+  actual connection (not just the upfront validation) so a DNS answer
+  that changes between the two can't slip a private address past the
+  check - see [Blocklist formats and suggested
+  lists](#blocklist-formats-and-suggested-lists) above. A pattern added
+  to the regex denylist (dashboard, API, or Pi-hole import) that shows
+  signs of catastrophic backtracking is rejected before it's saved, and
+  matching against live queries is time-boxed regardless - see [Regex
+  denylist](#regex-denylist-experimental) above.
+- Dependencies are kept on current, CVE-patched versions across the board
+  and bumped as new releases/CVEs land against whatever's pinned in
+  `requirements.txt`.
+- Every place a secret is checked against a stored value (API tokens,
+  2FA backup codes) uses a constant-time comparison, so a network
+  attacker can't use response-timing differences to guess a valid value
+  one byte at a time.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") is off by default and is the actual gate on whether
   VirusTotal/AbuseIPDB/OTX are ever contacted - saving a key for one of

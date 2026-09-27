@@ -24,6 +24,20 @@ logger = logging.getLogger("dnsshield.dns")
 
 _DNSSEC_UDP_SIZE = 1232
 
+_TRUSTED_QUERY_NETWORKS = tuple(
+    ipaddress.ip_network(net)
+    for net in (
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
+
 
 class FilteringResolver:
     def __init__(
@@ -42,6 +56,11 @@ class FilteringResolver:
         qtype = request.q.qtype
         qtype_name = QTYPE.get(qtype, str(qtype))
         client_ip = handler.client_address[0] if handler is not None else "?"
+
+        if not self._query_allowed(client_ip):
+            reply = request.reply()
+            reply.header.rcode = RCODE.REFUSED
+            return reply
 
         if self._client_names is not None:
             self._client_names.touch(client_ip)
@@ -109,7 +128,7 @@ class FilteringResolver:
                             rebinding_ip = candidate_ip
 
                 if rebinding_ip is not None and not blocked:
-                    rebinding_action = self._config.get("dns", "rebinding_action", default="alert")
+                    rebinding_action = self._config.get("dns", "rebinding_action", default="block")
                     if rebinding_action == "block":
                         response = self._blocked_reply(request)
                         blocked = True
@@ -129,8 +148,20 @@ class FilteringResolver:
         )
         return response
 
+    def _query_allowed(self, client_ip: str) -> bool:
+        if not self._config.get("dns", "query_acl_enabled", default=True):
+            return True
+        try:
+            addr = ipaddress.ip_address(client_ip)
+        except ValueError:
+            return True
+        if any(addr in net for net in _TRUSTED_QUERY_NETWORKS):
+            return True
+        extra = self._config.get("dns", "query_acl_extra_networks", default=[]) or []
+        return any(ip_matches(client_ip, pattern) for pattern in extra)
+
     def _is_rebinding_candidate(self, qname: str, candidate_ip: str) -> bool:
-        if not qname or not self._config.get("dns", "rebinding_protection_enabled", default=False):
+        if not qname or not self._config.get("dns", "rebinding_protection_enabled", default=True):
             return False
         try:
             addr = ipaddress.ip_address(candidate_ip)

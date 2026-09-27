@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 logger = logging.getLogger("dnsshield.startuppage")
 
@@ -45,14 +47,31 @@ class _StartupPageHandler(BaseHTTPRequestHandler):
         pass
 
 
-def start_startup_page_server(address: str, port: int) -> ThreadingHTTPServer | None:
+def start_startup_page_server(
+    address: str,
+    port: int,
+    https_enabled: bool = False,
+    cert_path: Path | None = None,
+    key_path: Path | None = None,
+) -> ThreadingHTTPServer | None:
     try:
         server = ThreadingHTTPServer((address, port), _StartupPageHandler)
     except OSError as exc:
         logger.warning("could not start startup placeholder page on %s:%d: %s", address, port, exc)
         return None
+
+    scheme = "http"
+    if https_enabled and cert_path is not None and key_path is not None:
+        try:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(str(cert_path), str(key_path))
+            server.socket = context.wrap_socket(server.socket, server_side=True)
+            scheme = "https"
+        except (OSError, ssl.SSLError) as exc:
+            logger.warning("could not enable TLS for the startup placeholder page: %s", exc)
+
     threading.Thread(target=server.serve_forever, daemon=True, name="startup-page").start()
-    logger.info("startup placeholder page listening on %s:%d", address, port)
+    logger.info("startup placeholder page listening on %s://%s:%d", scheme, address, port)
     return server
 
 

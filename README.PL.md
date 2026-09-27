@@ -146,12 +146,20 @@ docker compose up -d --build
 ```
 
 Przy pierwszym uruchomieniu `./data/config.db` zostaje zasiane danymi z
-`config/config.example.yaml`. Po otwarciu `http://<host>:3000` trafisz na
-publiczny widok tylko do odczytu (trend zapytań i najczęściej blokowane
-domeny, bez logowania) z linkiem "Sign in". Zaloguj się domyślnymi danymi
-`admin` / `changeme`, **od razu zmień hasło** (Settings -> General ->
-"Your account") i skieruj DNS jakiegoś urządzenia na `<host>:53`, żeby to
-przetestować.
+`config/config.example.yaml`. Po otwarciu `https://<host>:3000` trafisz
+na publiczny widok tylko do odczytu (trend zapytań i najczęściej
+blokowane domeny, bez logowania) z linkiem "Sign in". HTTPS jest
+domyślnie włączone, z samopodpisanym certyfikatem, który DNS-shield sam
+sobie generuje przy pierwszym uruchomieniu - przeglądarka pokaże
+ostrzeżenie "niebezpieczne"/"niezaufane" przy pierwszym połączeniu,
+ponieważ nic nie poświadcza samopodpisanego certyfikatu; kliknij przez
+to ostrzeżenie raz (zobacz [HTTPS dla panelu](#https-dla-panelu) niżej,
+gdzie jest opisane faktycznie poprawne rozwiązanie, a także jak wrócić
+do zwykłego HTTP, jeśli wolisz nie zajmować się tym ostrzeżeniem przy
+wdrożeniu ograniczonym do samej sieci LAN). Zaloguj się domyślnymi
+danymi `admin` / `changeme`, **od razu zmień hasło** (Settings ->
+General -> "Your account") i skieruj DNS jakiegoś urządzenia na
+`<host>:53`, żeby to przetestować.
 
 Żeby używać tego w całej sieci, ustaw ten adres jako serwer DNS w
 ustawieniach DHCP routera (albo osobno na każdym urządzeniu).
@@ -591,6 +599,29 @@ wszystko na żywo w tle. Tylko naprawdę pierwsze uruchomienie, gdy nigdzie
 nic jeszcze nie jest zapisane w pamięci podręcznej, czeka na sieć, zanim
 zacznie chronić.
 
+Adres URL dodany tutaj (albo w Allow sources, we własnych dodatkowych
+listach grupy klientów, czy na liście obserwowanej w Alert rules) jest
+najpierw rozwiązywany i sprawdzany, zanim DNS-shield w ogóle go pobierze:
+nazwa hosta wskazująca na adres prywatny, loopback, link-local albo
+inaczej niepubliczny jest odrzucana z błędem zamiast zostać pobrana - więc
+konto administratora nie da się użyć do zmuszenia serwera, by wysłał
+żądanie do Twojej własnej sieci LAN albo do `127.0.0.1` (SSRF), wpisując
+w pole "publicznej listy blokad" adres wewnętrzny. To sprawdzenie dotyczy
+konkretnie pól URL typu subskrypcja - nie obejmuje `enrichment.local_url`,
+adresów sprawdzania dostępności (ping) ani webhooków powiadomień, które z
+założenia mają móc wskazywać na Twoje własne usługi wewnętrzne.
+
+Samo to wstępne sprawdzenie zostawiałoby wąską lukę w stylu [DNS
+rebinding](https://en.wikipedia.org/wiki/DNS_rebinding): złośliwy serwer
+DNS mógłby odpowiedzieć adresem publicznym na zapytanie walidujące, a
+chwilę później, przy osobnym zapytaniu samego pobierania, adresem
+prywatnym. Samo pobieranie jest przed tym też zabezpieczone - sprawdzenie
+adresu prywatnego jest powtórzone dokładnie w momencie otwierania
+połączenia, na podstawie rzeczywistego rozwiązania nazwy hosta dla tego
+konkretnego żądania, a nie tylko tego wstępnego - więc źródło nie może
+przejść walidacji z jednym adresem, a potem połączyć się pod spodem z
+innym, prywatnym.
+
 ### Nowo zarejestrowane domeny (NRD)
 
 Firmowe produkty do bezpieczeństwa DNS (Infoblox BloxOne Threat Defense
@@ -650,8 +681,7 @@ jakiejkolwiek subskrypcji listy.
 ### Lista zablokowana wg wyrażeń regularnych (eksperymentalne)
 
 `denylist_regex` blokuje każde zapytanie o nazwę pasującą do wyrażenia
-regularnego Pythona, sprawdzaną funkcją `re.search()` względem pełnej
-nazwy - np. wzorzec `^ads?[0-9]*\.` wyłapuje naraz, we wszystkich
+regularnego - np. wzorzec `^ads?[0-9]*\.` wyłapuje naraz, we wszystkich
 domenach, subdomeny w stylu `ad.`/`ad1.`/`ads2.`, czego zwykły wpis na
 liście zablokowanej (domena albo subdomena) nie potrafi wyrazić. Funkcja
 jest domyślnie wyłączona (`dns.regex_denylist_enabled`) i nieprzypadkowo
@@ -664,6 +694,21 @@ garści ręcznie dobranych reguł, nie dla pełnej listy. Nieprawidłowy wzorzec
 jest od razu odrzucany z błędem przy próbie dodania, a nie po cichu
 pomijany później. Zarządzaj tym z panelu (Settings -> Regex denylist) albo
 edytując `denylist_regex` bezpośrednio.
+
+Wzorzec skonstruowany pod [katastrofalny
+backtracking](https://en.wikipedia.org/wiki/ReDoS) (np. `(a+)+$`) jest
+odrzucany już przy próbie dodania - najpierw jest sprawdzany na garści
+złośliwych ciągów testowych, i wzorzec, który na którymkolwiek z nich
+trwa zbyt długo, nigdy nie trafia do `denylist_regex`. Dotyczy to wzorca
+dodanego z panelu, przez API, jak i wzorców regex-deny wciąganych przy
+imporcie z Pi-hole. Samo dopasowywanie też ma ograniczony czas na
+zapytanie (silnik `regex` zamiast wbudowanego w Pythona `re`, który nie
+ma jak ograniczyć czasu dopasowania) - wzorzec, który mimo to okaże się
+zbyt wolny dla jednego konkretnego zapytania, po prostu "przepuszcza" to
+jedno zapytanie (zalogowane jako ostrzeżenie, traktowane jak brak
+dopasowania) zamiast zawieszać resolver albo panel dla wszystkich. Bez
+tego zabezpieczenia jedna spreparowana, ok. 30-znakowa nazwa zapytania
+mogła zablokować DNS i panel WWW na ponad minutę.
 
 ### Nazwy hostów klientów (odwrotny DNS)
 
@@ -1631,6 +1676,30 @@ odrębnej domeny, więc powtórne zapytanie nigdy nie powtarza tego samego
 porównania - cache jest czyszczony automatycznie za każdym razem, gdy
 zmieni się lista chronionych domen albo ustawienie maksymalnej odległości.
 
+### Kontrola dostępu do zapytań (ACL rekursji)
+
+Settings -> DNS -> "Kontrola dostępu do zapytań" (domyślnie włączona,
+`dns.query_acl_enabled`) ogranicza, komu resolver w ogóle odpowiada,
+niezależnie od `dns.listen_address` - te dwa ustawienia rozwiązują różne
+problemy. `listen_address` decyduje, na którym interfejsie sieciowym
+DNS-shield nasłuchuje; bez osobnego sprawdzenia, *kto pyta*, związanie z
+`0.0.0.0` (potrzebne, żeby klienci z LAN mogli w ogóle dotrzeć do
+serwera) oznacza też, że każdy, kto potrafi wysłać pakiet pod ten adres -
+w tym cały internet, jeśli host jest wystawiony bezpośrednio - dostaje
+pełną, rekursywną odpowiedź. To klasyczna konfiguracja "otwartego
+resolvera", wykorzystywana jako reflektor w atakach DNS amplification
+wobec osób trzecich oraz jako cel ataków cache poisoning. Przy włączonym
+ACL zapytanie z adresu prywatnego/LAN (`10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`, loopback, link-local oraz ich odpowiedniki IPv6) jest
+obsługiwane normalnie; każdy inny klient dostaje od razu `REFUSED`,
+zanim jeszcze cokolwiek z listami blokad/cache/serwerem nadrzędnym się
+wydarzy. Dla uzasadnionego przypadku spoza tych zakresów (sieć VPN, jak
+np. `100.64.0.0/10` w Tailscale, zdalny host monitorujący) dodaj CIDR
+albo pojedynczy adres do `dns.query_acl_extra_networks`, zamiast
+wyłączać całą tę ochronę - przełącznik istnieje dla kogoś, kto świadomie
+chce mieć otwarty resolver, ale to powinien być świadomy wybór, a nie
+ustawienie domyślne.
+
 ### Ochrona przed DNS rebindingiem
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) to atak, w
@@ -1640,7 +1709,7 @@ dzięki temu JavaScript serwowany z tej domeny może sięgnąć w głąb własne
 sieci LAN ofiary: do panelu administracyjnego routera, do NAS-a, do
 wewnętrznego API - omijając zabezpieczenia same-origin, które normalnie
 powstrzymałyby publiczną stronę przed czymś takim. Settings -> DNS ma
-przełącznik "DNS rebinding protection" (domyślnie wyłączony), który
+przełącznik "DNS rebinding protection" (**domyślnie włączony**), który
 wyłapuje to już w momencie rozwiązywania: każda odpowiedź A/AAAA wracająca
 od serwera nadrzędnego jest sprawdzana funkcją
 [`ipaddress.is_private`](https://docs.python.org/3/library/ipaddress.html)
@@ -1648,11 +1717,11 @@ od serwera nadrzędnego jest sprawdzana funkcją
 IPv6 ULA), a jeśli odpytywana domena rozwiązuje się do adresu prywatnego,
 o tym, co dzieje się dalej z tą odpowiedzią, decyduje `dns.rebinding_action`:
 
-- `"alert"` (domyślnie) - rozwiąż normalnie, po prostu zgłoś alert. W
-  odpowiedzi nic się nie zmienia.
-- `"block"` - odpowiedz zamiast tego jako zablokowane, dokładnie w tej
-  samej formie, co trafienie w listę blokad, z powodem zapisanym jako
-  `DNS rebinding protection (<ip>)`.
+- `"block"` (domyślnie) - odpowiedz zamiast tego jako zablokowane,
+  dokładnie w tej samej formie, co trafienie w listę blokad, z powodem
+  zapisanym jako `DNS rebinding protection (<ip>)`.
+- `"alert"` - rozwiąż normalnie, po prostu zgłoś alert. W odpowiedzi nic
+  się nie zmienia.
 
 Dwie rzeczy są z tego sprawdzania całkowicie zwolnione, bo *legalnie*
 rozwiązują się do adresów prywatnych: domeny z tej samej listy lokalnych
@@ -2048,12 +2117,15 @@ wpisania nowej wartości zostawia go bez zmian.
 
 ### HTTPS dla panelu
 
-`web.https_enabled` (Settings -> General, domyślnie wyłączone) sprawia,
-że własny port webowy panelu zaczyna serwować HTTPS zamiast zwykłego
-HTTP - to zastępuje dotychczasowy port, nie dodaje drugiego, więc po
-włączeniu do panelu na `web.listen_port` dociera już tylko `https://`.
-Żeby zadziałało, wymaga restartu kontenera, tak samo jak zmiana samego
-adresu czy portu nasłuchu.
+`web.https_enabled` (Settings -> General, **domyślnie włączone**)
+sprawia, że własny port webowy panelu zaczyna serwować HTTPS zamiast
+zwykłego HTTP - to zastępuje dotychczasowy port, nie dodaje drugiego,
+więc dopóki jest włączone, do panelu na `web.listen_port` dociera już
+tylko `https://` ([strona startowa](#uruchamianie) pokazywana, zanim
+reszta usługi wstanie, też serwuje HTTPS, tym samym certyfikatem, więc
+nie ma niezgodności protokołów podczas rozruchu). Zmiana tego ustawienia
+wymaga restartu kontenera, tak samo jak zmiana samego adresu czy portu
+nasłuchu.
 
 Bez skonfigurowanego certyfikatu DNS-shield przy pierwszym uruchomieniu z
 włączonym HTTPS generuje własny, samopodpisany certyfikat i używa go
@@ -2073,14 +2145,38 @@ nazwy domeny faktycznie rozwiązującej się do tego hosta, zamontowaną do
 kontenera obok woluminu danych). DNS-shield sam nigdy nie łączy się z
 żadnym dostawcą ACME - tylko czyta pliki certyfikatu i klucza, które mu
 wskażesz; to ta sama zasada "żadnych połączeń wychodzących, o które nie
-prosiłeś", co wszędzie indziej w tym projekcie.
+prosiłeś", co wszędzie indziej w tym projekcie. Jeśli wolisz w ogóle
+uniknąć ostrzeżenia o samopodpisanym certyfikacie przy wdrożeniu
+ograniczonym do samej sieci LAN, którym się nie martwisz, wyłącz z
+powrotem `web.https_enabled` w Settings -> General (albo zedytuj to w
+konfiguracji przed pierwszym uruchomieniem), żeby wrócić do zwykłego
+HTTP.
 
-Włączenie HTTPS automatycznie dodaje też flagę `Secure` do ciasteczka
-sesji (zobacz **Uwagi o bezpieczeństwie** niżej), więc warto to zrobić
-nawet z samopodpisanym certyfikatem, jeśli panel jest osiągalny spoza
-localhost - zaszyfrowanie żądania logowania i ciasteczka sesji w
-transmisji ma sens, nawet gdy certyfikat nie jest zaufany przez
-przeglądarkę.
+HTTPS automatycznie dodaje też flagę `Secure` do ciasteczka sesji
+(zobacz **Uwagi o bezpieczeństwie** niżej) oraz nagłówek
+`Strict-Transport-Security` do każdej odpowiedzi. Jeśli `web.https_enabled`
+jest wyłączone, a panel nasłuchuje na czymkolwiek innym niż loopback
+(`web.listen_address` nie jest `127.0.0.1`/`::1`), w logu przy starcie
+pojawia się wyraźne ostrzeżenie - dane logowania i ciasteczko sesji są
+wysyłane w sieci bez szyfrowania, dopóki tak jest, niezależnie od tego,
+czy sam wyłączyłeś HTTPS, czy wciąż działasz na konfiguracji sprzed
+czasu, gdy stało się to ustawieniem domyślnym. Włącz z powrotem
+`web.https_enabled` albo postaw przed panelem reverse proxy kończący TLS
+(do tego świetnie nadaje się [wbudowany reverse
+proxy](#reverse-proxy-opcjonalnie)).
+
+**Jeśli działasz na konfiguracji sprzed czasu, gdy HTTPS stało się
+domyślne**, Settings -> General pokazuje jednoklikowy przycisk
+**"Migruj na HTTPS teraz"** tuż pod checkboxem HTTPS, gdy tylko jest on
+aktualnie wyłączony (`POST /api/settings/web/migrate-https`, wyłącznie
+dla administratora). Robi dokładnie to samo, co zaznaczenie checkboxa i
+zapisanie ustawień - od razu generuje samopodpisany certyfikat (pomijane,
+jeśli masz już ustawione własne `web.https_cert_path`/`web.https_key_path`)
+i włącza `web.https_enabled` - tylko opakowane w jedną, jasno opisaną
+akcję, żebyś nie musiał szukać właściwego checkboxa, żeby przyjąć nowy
+domyślny tryb. Restart kontenera jest wciąż potrzebny, żeby to faktycznie
+zadziałało, tak samo jak przy ręcznym zaznaczeniu checkboxa; przycisk
+znika, gdy tylko HTTPS jest już włączone.
 
 ### DNS-over-HTTPS / DNS-over-TLS dla klientów
 
@@ -2162,10 +2258,15 @@ blokujące, DHCP, reverse proxy czy cokolwiek innego skończy się
 inicjalizować. Wejście na niego zaraz po `docker compose up` pokazuje
 małą, automatycznie odświeżającą się stronę "DNS-shield is starting
 up..." zamiast błędu połączenia, dopóki chwilę później prawdziwy panel
-nie przejmie tego samego portu. Samo blokowanie rusza jeszcze szybciej
-niż to (patrz **Formaty list blokad i sugerowane listy** wyżej -
-rozruch z pamięci podręcznej na dysku) - strona zastępcza dotyczy
-wyłącznie samego *panelu*, nie tego, że zapytania idą niefiltrowane.
+nie przejmie tego samego portu. Ta strona zastępcza mówi tym samym
+protokołem, którym za chwilę będzie mówić prawdziwy panel (zwykłym HTTP,
+albo HTTPS tym samym samopodpisanym/skonfigurowanym certyfikatem, gdy
+tylko będzie gotowy - zobacz [HTTPS dla panelu](#https-dla-panelu)
+wyżej), więc nie ma tu niezgodności protokołów, z którą trzeba by coś
+robić. Samo blokowanie rusza jeszcze szybciej niż to (patrz **Formaty
+list blokad i sugerowane listy** wyżej - rozruch z pamięci podręcznej na
+dysku) - strona zastępcza dotyczy wyłącznie samego *panelu*, nie tego,
+że zapytania idą niefiltrowane.
 
 ### Sprawdzanie kondycji
 
@@ -2739,6 +2840,35 @@ pytest
   localhost (Settings -> General -> "Your account", albo Settings ->
   Users). Hasła są zawsze haszowane bcryptem - zobacz **Konta
   wieloużytkownikowe, role i widok publiczny** wyżej.
+- Sam resolver DNS też jest domyślnie zabezpieczony - zobacz [Kontrola
+  dostępu do zapytań](#kontrola-dostępu-do-zapytań-acl-rekursji) wyżej -
+  więc nie da się go wykorzystać jako otwartego resolvera/reflektora w
+  atakach DNS amplification tylko dlatego, że `dns.listen_address` musi
+  być osiągalny z Twojej sieci LAN.
+- Cały katalog danych (`./data` na hoście, `/data` w kontenerze -
+  `config.db`, `config.backup.yaml`, `stats.db`, klucze TLS, wszystko) jest
+  tworzony z uprawnieniami `0700` przy starcie, więc tylko użytkownik, na
+  którym działa kontener (domyślnie root wewnątrz własnej przestrzeni nazw
+  kontenera), może cokolwiek z niego odczytać - żadne inne lokalne konto
+  na hoście nie może wejść do tego katalogu ani otworzyć znajdującego się
+  w nim pliku, niezależnie od uprawnień samego pliku.
+- `GET /openapi.json` (a także `/docs`/`/redoc`) są wyłączone - schemat API,
+  w tym nazwy wszystkich pól ustawień (również tych z sekretami, jak
+  `smtp_password` czy `sso.client_secret` - same wartości nigdy nie są w
+  nim zawarte), nie jest wystawiony na rekonesans nieautoryzowanego
+  gościa.
+- Każda odpowiedź niesie ze sobą podstawowy zestaw nagłówków
+  bezpieczeństwa (`X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy` oraz `Content-Security-Policy`
+  ograniczającą źródła skryptów/stylów/obrazów/ramek/obiektów do
+  własnego pochodzenia panelu) plus `Strict-Transport-Security`, gdy
+  tylko żądanie faktycznie przyjdzie przez HTTPS. CSP nadal dopuszcza
+  wbudowane `<script>`/`<style>` - panel to samodzielna, pojedyncza
+  strona bez żadnych zasobów zewnętrznych - więc sama w sobie nie jest
+  pełną ochroną przed XSS, ale blokuje sporą klasę ataków polegających na
+  eksfiltracji danych czy clickjackingu, które wymagają załadowania
+  czegoś spoza własnego pochodzenia strony.
 - Punkt końcowy logowania ma limit prób liczony osobno dla każdego adresu
   IP źródłowego (`web.login_max_attempts`, domyślnie 5 błędnych prób,
   zanim nastąpi blokada trwająca `web.login_lockout_minutes`, domyślnie
@@ -2747,9 +2877,10 @@ pytest
   siecią LAN coś więcej niż sam formularz logowania, postaw przed panelem
   własne reverse proxy albo VPN. Ciasteczko sesji dostaje flagę `Secure`
   automatycznie, gdy tylko włączysz `web.https_enabled` (zobacz
-  [HTTPS dla panelu](#https-dla-panelu) niżej) - domyślnie jest ona
-  wyłączona, bo przy wdrożeniu w zwykłym HTTP w sieci LAN i tak nigdy nie
-  dałoby się jej odesłać z powrotem.
+  [HTTPS dla panelu](#https-dla-panelu) niżej, domyślnie włączone) -
+  jeśli wyłączyłeś HTTPS z powrotem dla wdrożenia w zwykłym HTTP w
+  sieci LAN, ta flaga też się wyłącza, bo inaczej przeglądarka nigdy nie
+  odesłałaby ciasteczka z powrotem.
 - Tokeny API (`Authorization: Bearer <token>`, zobacz **Tokeny API**
   wyżej) celowo nie mają takiego limitu prób, jak punkt końcowy logowania
   - 256-bitowa, losowa wartość i tak czyni zgadywanie niewykonalnym, w
@@ -2769,14 +2900,42 @@ pytest
   `cap_add: [NET_BIND_SERVICE]` i użytkownikiem innym niż root w polu
   `user:`.
 - Klucze API do threat-intel (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/
-  URLhaus, oraz Twoja własna, lokalna usługa) są przechowywane w
-  `config.db`/`config.backup.yaml` tak samo, jak każde inne ustawienie -
-  każdy, kto ma dostęp do panelu webowego albo do woluminu `./data`, może
-  je odczytać i użyć. Strona Settings oraz `GET /api/settings` nigdy nie
-  zwracają samego klucza z powrotem, tylko informację, czy jest ustawiony.
-  Pole `local_url` jest przechowywane i pokazywane jawnym tekstem (to
-  adres URL, nie sekret) - nie umieszczaj w nim żadnych poświadczeń, do
-  tego służy osobne pole na lokalny klucz API.
+  URLhaus, oraz Twoja własna, lokalna usługa), sekret klienta SSO oraz
+  hasło SMTP są przechowywane w `config.db`/`config.backup.yaml` tak samo,
+  jak każde inne ustawienie - każdy, kto ma dostęp do panelu webowego albo
+  do woluminu `./data`, może je odczytać i użyć. Strona Settings oraz
+  `GET /api/settings` nigdy nie zwracają samego klucza z powrotem, tylko
+  informację, czy jest ustawiony (i zamaskowany podgląd pierwszego/
+  ostatniego znaku). Każde z tych pól ma swój przycisk **Wyczyść** obok -
+  wycofanie klucza (zrotowany, unieważniony, już niepotrzebny) nie wymaga
+  więc wklejania jakiejś zastępczej wartości, żeby go nadpisać. Zapisanie
+  formularza z tym polem pozostawionym pustym zawsze zachowuje to, co już
+  jest zapisane - z założenia - co właśnie sprawia, że jawny sposób na
+  faktyczne usunięcie klucza jest potrzebny. Pole `local_url` jest
+  przechowywane i pokazywane jawnym tekstem (to adres URL, nie sekret) -
+  nie umieszczaj w nim żadnych poświadczeń, do tego służy osobne pole na
+  lokalny klucz API.
+- Pobieranie adresu URL źródła (listy blokad/dozwolonej/obserwowanej)
+  odrzuca nazwę hosta, która rozwiązuje się do adresu prywatnego,
+  loopback, link-local albo inaczej niepublicznego (ochrona przed SSRF),
+  ponownie sprawdzaną w momencie samego łączenia (nie tylko przy
+  wstępnej walidacji), więc odpowiedź DNS, która zmieni się między tymi
+  dwoma momentami, nie przemyci adresu prywatnego obok sprawdzenia -
+  zobacz [Formaty list blokad i sugerowane
+  listy](#formaty-list-blokad-i-sugerowane-listy) wyżej. Wzorzec dodany do
+  listy zablokowanej wg wyrażeń regularnych (z panelu, przez API, czy przy
+  imporcie z Pi-hole), który wykazuje cechy katastrofalnego backtrackingu,
+  jest odrzucany jeszcze przed zapisaniem, a dopasowywanie do żywych
+  zapytań ma i tak ograniczony czas - zobacz [Lista zablokowana wg wyrażeń
+  regularnych](#lista-zablokowana-wg-wyrażeń-regularnych-eksperymentalne)
+  wyżej.
+- Zależności są utrzymywane w aktualnych, załatanych pod kątem CVE
+  wersjach i podbijane w miarę pojawiania się nowych wydań/CVE względem
+  tego, co jest przypięte w `requirements.txt`.
+- Każde miejsce, w którym sekret jest porównywany z zapisaną wartością
+  (tokeny API, kody zapasowe 2FA), używa porównania w stałym czasie, więc
+  atakujący z sieci nie może wykorzystać różnic w czasie odpowiedzi, by
+  odgadywać poprawną wartość bajt po bajcie.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") jest domyślnie wyłączone i to właśnie ono decyduje o
   tym, czy VirusTotal/AbuseIPDB/OTX są w ogóle kiedykolwiek kontaktowane -

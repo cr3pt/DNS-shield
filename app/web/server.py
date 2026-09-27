@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import re
 import secrets
 import sqlite3
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 from app.anomaly import _base_domain
 from app.auth import verify_password
+from app.blocklist import check_regex_pattern_safety
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app import dns_rewrites
 from app import new_client_detection
@@ -41,6 +43,8 @@ from app import passkeys as passkeys_lib
 from webauthn.helpers import bytes_to_base64url
 from app.sessions import COOKIE_NAME, SessionStore
 from app.sso import OIDCError, PendingSSOStore, build_authorization_url, exchange_code, verify_id_token
+from app.tls import ensure_self_signed_cert
+from app.url_safety import check_public_url
 from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
@@ -51,6 +55,34 @@ logger = logging.getLogger("dnsshield.web")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOCALES_DIR = Path(__file__).resolve().parent.parent / "locales"
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), camera=(), microphone=(), payment=(), usb=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
+        "base-uri 'self'; form-action 'self'; object-src 'none'"
+    ),
+}
+
+_CLEARABLE_SECRET_PATHS = {
+    "enrichment.virustotal_api_key",
+    "enrichment.abuseipdb_api_key",
+    "enrichment.otx_api_key",
+    "enrichment.greynoise_api_key",
+    "enrichment.shodan_api_key",
+    "enrichment.urlhaus_api_key",
+    "enrichment.ipinfo_api_key",
+    "enrichment.ai_api_key",
+    "enrichment.local_api_key",
+    "sso.client_secret",
+    "notifications.email.smtp_password",
+}
 
 
 def _masked_key_preview(key: str | None) -> str:
@@ -390,6 +422,8 @@ class DnsSettingsIn(BaseModel):
     local_tld_alert_enabled: bool | None = None
     local_tld_list: list[str] | None = None
     local_tld_cooldown_minutes: float | None = None
+    query_acl_enabled: bool | None = None
+    query_acl_extra_networks: list[str] | None = None
 
 
 class UpstreamsIn(BaseModel):
@@ -418,6 +452,10 @@ class WebSettingsIn(BaseModel):
     https_key_path: str | None = None
     login_max_attempts: int | None = None
     login_lockout_minutes: float | None = None
+
+
+class ClearSecretIn(BaseModel):
+    path: str
 
 
 class LoginIn(BaseModel):
@@ -617,8 +655,10 @@ def create_app(
     rogue_dhcp_detector=None,
     proxy_manager=None,
     client_domain_graph=None,
+    data_dir: Path | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None)
+    app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None, openapi_url=None)
+    data_dir = data_dir if data_dir is not None else Path(os.environ.get("DNSSHIELD_DATA_DIR", "/data"))
 
     users = users if users is not None else UserStore(config_store)
     sessions = sessions if sessions is not None else SessionStore()
@@ -678,6 +718,14 @@ def create_app(
         if not patterns:
             return []
         return [ip for ip in stats.distinct_clients() if any(ip_matches(ip, p) for p in patterns)]
+
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.update(_SECURITY_HEADERS)
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
     _AUDIT_EXCLUDED_PATHS = {"/api/login", "/api/login/totp", "/api/logout"}
 
@@ -1228,6 +1276,11 @@ def create_app(
         return config_store.get("blocklists", field, default=[]) or []
 
     def _add_source(field: str, source: BlocklistSourceIn) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocklists", {}).setdefault(field, [])
             sources.append(source.model_dump())
@@ -1362,6 +1415,10 @@ def create_app(
             re.compile(pattern)
         except re.error as exc:
             raise HTTPException(status_code=400, detail=f"Invalid regex: {exc}") from exc
+        try:
+            check_regex_pattern_safety(pattern)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         def _mutate(data: dict[str, Any]) -> list[str]:
             items = data.setdefault("denylist_regex", [])
@@ -1409,6 +1466,11 @@ def create_app(
     def add_answer_ip_source(
         source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_permission("can_block"))
     ) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocked_answer_ip_sources", [])
             sources.append(source.model_dump())
@@ -1653,6 +1715,11 @@ def create_app(
     def add_group_blocklist_source(
         index: int, source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
             sources.append(source.model_dump())
             return sources
@@ -2204,6 +2271,21 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     RESTART_NOTE = "Changing this requires restarting the container (docker compose restart)."
 
+    @app.post("/api/settings/clear-secret")
+    def clear_secret(body: ClearSecretIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        if body.path not in _CLEARABLE_SECRET_PATHS:
+            raise HTTPException(status_code=400, detail="Unknown or non-clearable field")
+
+        def _mutate(data: dict[str, Any]) -> None:
+            parts = body.path.split(".")
+            node = data
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node[parts[-1]] = ""
+
+        config_store.mutate(_mutate)
+        return {"cleared": body.path}
+
     @app.get("/api/settings")
     def get_settings(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         snap = config_store.snapshot()
@@ -2342,6 +2424,23 @@ To restore into an EXISTING instance (data/config.db already exists):
             return web_cfg
 
         return config_store.mutate(_mutate)
+
+    @app.post("/api/settings/web/migrate-https")
+    def migrate_to_https(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        web_cfg = config_store.snapshot().get("web", {})
+        cert_path_cfg = web_cfg.get("https_cert_path", "") or ""
+        key_path_cfg = web_cfg.get("https_key_path", "") or ""
+        if not cert_path_cfg or not key_path_cfg:
+            try:
+                ensure_self_signed_cert(data_dir / "tls" / "cert.pem", data_dir / "tls" / "key.pem")
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"Could not generate a self-signed certificate: {exc}")
+
+        def _mutate(data: dict[str, Any]) -> None:
+            data.setdefault("web", {})["https_enabled"] = True
+
+        config_store.mutate(_mutate)
+        return {"https_enabled": True, "restart_required": True, "restart_note": RESTART_NOTE}
 
     @app.patch("/api/settings/logging")
     def update_logging_settings(body: LoggingSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
@@ -2502,6 +2601,11 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.post("/api/alert-rules/sources")
     def add_alert_source(source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+        try:
+            check_public_url(source.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
             sources.append(source.model_dump())

@@ -10,12 +10,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable
 
+import regex
 import requests
 
 from app.netmatch import client_matches
 from app.schedule import is_schedule_blocked
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
 from app.upstream import protected_hostnames
+from app.url_safety import check_public_url, public_dns_guard
 
 logger = logging.getLogger("dnsshield.blocklist")
 
@@ -27,6 +29,22 @@ _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-
 DEFAULT_LOCAL_TLDS = ("local", "lan", "home", "internal", "corp", "home.arpa")
 
 _FETCH_CACHE_TTL_SECONDS = 60.0
+_REGEX_MATCH_TIMEOUT_SECONDS = 0.2
+_REDOS_PROBE_TIMEOUT_SECONDS = 0.5
+_REDOS_PROBE_STRINGS = tuple(f"{'a' * n}!" for n in (8, 16, 32, 48, 63)) + tuple("a" * n for n in (32, 63))
+
+
+def check_regex_pattern_safety(pattern: str) -> None:
+    compiled = regex.compile(pattern)
+    for probe in _REDOS_PROBE_STRINGS:
+        try:
+            compiled.search(probe, timeout=_REDOS_PROBE_TIMEOUT_SECONDS)
+        except TimeoutError:
+            raise ValueError(
+                f"pattern is too slow against a {len(probe)}-character test string "
+                "(likely catastrophic backtracking) and was rejected - DNS labels can be up to 63 "
+                "characters, and a slow pattern here can stall the entire resolver"
+            ) from None
 
 
 def is_non_latin_domain(domain: str) -> bool:
@@ -201,7 +219,7 @@ class BlocklistManager:
 
         self._regex_lock = threading.Lock()
         self._regex_cache_key: tuple[str, ...] | None = None
-        self._regex_cache_compiled: list[tuple[str, re.Pattern]] = []
+        self._regex_cache_compiled: list[tuple[str, "regex.Pattern"]] = []
 
         self._answer_ip_exact: frozenset[str] = frozenset()
         self._answer_ip_nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
@@ -244,7 +262,12 @@ class BlocklistManager:
             return "Denylist (manually added)"
         if self._config.get("dns", "regex_denylist_enabled", default=False):
             for pattern_text, pattern in self._compiled_regex_patterns():
-                if pattern.search(qname):
+                try:
+                    matched = pattern.search(qname, timeout=_REGEX_MATCH_TIMEOUT_SECONDS)
+                except TimeoutError:
+                    logger.warning("regex denylist pattern %r timed out matching %r - skipping", pattern_text, qname)
+                    continue
+                if matched:
                     return f"Denylist (regex, experimental): {pattern_text}"
         if group and matches(group.get("allowlist")):
             return None
@@ -348,15 +371,15 @@ class BlocklistManager:
             "local_tld": local_tld,
         }
 
-    def _compiled_regex_patterns(self) -> list[tuple[str, re.Pattern]]:
+    def _compiled_regex_patterns(self) -> list[tuple[str, "regex.Pattern"]]:
         patterns = tuple(self._config.get("denylist_regex", default=[]) or [])
         with self._regex_lock:
             if patterns != self._regex_cache_key:
                 compiled = []
                 for pat in patterns:
                     try:
-                        compiled.append((pat, re.compile(pat)))
-                    except re.error as exc:
+                        compiled.append((pat, regex.compile(pat)))
+                    except regex.error as exc:
                         logger.warning("skipping invalid regex denylist pattern %r: %s", pat, exc)
                 self._regex_cache_compiled = compiled
                 self._regex_cache_key = patterns
@@ -508,7 +531,9 @@ class BlocklistManager:
                 return cached[1], cached[2], cached[3]
 
         try:
-            resp = requests.get(url, timeout=15)
+            check_public_url(url)
+            with public_dns_guard(url):
+                resp = requests.get(url, timeout=15)
             resp.raise_for_status()
             text = resp.text
             cache_path.write_text(text, encoding="utf-8")
