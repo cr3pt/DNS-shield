@@ -36,15 +36,24 @@ class _StartupPageHandler(BaseHTTPRequestHandler):
 
     def _respond(self) -> None:
         body = _PAGE.encode("utf-8")
-        self.send_response(503)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Retry-After", "3")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(503)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Retry-After", "3")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLError, OSError):
+            pass
 
     def log_message(self, format: str, *args) -> None:
         pass
+
+    def finish(self) -> None:
+        try:
+            super().finish()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLError, OSError):
+            pass
 
 
 def start_startup_page_server(

@@ -1,9 +1,11 @@
 import socket
+import socketserver
 import ssl
 import urllib.error
 import urllib.request
+from unittest.mock import MagicMock
 
-from app.startup_page import start_startup_page_server, stop_startup_page_server
+from app.startup_page import _StartupPageHandler, start_startup_page_server, stop_startup_page_server
 from app.tls import ensure_self_signed_cert
 
 
@@ -52,6 +54,24 @@ def test_startup_page_serves_https_when_enabled(tmp_path):
 
     assert status == 503
     assert b"starting up" in body.lower()
+
+
+def test_respond_swallows_client_disconnect_mid_write():
+    handler = object.__new__(_StartupPageHandler)
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.wfile = MagicMock()
+    handler.wfile.write.side_effect = BrokenPipeError()
+
+    handler._respond()  # must not raise
+
+
+def test_finish_swallows_client_disconnect(monkeypatch):
+    monkeypatch.setattr(socketserver.StreamRequestHandler, "finish", MagicMock(side_effect=ConnectionResetError()))
+    handler = object.__new__(_StartupPageHandler)
+
+    handler.finish()  # must not raise
 
 
 def test_startup_page_falls_back_to_http_on_bad_cert(tmp_path):
