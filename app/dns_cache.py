@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import pickle
+import base64
+import json
 import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
 
-from dnslib import RCODE, RR, DNSRecord
+from dnslib import RCODE, RR, DNSBuffer, DNSError, DNSRecord
 
 CacheKey = tuple[str, int, int]
 CacheEntry = tuple[float, list[RR], int]
@@ -144,28 +145,57 @@ class DNSCache:
             self._misses = 0
             self._stale_hits = 0
 
+    @staticmethod
+    def _encode_rr(rr: RR) -> str:
+        buf = DNSBuffer()
+        rr.pack(buf)
+        return base64.b64encode(buf.data).decode("ascii")
+
+    @staticmethod
+    def _decode_rr(blob: str) -> RR:
+        return RR.parse(DNSBuffer(base64.b64decode(blob)))
+
     def _load(self) -> None:
         try:
-            with open(self._persist_path, "rb") as f:
-                saved: dict[CacheKey, CacheEntry] = pickle.load(f)
-        except (FileNotFoundError, EOFError, pickle.PickleError, OSError, ValueError):
+            with open(self._persist_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
             return
+        if not isinstance(saved, dict) or saved.get("version") != 1:
+            return
+
         now = time.time()
         with self._lock:
-            for key, (expires_at, answers, hits) in saved.items():
-                if expires_at > now:
-                    self._store[key] = (expires_at, answers, hits)
+            for entry in saved.get("entries", []):
+                try:
+                    qname, qtype, qclass = entry["key"]
+                    expires_at = float(entry["expires_at"])
+                    hits = int(entry["hits"])
+                    answers = [self._decode_rr(blob) for blob in entry["answers"]]
+                except (KeyError, TypeError, ValueError, DNSError):
+                    continue
+                if expires_at > now and answers:
+                    self._store[(qname, qtype, qclass)] = (expires_at, answers, hits)
 
     def save(self) -> None:
         if self._persist_path is None:
             return
         with self._lock:
-            snapshot = dict(self._store)
+            snapshot = list(self._store.items())
+        entries = [
+            {
+                "key": list(key),
+                "expires_at": expires_at,
+                "hits": hits,
+                "answers": [self._encode_rr(rr) for rr in answers],
+            }
+            for key, (expires_at, answers, hits) in snapshot
+        ]
         try:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self._persist_path.with_suffix(".tmp")
-            with open(tmp_path, "wb") as f:
-                pickle.dump(snapshot, f)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({"version": 1, "entries": entries}, f)
             tmp_path.replace(self._persist_path)
         except OSError:
             pass

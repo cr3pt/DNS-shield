@@ -2302,6 +2302,13 @@ const fmtShortDuration = (s) => {
 };
 
 async function api(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    const csrfToken = getCookie("dnsshield_csrf");
+    if (csrfToken) {
+      options = { ...options, headers: { ...(options.headers || {}), "X-CSRF-Token": csrfToken } };
+    }
+  }
   const res = await fetch(path, options);
   if (res.status === 401) {
     location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
@@ -7086,7 +7093,7 @@ document.getElementById("import-backup-form").addEventListener("submit", async (
   resultEl.appendChild(el("p", { class: "muted", text: "Restoring..." }));
 
   try {
-    const res = await fetch("/api/import/backup", { method: "POST", body: formData });
+    const res = await fetch("/api/import/backup", { method: "POST", body: formData, headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
     if (res.status === 401) {
       document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
       return;
@@ -7119,7 +7126,7 @@ document.getElementById("import-adguard-form").addEventListener("submit", async 
   resultEl.appendChild(el("p", { class: "muted", text: "Importing..." }));
 
   try {
-    const res = await fetch("/api/import/adguard", { method: "POST", body: formData });
+    const res = await fetch("/api/import/adguard", { method: "POST", body: formData, headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
     if (res.status === 401) {
       document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
       return;
@@ -7161,7 +7168,7 @@ document.getElementById("import-pihole-form").addEventListener("submit", async (
   resultEl.appendChild(el("p", { class: "muted", text: "Importing..." }));
 
   try {
-    const res = await fetch("/api/import/pihole", { method: "POST", body: formData });
+    const res = await fetch("/api/import/pihole", { method: "POST", body: formData, headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
     if (res.status === 401) {
       document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
       return;
@@ -7560,7 +7567,7 @@ function renderAuthStatus() {
   el2.appendChild(document.createTextNode(`${currentUser.username} (${currentUser.role}) `));
   const logoutBtn = el("button", { type: "button", class: "secondary", text: t("auth.sign-out", "Sign out"), style: "margin-left:0.5rem;" });
   logoutBtn.onclick = async () => {
-    await fetch("/api/logout", { method: "POST" });
+    await fetch("/api/logout", { method: "POST", headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
     location.reload();
   };
   el2.appendChild(logoutBtn);

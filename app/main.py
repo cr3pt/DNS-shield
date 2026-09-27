@@ -62,7 +62,7 @@ def _run_dns_worker(worker_id: int, num_workers: int, data_dir: Path, log_level:
     blocklist.start()
 
     stats = Stats(data_dir / "stats.db", config_store)
-    cache = DNSCache(config_store, persist_path=data_dir / f"dns_cache_worker_{worker_id}.pkl")
+    cache = DNSCache(config_store, persist_path=data_dir / f"dns_cache_worker_{worker_id}.json")
     upstream_stats = UpstreamStats(config_store)
     dnssec_cache = DnssecCache()
     atexit.register(cache.save)
@@ -164,7 +164,7 @@ def main() -> None:
     )
     blocklist.start()
 
-    cache = DNSCache(config_store, persist_path=DATA_DIR / "dns_cache.pkl")
+    cache = DNSCache(config_store, persist_path=DATA_DIR / "dns_cache.json")
     atexit.register(cache.save)
     upstream_stats = UpstreamStats(config_store)
     dnssec_cache = DnssecCache()
