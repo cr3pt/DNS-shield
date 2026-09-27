@@ -292,6 +292,15 @@ class FilteringResolver:
             self._dnssec_cache.set_ttl(ttl_seconds)
             self._dnssec_cache.record(qname, bool(response.header.get_ad()))
 
+    @staticmethod
+    def _restore_query_case(request: DNSRecord, parsed: DNSRecord) -> None:
+        original = request.q.qname
+        queried = str(original).rstrip(".").lower()
+        parsed.q.qname = original
+        for rr in parsed.rr:
+            if str(rr.rname).rstrip(".").lower() == queried:
+                rr.rname = original
+
     def _forward(self, request: DNSRecord, qname: str, client_ip: str) -> DNSRecord:
         data = self._prepare_upstream_data(request)
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
@@ -314,6 +323,7 @@ class FilteringResolver:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
                 parsed = DNSRecord.parse(resp)
+                self._restore_query_case(request, parsed)
                 self._record_dnssec(qname, parsed)
                 return parsed
             except Exception as exc:
@@ -363,6 +373,7 @@ class FilteringResolver:
             upstream, resp, exc = results.get()
             if resp is not None:
                 parsed = DNSRecord.parse(resp)
+                self._restore_query_case(request, parsed)
                 self._record_dnssec(qname, parsed)
                 return parsed
             logger.warning("upstream %s failed (race mode): %s", upstream, exc)
