@@ -611,6 +611,17 @@ konkretnie pól URL typu subskrypcja - nie obejmuje `enrichment.local_url`,
 adresów sprawdzania dostępności (ping) ani webhooków powiadomień, które z
 założenia mają móc wskazywać na Twoje własne usługi wewnętrzne.
 
+Samo to wstępne sprawdzenie zostawiałoby wąską lukę w stylu [DNS
+rebinding](https://en.wikipedia.org/wiki/DNS_rebinding): złośliwy serwer
+DNS mógłby odpowiedzieć adresem publicznym na zapytanie walidujące, a
+chwilę później, przy osobnym zapytaniu samego pobierania, adresem
+prywatnym. Samo pobieranie jest przed tym też zabezpieczone - sprawdzenie
+adresu prywatnego jest powtórzone dokładnie w momencie otwierania
+połączenia, na podstawie rzeczywistego rozwiązania nazwy hosta dla tego
+konkretnego żądania, a nie tylko tego wstępnego - więc źródło nie może
+przejść walidacji z jednym adresem, a potem połączyć się pod spodem z
+innym, prywatnym.
+
 ### Nowo zarejestrowane domeny (NRD)
 
 Firmowe produkty do bezpieczeństwa DNS (Infoblox BloxOne Threat Defense
@@ -2906,7 +2917,10 @@ pytest
   lokalny klucz API.
 - Pobieranie adresu URL źródła (listy blokad/dozwolonej/obserwowanej)
   odrzuca nazwę hosta, która rozwiązuje się do adresu prywatnego,
-  loopback, link-local albo inaczej niepublicznego (ochrona przed SSRF) -
+  loopback, link-local albo inaczej niepublicznego (ochrona przed SSRF),
+  ponownie sprawdzaną w momencie samego łączenia (nie tylko przy
+  wstępnej walidacji), więc odpowiedź DNS, która zmieni się między tymi
+  dwoma momentami, nie przemyci adresu prywatnego obok sprawdzenia -
   zobacz [Formaty list blokad i sugerowane
   listy](#formaty-list-blokad-i-sugerowane-listy) wyżej. Wzorzec dodany do
   listy zablokowanej wg wyrażeń regularnych (z panelu, przez API, czy przy
@@ -2915,10 +2929,13 @@ pytest
   zapytań ma i tak ograniczony czas - zobacz [Lista zablokowana wg wyrażeń
   regularnych](#lista-zablokowana-wg-wyrażeń-regularnych-eksperymentalne)
   wyżej.
-- Zależności są utrzymywane w wersjach z załatanymi CVE
-  (`fastapi`/`starlette`, `cryptography`, `pyOpenSSL`, `Authlib`,
-  `python-multipart`) i podbijane w miarę ujawniania nowych CVE względem
+- Zależności są utrzymywane w aktualnych, załatanych pod kątem CVE
+  wersjach i podbijane w miarę pojawiania się nowych wydań/CVE względem
   tego, co jest przypięte w `requirements.txt`.
+- Każde miejsce, w którym sekret jest porównywany z zapisaną wartością
+  (tokeny API, kody zapasowe 2FA), używa porównania w stałym czasie, więc
+  atakujący z sieci nie może wykorzystać różnic w czasie odpowiedzi, by
+  odgadywać poprawną wartość bajt po bajcie.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") jest domyślnie wyłączone i to właśnie ono decyduje o
   tym, czy VirusTotal/AbuseIPDB/OTX są w ogóle kiedykolwiek kontaktowane -

@@ -550,6 +550,16 @@ scoped to subscription-style URL fields specifically - it does not apply
 to `enrichment.local_url`, ping-check URLs, or notification webhook URLs,
 which are meant to be able to target your own internal services.
 
+That upfront check alone would still leave a narrow
+[DNS-rebinding](https://en.wikipedia.org/wiki/DNS_rebinding)-style gap: a
+malicious DNS server could answer the validation lookup with a public
+address and the fetch's own, separate lookup moments later with a private
+one. The actual fetch is guarded against this too - the private-address
+check is re-applied at the exact moment the connection is opened, using
+the hostname's real resolution for that specific request, not just the
+upfront one - so a source can't pass validation with one address and then
+connect to a different, private one underneath it.
+
 ### Newly registered domains (NRD)
 
 Enterprise DNS security products (Infoblox's BloxOne Threat Defense calls
@@ -2601,16 +2611,22 @@ pytest
   credentials in it, use the separate local API key field for that.
 - Fetching a blocklist/allow-list/watch-list source URL rejects a
   hostname that resolves to a private, loopback, link-local, or otherwise
-  non-public address (SSRF protection) - see [Blocklist formats and
-  suggested lists](#blocklist-formats-and-suggested-lists) above. A
-  pattern added to the regex denylist (dashboard, API, or Pi-hole import)
-  that shows signs of catastrophic backtracking is rejected before it's
-  saved, and matching against live queries is time-boxed regardless - see
-  [Regex denylist](#regex-denylist-experimental) above.
-- Dependencies are kept on CVE-patched versions (`fastapi`/`starlette`,
-  `cryptography`, `pyOpenSSL`, `Authlib`, `python-multipart`) and bumped
-  as new CVEs are disclosed against whatever's pinned in
+  non-public address (SSRF protection), re-checked at the moment of the
+  actual connection (not just the upfront validation) so a DNS answer
+  that changes between the two can't slip a private address past the
+  check - see [Blocklist formats and suggested
+  lists](#blocklist-formats-and-suggested-lists) above. A pattern added
+  to the regex denylist (dashboard, API, or Pi-hole import) that shows
+  signs of catastrophic backtracking is rejected before it's saved, and
+  matching against live queries is time-boxed regardless - see [Regex
+  denylist](#regex-denylist-experimental) above.
+- Dependencies are kept on current, CVE-patched versions across the board
+  and bumped as new releases/CVEs land against whatever's pinned in
   `requirements.txt`.
+- Every place a secret is checked against a stored value (API tokens,
+  2FA backup codes) uses a constant-time comparison, so a network
+  attacker can't use response-timing differences to guess a valid value
+  one byte at a time.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") is off by default and is the actual gate on whether
   VirusTotal/AbuseIPDB/OTX are ever contacted - saving a key for one of

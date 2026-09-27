@@ -17,7 +17,7 @@ from app.netmatch import client_matches
 from app.schedule import is_schedule_blocked
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
 from app.upstream import protected_hostnames
-from app.url_safety import check_public_url
+from app.url_safety import check_public_url, public_dns_guard
 
 logger = logging.getLogger("dnsshield.blocklist")
 
@@ -532,7 +532,8 @@ class BlocklistManager:
 
         try:
             check_public_url(url)
-            resp = requests.get(url, timeout=15)
+            with public_dns_guard(url):
+                resp = requests.get(url, timeout=15)
             resp.raise_for_status()
             text = resp.text
             cache_path.write_text(text, encoding="utf-8")

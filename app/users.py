@@ -274,7 +274,7 @@ class UserStore:
         thash = hash_token(token)
         for user in self.list():
             for record in user.get("api_tokens") or []:
-                if record.get("token_hash") == thash:
+                if secrets.compare_digest(record.get("token_hash") or "", thash):
                     self._touch_token(user["username"], record.get("id"), record.get("last_used_at"))
                     return user
         return None
@@ -465,7 +465,7 @@ class UserStore:
 
         code_hash = hash_backup_code(code)
         backup_hashes = user.get("totp_backup_codes") or []
-        if code_hash not in backup_hashes:
+        if not any(secrets.compare_digest(code_hash, h) for h in backup_hashes):
             return False
 
         def _mutate(data: dict[str, Any]) -> None:
