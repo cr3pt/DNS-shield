@@ -179,6 +179,46 @@ def test_case_randomization_scrambles_outgoing_qname(config_store, tmp_path, mon
     assert all(q.lower() == "verification.example.com." for q in seen_qnames)
 
 
+def test_case_randomized_upstream_echo_does_not_leak_into_client_response(config_store, tmp_path, monkeypatch):
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update({"query_case_randomization_enabled": True}))
+    resolver = _resolver(config_store, tmp_path)
+
+    def fake_forward(data, upstream, timeout):
+        outgoing = DNSRecord.parse(data)
+        reply = outgoing.reply()
+        reply.add_answer(RR(outgoing.q.qname, QTYPE.A, rdata=A("9.8.7.6"), ttl=60))
+        return reply.pack()
+
+    monkeypatch.setattr(dns_server.upstream_transport, "forward", fake_forward)
+
+    request = DNSRecord.question("registry.ollama.ai", qtype="A")
+    response = resolver.resolve(request, None)
+
+    assert str(response.q.qname) == "registry.ollama.ai."
+    assert str(response.rr[0].rname) == "registry.ollama.ai."
+
+
+def test_case_restoration_does_not_touch_cname_target_owner_name(config_store, tmp_path, monkeypatch):
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update({"query_case_randomization_enabled": True}))
+    resolver = _resolver(config_store, tmp_path)
+
+    def fake_forward(data, upstream, timeout):
+        outgoing = DNSRecord.parse(data)
+        reply = outgoing.reply()
+        reply.add_answer(RR(outgoing.q.qname, QTYPE.CNAME, rdata=CNAME("BaCkEnD.example.net"), ttl=60))
+        reply.add_answer(RR("BaCkEnD.example.net", QTYPE.A, rdata=A("9.8.7.6"), ttl=60))
+        return reply.pack()
+
+    monkeypatch.setattr(dns_server.upstream_transport, "forward", fake_forward)
+
+    request = DNSRecord.question("shop.example.com", qtype="A")
+    response = resolver.resolve(request, None)
+
+    assert str(response.q.qname) == "shop.example.com."
+    assert str(response.rr[0].rname) == "shop.example.com."
+    assert str(response.rr[1].rname) == "BaCkEnD.example.net."
+
+
 def test_query_acl_refuses_public_client_by_default(config_store, tmp_path, monkeypatch):
     resolver = _resolver(config_store, tmp_path)
     monkeypatch.setattr(
