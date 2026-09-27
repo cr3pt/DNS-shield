@@ -2628,11 +2628,32 @@ pytest
   it needs those two regardless of root/rootless). `nginx/nginx.conf`'s
   own `user root;` directive is silently ignored once the master process
   isn't actually root - harmless, not an error, nothing to change there.
-- The shipped `docker-compose.yml` also caps the container at 1 GiB of
-  RAM and 512 PIDs, and sets `no-new-privileges` so nothing inside it can
-  ever gain more privileges than it started with. Raise `mem_limit`/
-  `pids_limit` if your setup genuinely needs more headroom (many DHCP
-  leases, several DNS worker processes via `DNSSHIELD_DNS_WORKERS`).
+- The shipped `docker-compose.yml` sets `no-new-privileges` so nothing
+  inside the container can ever gain more privileges than it started
+  with. There's deliberately no `mem_limit`/`pids_limit` baked in as a
+  default: a wrong guess on either fails badly in a way that's easy to
+  mistake for something else entirely - too-low RAM doesn't make the
+  container exit with an error, it makes everything crawl under memory
+  pressure while looking exactly like a hang (see the note on blocklist
+  memory use just below), which is a far worse failure mode to ship a
+  guessed number for than simply leaving it uncapped. Add your own
+  `mem_limit`/`pids_limit` to a compose override if you specifically want
+  a ceiling to catch a genuine runaway (a bug, a fork bomb) - just size
+  it to your own setup rather than copying a number from here.
+  **All blocklist/allow-list/watch-list sources are held in memory at
+  once** (as both a merged set and a per-domain source-attribution map,
+  so the actual footprint is a multiple of the raw list size), and a
+  handful of large third-party lists (HaGeZi's Multi PRO, for instance,
+  is itself in the hundreds of thousands of domains) can add up to more
+  than you'd expect from the download size alone - each additional
+  client group with its own extra blocklist sources adds again on top.
+  If the container is slow to start or feels sluggish with a rich
+  blocklist setup, check `docker stats <container>` before assuming
+  something's actually stuck: memory usage sitting close to a limit
+  you've set yourself (and heavy disk I/O alongside it, from the kernel
+  reclaiming/swapping pages) looks a lot like a hang but is really just
+  the container being starved - raise the limit rather than waiting it
+  out.
 - Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/your own local service),
   the SSO client secret, and the SMTP password are stored in
   `config.db`/`config.backup.yaml` like any other setting - anyone with

@@ -5,8 +5,6 @@ services:
     container_name: dns-shield
     restart: unless-stopped
     network_mode: host
-    mem_limit: 1g
-    pids_limit: 512
     security_opt:
       - no-new-privileges:true
     volumes:

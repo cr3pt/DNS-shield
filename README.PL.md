@@ -2932,12 +2932,35 @@ pytest
   `nginx/nginx.conf` jest po cichu ignorowana, gdy proces główny nginx
   faktycznie nie jest rootem - to nieszkodliwe, nie błąd, nic tam nie
   trzeba zmieniać.
-- Dostarczony `docker-compose.yml` ogranicza też kontener do 1 GiB RAM-u
-  i 512 PID-ów oraz ustawia `no-new-privileges`, więc nic wewnątrz niego
-  nie może zdobyć więcej uprawnień, niż miało na starcie. Podnieś
-  `mem_limit`/`pids_limit`, jeśli Twoja konfiguracja naprawdę potrzebuje
-  więcej zapasu (dużo dzierżaw DHCP, kilka procesów roboczych DNS przez
-  `DNSSHIELD_DNS_WORKERS`).
+- Dostarczony `docker-compose.yml` ustawia `no-new-privileges`, więc nic
+  wewnątrz kontenera nie może zdobyć więcej uprawnień, niż miało na
+  starcie. Celowo nie ma tu domyślnego `mem_limit`/`pids_limit`: błędnie
+  dobrana wartość dla każdego z nich zawodzi w sposób łatwy do pomylenia
+  z czymś zupełnie innym - za nisko ustawiony limit RAM-u nie kończy się
+  błędem, tylko sprawia, że wszystko pełznie pod presją pamięci,
+  wyglądając dokładnie jak zawieszenie (zobacz uwagę o zużyciu pamięci
+  przez listy blokad niżej) - dużo gorszy tryb awarii, żeby zaszywać w
+  nim zgadniętą liczbę jako domyślną wartość, niż po prostu zostawić
+  bez limitu. Dodaj własny `mem_limit`/`pids_limit` przez nadpisanie
+  compose, jeśli konkretnie chcesz mieć sufit łapiący prawdziwy rozbieg
+  (błąd, fork bomb) - dobierz go do własnej maszyny, zamiast kopiować
+  liczbę stąd. Docker/Compose nie ma wbudowanego sposobu na podanie
+  limitu jako procentu RAM-u hosta - `mem_limit` (i cgroups pod spodem)
+  przyjmuje tylko wartości bezwzględne.
+  **Wszystkie źródła list blokad/dozwolonej/obserwowanej są trzymane w
+  pamięci naraz** (jako scalony zbiór ORAZ mapa przypisania każdej
+  domeny do jej źródła, więc faktyczne zużycie to wielokrotność samego
+  rozmiaru surowej listy), a garść dużych list firm trzecich (np. Multi
+  PRO od HaGeZi to samo w sobie setki tysięcy domen) potrafi się złożyć
+  na więcej, niż sugerowałby rozmiar pliku do pobrania - każda dodatkowa
+  grupa klientów z własnymi, dodatkowymi źródłami list dokłada do tego
+  jeszcze więcej. Jeśli kontener wolno startuje albo działa ślamazarnie
+  przy bogatej konfiguracji list blokad, sprawdź `docker stats
+  <kontener>`, zanim uznasz, że coś się faktycznie zawiesiło: zużycie
+  pamięci blisko limitu, który sam sobie ustawiłeś (a obok tego spory
+  ruch dyskowy, od odzyskiwania/swapowania stron przez jądro) wygląda
+  bardzo podobnie do zawieszenia, a to po prostu kontener głodzony
+  pamięciowo - podnieś limit, zamiast czekać, aż samo się skończy.
 - Klucze API do threat-intel (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/
   URLhaus, oraz Twoja własna, lokalna usługa), sekret klienta SSO oraz
   hasło SMTP są przechowywane w `config.db`/`config.backup.yaml` tak samo,
