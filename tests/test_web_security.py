@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.blocklist import BlocklistManager
 from app.stats import Stats
+from app.web.server import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from app.web.server import create_app
 
 
@@ -17,6 +18,7 @@ def _admin_client(config_store, tmp_path, data_dir=None) -> TestClient:
     client = _client(config_store, tmp_path, data_dir=data_dir)
     response = client.post("/api/login", json={"username": "admin", "password": "changeme"})
     assert response.status_code == 200
+    client.headers[CSRF_HEADER_NAME] = client.cookies[CSRF_COOKIE_NAME]
     return client
 
 
@@ -202,3 +204,49 @@ def test_clear_secret_clears_nested_smtp_password(config_store, tmp_path):
 
     assert response.status_code == 200
     assert config_store.get("notifications", "email", "smtp_password", default=None) == ""
+
+
+def test_mutating_request_with_session_cookie_but_no_csrf_header_is_rejected(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    del client.headers[CSRF_HEADER_NAME]
+
+    response = client.post("/api/rules/deny-regex", json={"pattern": r"^ads\."})
+
+    assert response.status_code == 403
+    assert "CSRF" in response.json()["detail"]
+
+
+def test_mutating_request_with_wrong_csrf_header_is_rejected(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    client.headers[CSRF_HEADER_NAME] = "not-the-right-token"
+
+    response = client.post("/api/rules/deny-regex", json={"pattern": r"^ads\."})
+
+    assert response.status_code == 403
+    assert "CSRF" in response.json()["detail"]
+
+
+def test_login_itself_is_exempt_from_csrf_check(config_store, tmp_path):
+    config_store.mutate(lambda d: d.setdefault("web", {}).update({"https_enabled": False}))
+    client = _client(config_store, tmp_path)
+
+    response = client.post("/api/login", json={"username": "admin", "password": "changeme"})
+
+    assert response.status_code == 200
+    assert CSRF_COOKIE_NAME in response.cookies
+
+
+def test_bearer_token_request_is_not_subject_to_csrf_check(config_store, tmp_path):
+    from app.users import UserStore
+
+    client = _client(config_store, tmp_path)
+    users = UserStore(config_store)
+    token, _ = users.create_token("admin", "ci token")
+
+    response = client.post(
+        "/api/rules/deny-regex",
+        json={"pattern": r"^ads\."},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200

@@ -2593,9 +2593,46 @@ pytest
   query trend and top blocked domains, nothing client- or domain-specific
   beyond that.
 - Port 53 needs root or `CAP_NET_BIND_SERVICE` in the container - the
-  provided image runs as root for this (same approach as the official
-  AdGuard Home / Pi-hole images). Run rootless via a compose override with
-  `cap_add: [NET_BIND_SERVICE]` and a non-root `user:` if you need that.
+  provided image runs as root by default for this (same approach as the
+  official AdGuard Home / Pi-hole images). For a fully rootless setup
+  instead, the image already ships a dedicated `dnsshield` user and an
+  entrypoint that, once told to, `chown`s the mounted volumes and then
+  drops from root to that user via `gosu` before starting the app - opt
+  into it with a compose override:
+
+  ```yaml
+  services:
+    dns-shield:
+      environment:
+        - DNSSHIELD_RUN_AS_NONROOT=1
+      cap_drop:
+        - ALL
+      cap_add:
+        - NET_BIND_SERVICE
+        - CHOWN
+        - SETUID
+        - SETGID
+        - DAC_OVERRIDE
+      read_only: true
+      tmpfs:
+        - /tmp
+        - /run
+        - /var/lib/nginx
+        - /var/log/nginx
+        - /var/lib/letsencrypt
+        - /var/log/letsencrypt
+  ```
+
+  Add `NET_ADMIN` and `NET_RAW` to `cap_add` too if you're also turning
+  DHCP on (see [DHCP server (optional)](#dhcp-server-optional) above -
+  it needs those two regardless of root/rootless). `nginx/nginx.conf`'s
+  own `user root;` directive is silently ignored once the master process
+  isn't actually root - harmless, not an error, nothing to change there.
+- The shipped `docker-compose.yml` also caps the container at 1 GiB of
+  RAM and 512 PIDs, and sets `no-new-privileges` so nothing inside it can
+  ever gain more privileges than it started with. Raise `mem_limit`/
+  `pids_limit` if your setup genuinely needs more headroom (many DHCP
+  leases, several DNS worker processes via `DNSSHIELD_DNS_WORKERS`).
 - Threat-intel API keys (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/your own local service),
   the SSO client secret, and the SMTP password are stored in
   `config.db`/`config.backup.yaml` like any other setting - anyone with

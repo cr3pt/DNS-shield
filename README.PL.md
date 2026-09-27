@@ -2894,11 +2894,50 @@ pytest
   najczęściej blokowane domeny, nic więcej związanego z konkretnym
   klientem czy domeną.
 - Port 53 wymaga w kontenerze uprawnień roota albo `CAP_NET_BIND_SERVICE`
-  - dostarczony obraz z tego powodu działa jako root (to samo podejście,
-  co w oficjalnych obrazach AdGuard Home i Pi-hole). Jeśli potrzebujesz
-  działać bez roota, zrób to przez nadpisanie compose z
-  `cap_add: [NET_BIND_SERVICE]` i użytkownikiem innym niż root w polu
-  `user:`.
+  - dostarczony obraz domyślnie z tego powodu działa jako root (to samo
+  podejście, co w oficjalnych obrazach AdGuard Home i Pi-hole). Dla w pełni
+  bezrootowej konfiguracji obraz ma już wbudowanego dedykowanego
+  użytkownika `dnsshield` oraz entrypoint, który - gdy o to poproszony -
+  robi `chown` na zamontowanych wolumenach, a potem przechodzi z roota na
+  tego użytkownika przez `gosu`, zanim uruchomi aplikację - włącz to
+  nadpisaniem compose:
+
+  ```yaml
+  services:
+    dns-shield:
+      environment:
+        - DNSSHIELD_RUN_AS_NONROOT=1
+      cap_drop:
+        - ALL
+      cap_add:
+        - NET_BIND_SERVICE
+        - CHOWN
+        - SETUID
+        - SETGID
+        - DAC_OVERRIDE
+      read_only: true
+      tmpfs:
+        - /tmp
+        - /run
+        - /var/lib/nginx
+        - /var/log/nginx
+        - /var/lib/letsencrypt
+        - /var/log/letsencrypt
+  ```
+
+  Dodaj do `cap_add` też `NET_ADMIN` i `NET_RAW`, jeśli włączasz również
+  DHCP (zobacz [Serwer DHCP (opcjonalnie)](#serwer-dhcp-opcjonalnie)
+  wyżej - te dwa są potrzebne niezależnie od tego, czy działasz jako
+  root, czy bez roota). Własna dyrektywa `user root;` w
+  `nginx/nginx.conf` jest po cichu ignorowana, gdy proces główny nginx
+  faktycznie nie jest rootem - to nieszkodliwe, nie błąd, nic tam nie
+  trzeba zmieniać.
+- Dostarczony `docker-compose.yml` ogranicza też kontener do 1 GiB RAM-u
+  i 512 PID-ów oraz ustawia `no-new-privileges`, więc nic wewnątrz niego
+  nie może zdobyć więcej uprawnień, niż miało na starcie. Podnieś
+  `mem_limit`/`pids_limit`, jeśli Twoja konfiguracja naprawdę potrzebuje
+  więcej zapasu (dużo dzierżaw DHCP, kilka procesów roboczych DNS przez
+  `DNSSHIELD_DNS_WORKERS`).
 - Klucze API do threat-intel (VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/
   URLhaus, oraz Twoja własna, lokalna usługa), sekret klienta SSO oraz
   hasło SMTP są przechowywane w `config.db`/`config.backup.yaml` tak samo,

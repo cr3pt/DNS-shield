@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 from dnslib import DNSRecord
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from app.anomaly import _base_domain
@@ -68,6 +68,15 @@ _SECURITY_HEADERS = {
         "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
         "base-uri 'self'; form-action 'self'; object-src 'none'"
     ),
+}
+
+CSRF_COOKIE_NAME = "dnsshield_csrf"
+CSRF_HEADER_NAME = "X-CSRF-Token"
+_CSRF_EXEMPT_PATHS = {
+    "/api/login",
+    "/api/login/totp",
+    "/api/login/passkey/options",
+    "/api/login/passkey/verify",
 }
 
 _CLEARABLE_SECRET_PATHS = {
@@ -675,6 +684,31 @@ def create_app(
 
     NO_CACHE = {"Cache-Control": "no-cache"}
 
+    def _set_auth_cookies(response: Response, token: str) -> None:
+        secure = bool(config_store.get("web", "https_enabled", default=False))
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=secure,
+            max_age=7 * 24 * 3600,
+            path="/",
+        )
+        response.set_cookie(
+            CSRF_COOKIE_NAME,
+            secrets.token_urlsafe(32),
+            httponly=False,
+            samesite="lax",
+            secure=secure,
+            max_age=7 * 24 * 3600,
+            path="/",
+        )
+
+    def _clear_auth_cookies(response: Response) -> None:
+        response.delete_cookie(COOKIE_NAME, path="/")
+        response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+
     def _current_user(request: Request) -> dict[str, Any] | None:
         cookie_token = request.cookies.get(COOKIE_NAME)
         username = sessions.username_for(cookie_token)
@@ -718,6 +752,17 @@ def create_app(
         if not patterns:
             return []
         return [ip for ip in stats.distinct_clients() if any(ip_matches(ip, p) for p in patterns)]
+
+    @app.middleware("http")
+    async def csrf_middleware(request: Request, call_next):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.url.path not in _CSRF_EXEMPT_PATHS:
+            cookie_token = request.cookies.get(COOKIE_NAME)
+            if cookie_token and sessions.username_for(cookie_token) is not None:
+                csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME)
+                csrf_header = request.headers.get(CSRF_HEADER_NAME)
+                if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
+                    return JSONResponse({"detail": "Missing or invalid CSRF token"}, status_code=403)
+        return await call_next(request)
 
     @app.middleware("http")
     async def security_headers_middleware(request: Request, call_next):
@@ -782,15 +827,7 @@ def create_app(
 
         login_throttle.record_success(client_ip)
         token = sessions.create(user["username"])
-        response.set_cookie(
-            COOKIE_NAME,
-            token,
-            httponly=True,
-            samesite="lax",
-            secure=bool(config_store.get("web", "https_enabled", default=False)),
-            max_age=7 * 24 * 3600,
-            path="/",
-        )
+        _set_auth_cookies(response, token)
         if audit_log is not None:
             audit_log.record(user["username"], "login", client_ip=client_ip)
         return {"ok": True, "user": public_user(user)}
@@ -823,15 +860,7 @@ def create_app(
         login_throttle.record_success(client_ip)
         user = users.get(username)
         token = sessions.create(username)
-        response.set_cookie(
-            COOKIE_NAME,
-            token,
-            httponly=True,
-            samesite="lax",
-            secure=bool(config_store.get("web", "https_enabled", default=False)),
-            max_age=7 * 24 * 3600,
-            path="/",
-        )
+        _set_auth_cookies(response, token)
         if audit_log is not None:
             audit_log.record(username, "login (2FA)", client_ip=client_ip)
         return {"ok": True, "user": public_user(user)}
@@ -895,15 +924,7 @@ def create_app(
         login_throttle.record_success(client_ip)
         user = users.get(username)
         token = sessions.create(username)
-        response.set_cookie(
-            COOKIE_NAME,
-            token,
-            httponly=True,
-            samesite="lax",
-            secure=bool(config_store.get("web", "https_enabled", default=False)),
-            max_age=7 * 24 * 3600,
-            path="/",
-        )
+        _set_auth_cookies(response, token)
         if audit_log is not None:
             audit_log.record(username, "login (passkey)", client_ip=client_ip)
         return {"ok": True, "user": public_user(user)}
@@ -981,15 +1002,7 @@ def create_app(
         login_throttle.record_success(client_ip)
         session_token = sessions.create(user["username"])
         redirect = RedirectResponse(entry.get("next") or "/")
-        redirect.set_cookie(
-            COOKIE_NAME,
-            session_token,
-            httponly=True,
-            samesite="lax",
-            secure=bool(config_store.get("web", "https_enabled", default=False)),
-            max_age=7 * 24 * 3600,
-            path="/",
-        )
+        _set_auth_cookies(redirect, session_token)
         if audit_log is not None:
             audit_log.record(user["username"], "login (SSO)", client_ip=client_ip)
         return redirect
@@ -998,7 +1011,7 @@ def create_app(
     def logout(request: Request, response: Response) -> dict[str, Any]:
         user = _current_user(request)
         sessions.destroy(request.cookies.get(COOKIE_NAME))
-        response.delete_cookie(COOKIE_NAME, path="/")
+        _clear_auth_cookies(response)
         if audit_log is not None and user is not None:
             client_ip = request.client.host if request.client else "unknown"
             audit_log.record(user["username"], "logout", client_ip=client_ip)

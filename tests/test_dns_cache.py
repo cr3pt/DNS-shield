@@ -1,3 +1,4 @@
+import json
 import time
 
 from dnslib import QTYPE, RR, A, DNSRecord
@@ -73,7 +74,7 @@ def test_expiring_soon_respects_min_hits_and_inflight(config_store):
 
 
 def test_persistence_round_trip(config_store, tmp_path):
-    path = tmp_path / "dns_cache.pkl"
+    path = tmp_path / "dns_cache.json"
     cache = DNSCache(config_store, persist_path=path)
     request = DNSRecord.question("persisted.example.com", qtype="A")
     cache.put(request, _response("persisted.example.com", ttl=300))
@@ -86,7 +87,7 @@ def test_persistence_round_trip(config_store, tmp_path):
 
 
 def test_persistence_drops_already_expired_entries(config_store, tmp_path):
-    path = tmp_path / "dns_cache.pkl"
+    path = tmp_path / "dns_cache.json"
     cache = DNSCache(config_store, persist_path=path)
     request = DNSRecord.question("shortlived.example.com", qtype="A")
     cache.put(request, _response("shortlived.example.com", ttl=1))
@@ -96,3 +97,36 @@ def test_persistence_drops_already_expired_entries(config_store, tmp_path):
 
     reloaded = DNSCache(config_store, persist_path=path)
     assert reloaded.get(request) is None
+
+
+def test_persisted_file_is_plain_json_not_pickle(config_store, tmp_path):
+    path = tmp_path / "dns_cache.json"
+    cache = DNSCache(config_store, persist_path=path)
+    request = DNSRecord.question("jsoncheck.example.com", qtype="A")
+    cache.put(request, _response("jsoncheck.example.com", ttl=300))
+    cache.save()
+
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["version"] == 1
+    assert data["entries"][0]["key"][0] == "jsoncheck.example.com."
+
+
+def test_load_ignores_corrupt_or_hostile_file_contents(config_store, tmp_path):
+    path = tmp_path / "dns_cache.json"
+
+    path.write_text('{"not": "a pickle", "entries": "garbage"}', encoding="utf-8")
+    cache = DNSCache(config_store, persist_path=path)
+    assert cache.stats()["entries"] == 0
+
+    path.write_text('{"version": 1, "entries": [{"key": ["a"], "answers": "not-a-list"}]}', encoding="utf-8")
+    cache = DNSCache(config_store, persist_path=path)
+    assert cache.stats()["entries"] == 0
+
+    path.write_text('{"version": 1, "entries": [{"key": ["x.example.com.", 1, 1], "expires_at": 9999999999, "hits": 0, "answers": ["not-valid-base64-dns!!"]}]}', encoding="utf-8")
+    cache = DNSCache(config_store, persist_path=path)
+    assert cache.stats()["entries"] == 0
+
+    path.write_text("not even json{{{", encoding="utf-8")
+    cache = DNSCache(config_store, persist_path=path)
+    assert cache.stats()["entries"] == 0
