@@ -7,10 +7,13 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-from dnslib import RCODE, RR, DNSBuffer, DNSError, DNSRecord
+from dnslib import QTYPE, RCODE, RR, DNSBuffer, DNSError, DNSRecord
 
 CacheKey = tuple[str, int, int]
 CacheEntry = tuple[float, list[RR], int]
+
+_DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
+_EDNS_DO_BIT = 1 << 15
 
 
 class DNSCache:
@@ -54,8 +57,8 @@ class DNSCache:
             self._hits += 1
             ttl = max(1, int(remaining))
 
-        reply = request.reply()
-        for rr in answers:
+        reply = request.reply(aa=0)
+        for rr in self._matching_answers(request, answers):
             reply.add_answer(
                 RR(self._match_case(request, rr.rname), rr.rtype, rclass=rr.rclass, ttl=ttl, rdata=rr.rdata)
             )
@@ -72,12 +75,31 @@ class DNSCache:
                 return None
             self._stale_hits += 1
 
-        reply = request.reply()
-        for rr in answers:
+        reply = request.reply(aa=0)
+        for rr in self._matching_answers(request, answers):
             reply.add_answer(
                 RR(self._match_case(request, rr.rname), rr.rtype, rclass=rr.rclass, ttl=1, rdata=rr.rdata)
             )
         return reply
+
+    @classmethod
+    def _matching_answers(cls, request: DNSRecord, answers: list[RR]) -> list[RR]:
+        """Drop cached DNSSEC records for a request that never asked for them.
+
+        The cache key doesn't distinguish DNSSEC-aware queries from plain ones, so
+        an entry populated by a client with EDNS0/DO set can otherwise leak its
+        RRSIG/NSEC/etc. records to a later, non-DNSSEC-aware client - which is
+        invalid per RFC 4035 and can make strict stub resolvers discard the reply."""
+        if cls._wants_dnssec(request):
+            return answers
+        return [rr for rr in answers if rr.rtype not in _DNSSEC_RTYPES]
+
+    @staticmethod
+    def _wants_dnssec(request: DNSRecord) -> bool:
+        for rr in request.ar:
+            if rr.rtype == QTYPE.OPT:
+                return bool(rr.ttl & _EDNS_DO_BIT)
+        return False
 
     @staticmethod
     def _match_case(request: DNSRecord, rname):

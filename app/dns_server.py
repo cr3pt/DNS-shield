@@ -23,6 +23,8 @@ from app.safe_search import find_safe_search_target
 logger = logging.getLogger("dnsshield.dns")
 
 _DNSSEC_UDP_SIZE = 1232
+_DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
+_EDNS_DO_BIT = 1 << 15
 
 _TRUSTED_QUERY_NETWORKS = tuple(
     ipaddress.ip_network(net)
@@ -58,7 +60,7 @@ class FilteringResolver:
         client_ip = handler.client_address[0] if handler is not None else "?"
 
         if not self._query_allowed(client_ip):
-            reply = request.reply()
+            reply = request.reply(aa=0)
             reply.header.rcode = RCODE.REFUSED
             return reply
 
@@ -66,7 +68,7 @@ class FilteringResolver:
             self._client_names.touch(client_ip)
 
         if qtype == QTYPE.AAAA and self._config.get("dns", "block_ipv6", default=False):
-            return request.reply()
+            return request.reply(aa=0)
 
         reason = self._blocklist.block_reason(qname, client_ip) if qname else None
         blocked = reason is not None
@@ -196,7 +198,7 @@ class FilteringResolver:
         return [str(rr.rdata).rstrip(".").lower() for rr in response.rr if rr.rtype == QTYPE.CNAME]
 
     def _blocked_reply(self, request: DNSRecord) -> DNSRecord:
-        reply = request.reply()
+        reply = request.reply(aa=0)
         mode = self._config.get("dns", "block_mode", default="nxdomain")
         qtype = request.q.qtype
 
@@ -214,7 +216,7 @@ class FilteringResolver:
         qtype_name = QTYPE.get(request.q.qtype, "A")
         sub_request = DNSRecord.question(target_hostname, qtype=qtype_name)
         resolved = self._forward(sub_request, target_hostname, client_ip)
-        reply = request.reply()
+        reply = request.reply(aa=0)
         for rr in resolved.rr:
             if rr.rtype in (QTYPE.A, QTYPE.AAAA):
                 reply.add_answer(RR(request.q.qname, rr.rtype, rdata=rr.rdata, ttl=rr.ttl))
@@ -222,7 +224,7 @@ class FilteringResolver:
 
     @staticmethod
     def _rewrite_reply(request: DNSRecord, qtype: int, ip: str) -> DNSRecord:
-        reply = request.reply()
+        reply = request.reply(aa=0)
         if qtype == QTYPE.A:
             reply.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(ip), ttl=300))
         else:
@@ -231,7 +233,7 @@ class FilteringResolver:
 
     @staticmethod
     def _rewrite_entry_reply(request: DNSRecord, record_type: str, value: str, ttl: int) -> DNSRecord:
-        reply = request.reply()
+        reply = request.reply(aa=0)
         if record_type == "A":
             reply.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(value), ttl=ttl))
         elif record_type == "AAAA":
@@ -301,6 +303,33 @@ class FilteringResolver:
             if str(rr.rname).rstrip(".").lower() == queried:
                 rr.rname = original
 
+    @staticmethod
+    def _client_requested_dnssec(request: DNSRecord) -> bool:
+        for rr in request.ar:
+            if rr.rtype == QTYPE.OPT:
+                return bool(rr.ttl & _EDNS_DO_BIT)
+        return False
+
+    @classmethod
+    def _sanitize_dnssec(cls, request: DNSRecord, response: DNSRecord) -> None:
+        """Never hand a client DNSSEC data it didn't ask for.
+
+        DNS-shield always sets the DO bit on its own upstream query when DNSSEC
+        tracking is enabled (to learn whether upstream validated the answer via
+        the AD bit), regardless of whether the original client's query had EDNS0/DO
+        set. Relaying the upstream's raw response verbatim in that case leaks
+        RRSIG/NSEC/etc. records - and an AD bit - to a client that never signaled
+        DNSSEC support, which is invalid per RFC 4035 and can make strict stub
+        resolvers (e.g. macOS's mDNSResponder) discard the reply and time out.
+        """
+        response.header.aa = 0
+        if cls._client_requested_dnssec(request):
+            return
+        response.header.ad = 0
+        response.rr = [rr for rr in response.rr if rr.rtype not in _DNSSEC_RTYPES]
+        response.auth = [rr for rr in response.auth if rr.rtype not in _DNSSEC_RTYPES]
+        response.ar = [rr for rr in response.ar if rr.rtype != QTYPE.OPT and rr.rtype not in _DNSSEC_RTYPES]
+
     def _forward(self, request: DNSRecord, qname: str, client_ip: str) -> DNSRecord:
         data = self._prepare_upstream_data(request)
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
@@ -325,6 +354,7 @@ class FilteringResolver:
                 parsed = DNSRecord.parse(resp)
                 self._restore_query_case(request, parsed)
                 self._record_dnssec(qname, parsed)
+                self._sanitize_dnssec(request, parsed)
                 return parsed
             except Exception as exc:
                 if self._upstream_stats is not None:
@@ -337,7 +367,7 @@ class FilteringResolver:
             logger.info("serving stale cache entry for %s after upstream failure", qname)
             return stale
 
-        reply = request.reply()
+        reply = request.reply(aa=0)
         reply.header.rcode = RCODE.SERVFAIL
         return reply
 
@@ -375,6 +405,7 @@ class FilteringResolver:
                 parsed = DNSRecord.parse(resp)
                 self._restore_query_case(request, parsed)
                 self._record_dnssec(qname, parsed)
+                self._sanitize_dnssec(request, parsed)
                 return parsed
             logger.warning("upstream %s failed (race mode): %s", upstream, exc)
 
@@ -383,7 +414,7 @@ class FilteringResolver:
             logger.info("serving stale cache entry for %s after upstream failure (race mode)", qname)
             return stale
 
-        reply = request.reply()
+        reply = request.reply(aa=0)
         reply.header.rcode = RCODE.SERVFAIL
         return reply
 
