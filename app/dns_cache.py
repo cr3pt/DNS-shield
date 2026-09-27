@@ -56,7 +56,9 @@ class DNSCache:
 
         reply = request.reply()
         for rr in answers:
-            reply.add_answer(RR(rr.rname, rr.rtype, rclass=rr.rclass, ttl=ttl, rdata=rr.rdata))
+            reply.add_answer(
+                RR(self._match_case(request, rr.rname), rr.rtype, rclass=rr.rclass, ttl=ttl, rdata=rr.rdata)
+            )
         return reply
 
     def get_stale(self, request: DNSRecord, grace_seconds: float) -> DNSRecord | None:
@@ -72,8 +74,21 @@ class DNSCache:
 
         reply = request.reply()
         for rr in answers:
-            reply.add_answer(RR(rr.rname, rr.rtype, rclass=rr.rclass, ttl=1, rdata=rr.rdata))
+            reply.add_answer(
+                RR(self._match_case(request, rr.rname), rr.rtype, rclass=rr.rclass, ttl=1, rdata=rr.rdata)
+            )
         return reply
+
+    @staticmethod
+    def _match_case(request: DNSRecord, rname):
+        """Echo the current request's exact case for the queried name, not whatever
+        case an earlier (possibly differently-cased) query stored it under - the
+        cache key is case-insensitive, so a cache hit can otherwise leak another
+        query's case-randomized name into this response's answer section."""
+        original = request.q.qname
+        if str(rname).rstrip(".").lower() == str(original).rstrip(".").lower():
+            return original
+        return rname
 
     def put(self, request: DNSRecord, response: DNSRecord) -> None:
         if not self._enabled():

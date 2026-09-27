@@ -39,6 +39,34 @@ def test_get_stale_beyond_grace_returns_none(config_store):
     assert cache.get_stale(request, grace_seconds=60) is None
 
 
+def test_get_echoes_current_request_case_not_cached_case(config_store):
+    cache = DNSCache(config_store)
+    populating_request = DNSRecord.question("PyPi.OrG", qtype="A")
+    cache.put(populating_request, _response("PyPi.OrG", ttl=60))
+
+    differently_cased_request = DNSRecord.question("pypi.org", qtype="A")
+    answer = cache.get(differently_cased_request)
+
+    assert answer is not None
+    assert str(answer.rr[0].rname) == "pypi.org."
+
+
+def test_get_stale_echoes_current_request_case_not_cached_case(config_store):
+    cache = DNSCache(config_store)
+    populating_request = DNSRecord.question("PyPi.OrG", qtype="A")
+    cache.put(populating_request, _response("PyPi.OrG", ttl=1))
+
+    key = cache._key(populating_request)
+    expires_at, answers, hits = cache._store[key]
+    cache._store[key] = (time.time() - 10, answers, hits)
+
+    differently_cased_request = DNSRecord.question("pypi.org", qtype="A")
+    stale = cache.get_stale(differently_cased_request, grace_seconds=60)
+
+    assert stale is not None
+    assert str(stale.rr[0].rname) == "pypi.org."
+
+
 def test_purge_expired_removes_only_beyond_grace(config_store):
     cache = DNSCache(config_store)
     fresh_request = DNSRecord.question("fresh.example.com", qtype="A")
