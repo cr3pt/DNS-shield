@@ -125,7 +125,9 @@ def main() -> None:
         web_host, web_port, https_enabled=https_enabled, cert_path=cert_path, key_path=key_path
     )
 
+    logger.info("opening stats.db ...")
     stats = Stats(DATA_DIR / "stats.db", config_store)
+    logger.info("stats.db ready")
 
     workers: list[multiprocessing.Process] = []
     if num_workers > 1:
@@ -159,6 +161,7 @@ def main() -> None:
     mac_resolver = MacResolver()
     mac_resolver.start()
 
+    logger.info("loading blocklist cache from disk ...")
     blocklist = BlocklistManager(
         config_store, cache_dir=DATA_DIR / "blocklist_cache", mac_resolver=mac_resolver, client_names=client_names
     )
@@ -168,17 +171,21 @@ def main() -> None:
     atexit.register(cache.save)
     upstream_stats = UpstreamStats(config_store)
     dnssec_cache = DnssecCache()
+    logger.info("opening enrichment.db ...")
     enrichment_store = EnrichmentStore(DATA_DIR / "enrichment.db")
+    logger.info("enrichment.db ready")
 
     notifications = NotificationSender(config_store)
 
     url_ping = UrlPingTask(config_store)
     url_ping.start()
 
+    logger.info("opening anomalies.db ...")
     anomaly = AnomalyDetector(
         config_store, stats, DATA_DIR / "anomalies.db", on_new_anomalies=notifications.notify_anomalies
     )
     anomaly.start()
+    logger.info("anomalies.db ready")
 
     auto_enricher = AutoEnricher(config_store, stats, enrichment_store, anomaly=anomaly)
     auto_enricher.start()
@@ -198,8 +205,10 @@ def main() -> None:
             details={"mac": mac, "ip": ip, "scope": scope_name},
         )
 
+    logger.info("opening dhcp_leases.db ...")
     dhcp_server = DhcpServer(config_store, DATA_DIR, on_new_client=_on_new_dhcp_client)
     dhcp_server.start()
+    logger.info("dhcp_leases.db ready")
 
     rogue_dhcp_detector = RogueDhcpDetector(config_store, anomaly_detector=anomaly)
     rogue_dhcp_detector.start()
@@ -207,13 +216,18 @@ def main() -> None:
     proxy_manager = ProxyManager(config_store)
     proxy_manager.start()
 
+    logger.info("opening graph.db ...")
     client_domain_graph = ClientDomainGraph(config_store, stats, DATA_DIR / "graph.db")
     client_domain_graph.start()
+    logger.info("graph.db ready")
 
     users = UserStore(config_store)
     sessions = SessionStore()
+    logger.info("opening audit.db ...")
     audit_log = AuditLog(DATA_DIR / "audit.db", config_store)
+    logger.info("audit.db ready")
 
+    logger.info("building DNS resolver chain ...")
     resolver = build_resolver(
         config_store,
         blocklist,
