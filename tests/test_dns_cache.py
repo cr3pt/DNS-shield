@@ -1,7 +1,7 @@
 import json
 import time
 
-from dnslib import QTYPE, RR, A, DNSRecord
+from dnslib import EDNS0, QTYPE, RR, RRSIG, A, DNSRecord
 
 from app.dns_cache import DNSCache
 
@@ -10,6 +10,13 @@ def _response(qname: str, ip: str = "1.2.3.4", ttl: int = 60) -> DNSRecord:
     request = DNSRecord.question(qname, qtype="A")
     reply = request.reply()
     reply.add_answer(RR(qname, QTYPE.A, rdata=A(ip), ttl=ttl))
+    return reply
+
+
+def _dnssec_response(qname: str, ip: str = "1.2.3.4", ttl: int = 60) -> DNSRecord:
+    reply = _response(qname, ip, ttl)
+    sig = RRSIG(QTYPE.A, 8, 2, ttl, 1893456000, 1577836800, 12345, qname, b"\x00" * 16)
+    reply.add_answer(RR(qname, QTYPE.RRSIG, rdata=sig, ttl=ttl))
     return reply
 
 
@@ -37,6 +44,70 @@ def test_get_stale_beyond_grace_returns_none(config_store):
     cache._store[key] = (time.time() - 120, answers, hits)
 
     assert cache.get_stale(request, grace_seconds=60) is None
+
+
+def test_get_echoes_current_request_case_not_cached_case(config_store):
+    cache = DNSCache(config_store)
+    populating_request = DNSRecord.question("PyPi.OrG", qtype="A")
+    cache.put(populating_request, _response("PyPi.OrG", ttl=60))
+
+    differently_cased_request = DNSRecord.question("pypi.org", qtype="A")
+    answer = cache.get(differently_cased_request)
+
+    assert answer is not None
+    assert str(answer.rr[0].rname) == "pypi.org."
+
+
+def test_get_stale_echoes_current_request_case_not_cached_case(config_store):
+    cache = DNSCache(config_store)
+    populating_request = DNSRecord.question("PyPi.OrG", qtype="A")
+    cache.put(populating_request, _response("PyPi.OrG", ttl=1))
+
+    key = cache._key(populating_request)
+    expires_at, answers, hits = cache._store[key]
+    cache._store[key] = (time.time() - 10, answers, hits)
+
+    differently_cased_request = DNSRecord.question("pypi.org", qtype="A")
+    stale = cache.get_stale(differently_cased_request, grace_seconds=60)
+
+    assert stale is not None
+    assert str(stale.rr[0].rname) == "pypi.org."
+
+
+def test_get_strips_cached_dnssec_records_for_a_non_dnssec_request(config_store):
+    cache = DNSCache(config_store)
+    dnssec_request = DNSRecord.question("signed.example.com", qtype="A")
+    dnssec_request.add_ar(EDNS0(flags="do", udp_len=1232))
+    cache.put(dnssec_request, _dnssec_response("signed.example.com"))
+
+    plain_request = DNSRecord.question("signed.example.com", qtype="A")
+    answer = cache.get(plain_request)
+
+    assert answer is not None
+    assert [rr.rtype for rr in answer.rr] == [QTYPE.A]
+
+
+def test_get_keeps_cached_dnssec_records_for_a_dnssec_request(config_store):
+    cache = DNSCache(config_store)
+    dnssec_request = DNSRecord.question("signed.example.com", qtype="A")
+    dnssec_request.add_ar(EDNS0(flags="do", udp_len=1232))
+    cache.put(dnssec_request, _dnssec_response("signed.example.com"))
+
+    answer = cache.get(dnssec_request)
+
+    assert answer is not None
+    assert QTYPE.RRSIG in [rr.rtype for rr in answer.rr]
+
+
+def test_get_never_marks_cached_answer_authoritative(config_store):
+    cache = DNSCache(config_store)
+    request = DNSRecord.question("plain.example.com", qtype="A")
+    cache.put(request, _response("plain.example.com"))
+
+    answer = cache.get(request)
+
+    assert answer is not None
+    assert answer.header.aa == 0
 
 
 def test_purge_expired_removes_only_beyond_grace(config_store):

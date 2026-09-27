@@ -1,11 +1,12 @@
 import random
 
-from dnslib import CNAME, QTYPE, RCODE, RR, A, DNSRecord
+from dnslib import CNAME, EDNS0, QTYPE, RCODE, RR, RRSIG, A, DNSRecord
 
 from app import dns_server
 from app.blocklist import BlocklistManager
 from app.dns_cache import DNSCache
 from app.dns_server import FilteringResolver
+from app.dnssec import DnssecCache
 
 
 class _NullStats:
@@ -18,9 +19,9 @@ class _FakeHandler:
         self.client_address = (client_ip, 53535)
 
 
-def _resolver(config_store, tmp_path, cache=None):
+def _resolver(config_store, tmp_path, cache=None, dnssec_cache=None):
     blocklist = BlocklistManager(config_store, tmp_path / "cache")
-    return FilteringResolver(blocklist, _NullStats(), config_store, cache=cache)
+    return FilteringResolver(blocklist, _NullStats(), config_store, cache=cache, dnssec_cache=dnssec_cache)
 
 
 def _cname_response(qname: str, cname_target: str, final_ip: str = "1.2.3.4") -> bytes:
@@ -217,6 +218,71 @@ def test_case_restoration_does_not_touch_cname_target_owner_name(config_store, t
     assert str(response.q.qname) == "shop.example.com."
     assert str(response.rr[0].rname) == "shop.example.com."
     assert str(response.rr[1].rname) == "BaCkEnD.example.net."
+
+
+def _dnssec_answer(qname: str, ip: str = "9.8.7.6", echo_opt: bool = True) -> bytes:
+    request = DNSRecord.question(qname, qtype="A")
+    reply = request.reply()
+    reply.header.aa = 1
+    reply.header.ad = 1
+    reply.add_answer(RR(qname, QTYPE.A, rdata=A(ip), ttl=60))
+    sig = RRSIG(QTYPE.A, 8, 2, 60, 1893456000, 1577836800, 12345, qname, b"\x00" * 16)
+    reply.add_answer(RR(qname, QTYPE.RRSIG, rdata=sig, ttl=60))
+    if echo_opt:
+        reply.add_ar(EDNS0(flags="do", udp_len=1232))
+    return reply.pack()
+
+
+def test_dnssec_data_stripped_when_client_did_not_request_it(config_store, tmp_path, monkeypatch):
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update({"dnssec_enabled": True}))
+    resolver = _resolver(config_store, tmp_path, dnssec_cache=DnssecCache())
+
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _dnssec_answer("plain.example.com")
+    )
+
+    request = DNSRecord.question("plain.example.com", qtype="A")
+    response = resolver.resolve(request, None)
+
+    assert [rr.rtype for rr in response.rr] == [QTYPE.A]
+    assert not any(rr.rtype == QTYPE.OPT for rr in response.ar)
+    assert response.header.ad == 0
+    assert response.header.aa == 0
+
+
+def test_dnssec_data_kept_when_client_requested_it(config_store, tmp_path, monkeypatch):
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update({"dnssec_enabled": True}))
+    resolver = _resolver(config_store, tmp_path, dnssec_cache=DnssecCache())
+
+    monkeypatch.setattr(
+        dns_server.upstream_transport, "forward", lambda data, upstream, timeout: _dnssec_answer("signed.example.com")
+    )
+
+    request = DNSRecord.question("signed.example.com", qtype="A")
+    request.add_ar(EDNS0(flags="do", udp_len=1232))
+    response = resolver.resolve(request, None)
+
+    assert QTYPE.RRSIG in [rr.rtype for rr in response.rr]
+    assert response.header.ad == 1
+    assert response.header.aa == 0
+
+
+def test_forwarded_response_is_never_marked_authoritative(config_store, tmp_path, monkeypatch):
+    resolver = _resolver(config_store, tmp_path)
+
+    def fake_forward(data, upstream, timeout):
+        outgoing = DNSRecord.parse(data)
+        reply = outgoing.reply()
+        reply.header.aa = 1
+        reply.add_answer(RR(outgoing.q.qname, QTYPE.A, rdata=A("1.2.3.4"), ttl=60))
+        return reply.pack()
+
+    monkeypatch.setattr(dns_server.upstream_transport, "forward", fake_forward)
+
+    request = DNSRecord.question("plain.example.com", qtype="A")
+    response = resolver.resolve(request, None)
+
+    assert response.header.aa == 0
 
 
 def test_query_acl_refuses_public_client_by_default(config_store, tmp_path, monkeypatch):
