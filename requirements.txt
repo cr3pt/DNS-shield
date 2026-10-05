@@ -1,11 +1,11 @@
 dnslib==0.9.26
-fastapi==0.141.1
+fastapi==0.142.2
 uvicorn[standard]==0.54.0
 PyYAML==6.0.3
 requests==2.34.2
 python-multipart==0.0.32
 bcrypt==5.0.0
-cryptography==50.0.1
+cryptography==50.0.2
 pyOpenSSL==26.4.0
 pyotp==2.10.0
 qrcode==8.2
@@ -13,4 +13,4 @@ webauthn==3.0.1
 Authlib==1.8.0
 pyroute2==0.9.6
 tldextract==5.3.2
-regex==2026.9.10
+regex==2026.9.29
