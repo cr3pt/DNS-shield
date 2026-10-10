@@ -3045,3 +3045,7 @@ pytest
   zablokowana wg wyrażeń regularnych istnieje jako mechanizm blokowania
   opartego na wzorcach (zobacz wyżej), ale to płaska lista Twoich własnych
   wzorców, a nie interpreter reguł AdBlock.
+
+## Licencja
+
+BSD 3-Clause z warunkiem [Commons Clause](https://commonsclause.com/) - zobacz [LICENSE](LICENSE). Darmowe użycie, modyfikacja i redystrybucja; nie można tego sprzedawać ani pobierać opłat (za hosting, konsulting, wsparcie) za produkt lub usługę, której wartość w istotnej części pochodzi z tego oprogramowania.

@@ -2725,3 +2725,7 @@ pytest
   separate, experimental regex denylist exists for pattern-based blocking
   (see above), but it's a flat list of your own patterns, not an
   AdBlock-rule interpreter.
+
+## License
+
+BSD 3-Clause with the [Commons Clause](https://commonsclause.com/) condition - see [LICENSE](LICENSE). Free to use, modify, and redistribute; you may not sell it or charge a fee (hosting, consulting, support) for a product or service whose value comes substantially from this software.

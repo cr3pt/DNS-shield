@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
+# See the LICENSE file in the project root for full license terms.
 dnslib==0.9.26
 fastapi==0.142.2
 uvicorn[standard]==0.54.0

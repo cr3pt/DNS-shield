@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
+# See the LICENSE file in the project root for full license terms.
+
 from __future__ import annotations
 
 import base64
@@ -84,12 +87,6 @@ class DNSCache:
 
     @classmethod
     def _matching_answers(cls, request: DNSRecord, answers: list[RR]) -> list[RR]:
-        """Drop cached DNSSEC records for a request that never asked for them.
-
-        The cache key doesn't distinguish DNSSEC-aware queries from plain ones, so
-        an entry populated by a client with EDNS0/DO set can otherwise leak its
-        RRSIG/NSEC/etc. records to a later, non-DNSSEC-aware client - which is
-        invalid per RFC 4035 and can make strict stub resolvers discard the reply."""
         if cls._wants_dnssec(request):
             return answers
         return [rr for rr in answers if rr.rtype not in _DNSSEC_RTYPES]
@@ -103,10 +100,6 @@ class DNSCache:
 
     @staticmethod
     def _match_case(request: DNSRecord, rname):
-        """Echo the current request's exact case for the queried name, not whatever
-        case an earlier (possibly differently-cased) query stored it under - the
-        cache key is case-insensitive, so a cache hit can otherwise leak another
-        query's case-randomized name into this response's answer section."""
         original = request.q.qname
         if str(rname).rstrip(".").lower() == str(original).rstrip(".").lower():
             return original

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
+# See the LICENSE file in the project root for full license terms.
+
 from __future__ import annotations
 
 import ipaddress
@@ -312,16 +315,6 @@ class FilteringResolver:
 
     @classmethod
     def _sanitize_dnssec(cls, request: DNSRecord, response: DNSRecord) -> None:
-        """Never hand a client DNSSEC data it didn't ask for.
-
-        DNS-shield always sets the DO bit on its own upstream query when DNSSEC
-        tracking is enabled (to learn whether upstream validated the answer via
-        the AD bit), regardless of whether the original client's query had EDNS0/DO
-        set. Relaying the upstream's raw response verbatim in that case leaks
-        RRSIG/NSEC/etc. records - and an AD bit - to a client that never signaled
-        DNSSEC support, which is invalid per RFC 4035 and can make strict stub
-        resolvers (e.g. macOS's mDNSResponder) discard the reply and time out.
-        """
         response.header.aa = 0
         if cls._client_requested_dnssec(request):
             return
