@@ -231,7 +231,7 @@ dns:
   listen_port: 53
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # as many as you like - see below
   upstream_timeout_seconds: 3.0
-  upstream_strategy: "in_order"  # or "fastest" / "most_stable" / "race" - see below
+  upstream_strategy: "in_order"  # or "fastest" / "most_stable" / "race" / "random" - see below
   upstream_stats_window_minutes: 15
   block_mode: "nxdomain"                     # or "null_ip"
   blocked_ipv4: "0.0.0.0"        # used when block_mode is "null_ip"
@@ -333,6 +333,8 @@ them at once:
   last `upstream_stats_window_minutes` (15 by default).
 - `most_stable` - try whichever has the fewest failures / most consistent
   response time in that window, favoring reliability over raw speed.
+- `random` - shuffle the list and try it in that random order for each
+  query, spreading load across providers instead of always favoring one.
 - `race` ("All at once - FIFO") - send the query to every configured
   upstream simultaneously and answer the client with whichever replies
   first; the rest keep running in the background purely so their
@@ -471,8 +473,10 @@ dns_rewrites:
 `db.staging.internal.example`, but - unlike the plain-name form above -
 *not* `internal.example` itself, since the pattern requires at least one
 character before the literal `.internal.example`; add a second entry for
-the bare domain if you want that too. A/AAAA only, either way - no CNAME
-chasing, to keep this a flat lookup that always terminates. It's checked
+the bare domain if you want that too. `type` can be `A`, `AAAA`, `CNAME`,
+or `TXT`; a `CNAME` rewrite's target is returned as-is, never itself
+resolved or chased further, to keep this a flat lookup that always
+terminates. It's checked
 *after* blocking, not before: a fully blocked client or an already-blocked
 domain still behaves as blocked regardless of any rewrite - a rewrite is
 an answer, not an exemption. Manage rewrites from the dashboard
@@ -778,8 +782,10 @@ client_groups:
 
 A window is checked against the group's clients on every query - it beats
 even the group's own allowlist while active (the point of a bedtime block
-is that it's total), the same way `blocked_clients` beats everything except
-`enabled: false`. `start`/`end` can wrap past midnight (`22:00`-`07:00`
+is that it's total), the same way `blocked_clients` beats everything;
+neither check is affected by the group's own `enabled` flag (that flag
+only turns the group's *blocklist/allowlist* membership on or off, not
+`blocked_clients` or an active schedule). `start`/`end` can wrap past midnight (`22:00`-`07:00`
 above spans two calendar days); the `enabled` flag turns the whole thing
 off without losing the saved window, and defaults to off for a group that
 doesn't set it, so this is fully opt-in.
@@ -882,8 +888,9 @@ trust) and bounded to `cache_max_entries` with LRU eviction. A repeat
 lookup for anything still cached is answered immediately, without
 forwarding to an upstream at all - lower latency and less outbound query
 volume for the CDN/ad/tracker hostnames that make up most repeat
-traffic. Purely in-process memory: nothing is written to disk, and it's
-empty again after a restart. The Stats tab shows current entry count and
+traffic. It's periodically saved to `data/dns_cache.json` (every 5 minutes)
+and reloaded from there on startup, so entries survive a restart as long
+as their TTL hasn't expired in the meantime. The Stats tab shows current entry count and
 hit rate; Settings -> DNS answer cache has a "Clear cache" button to
 empty it on demand (e.g. right after changing upstreams, to stop
 serving anything answered by the old one).
@@ -897,11 +904,12 @@ DNS-shield itself serves a small "this domain is blocked" page instead:
 point `blocked_ipv4` at this host's own reachable LAN IP, and a
 plain-HTTP request for a blocked domain lands on `dns.block_page_port`
 (80 by default) and gets a page naming the domain (read straight from the
-request's own `Host` header) **and why it's blocked** - which blocklist
-subscription matched, a manual denylist entry, or the client itself being
-blocked - looked up the same way as the query log's (i) icon, against
-your *current* config rather than whatever was true when the DNS answer
-was originally given.
+request's own `Host` header) **and why it's blocked** - the same reason
+string the query log's (i) icon shows (see
+[Query log browser](#query-log-browser-quick-block-and-quick-hide) below
+for the full list of possible reasons) - looked up against your
+*current* config rather than whatever was true when the DNS answer was
+originally given.
 
 This only ever works for plain HTTP. **HTTPS can't be shown a page this
 way** - the browser fails the certificate check before it ever sends the
@@ -948,8 +956,11 @@ Irreversible; the dashboard asks for confirmation first.
 
 A blocked row also shows an (i) icon - hover it to see exactly why that
 query was blocked: which blocklist subscription matched (by name), a
-manual denylist entry (global or a specific client group's), or the
-non-Latin-script filter. This is computed at query time and stored per
+manual denylist entry (global or a specific client group's), the
+non-Latin-script filter, a manually blocked client, an active bedtime
+schedule, CNAME cloaking, DNS rebinding protection, a blocked destination
+IP, or an experimental regex-denylist pattern - whichever mechanism
+actually fired. This is computed at query time and stored per
 row (a `reason` column on `stats.db`, backfilled as `null` for rows
 logged before this existed - hover shows nothing for those).
 
@@ -1103,15 +1114,23 @@ switch when you're ready. AbuseIPDB has no domain-lookup endpoint, so it's
 skipped (not treated as an error) for domain targets and only ever
 queried for IP targets; VirusTotal and OTX support both.
 
-**Five more public sources** sit alongside those three under the same
-switch and the same free-tier-key-required gate:
+**Seven more public sources** sit alongside those three under the same
+switch and the same gate (most need a free-tier key; two don't - see
+below):
 [GreyNoise](https://www.greynoise.io/) and [Shodan](https://www.shodan.io/)
 (both IP-only) add internet-scanning classification (is this address
 noise, a known-benign business service, or something actively malicious)
 and exposed-service recon (open ports, known CVEs, abuse tags)
 respectively; [URLhaus](https://urlhaus.abuse.ch/) (abuse.ch, works for
 both domains and IPs, needs a free Auth-Key from their site) checks
-whether the indicator has hosted known malware URLs, live or historical.
+whether the indicator has hosted known malware URLs, live or historical;
+[ipinfo.io](https://ipinfo.io/) (IP-only, its own on/off toggle under
+Settings -> Threat intelligence since it works with or without an API
+key) adds geolocation and network/organization info; an **AI summary**
+(IP or domain, needs a Gemini API key and its own `ai_enabled` toggle)
+asks Gemini for a short, factual summary of who likely owns/operates the
+indicator and what it's normally used for, with the query result itself
+passed to the model as data to analyze, not as instructions.
 **RDAP domain/IP lookup** and **[crt.sh](https://crt.sh/) certificate
 transparency** are the two exceptions to needing an API key at all -
 both free public lookups with no account or key, gated only by their own
@@ -1133,7 +1152,7 @@ WHOIS (raw port 43, via the standard IANA-referral chain) to still
 surface a registrar/owner/expiry where possible - also free, no API key,
 same on/off toggle. crt.sh (domain-only) just reports how many
 certificates and distinct subdomain names are on record for the domain,
-for your own reference. All eight public sources
+for your own reference. All ten public sources
 degrade the same way: skipped (not an error) for a target type they
 don't support, shown as disabled while the public-lookups switch is off,
 shown as unconfigured while their own key/toggle is off, and shown as
@@ -1446,11 +1465,16 @@ domains for two things a real visit to that brand would never produce:
   [Levenshtein edit distance](https://en.wikipedia.org/wiki/Levenshtein_distance)
   between the queried domain's own label and the protected domain's,
   within `dns.typosquat_max_distance` (default 2).
-- **The brand name embedded in a longer domain** - `paypal-security-check.com`,
-  `secure-allegro-login.pl` - a classic combosquatting pattern edit
-  distance alone won't catch, since inserting a dozen extra characters is
-  a large distance even though the brand name is sitting right there
-  unmodified.
+- **The brand name embedded in a longer domain**, as long as it's set off
+  by a hyphen, a digit, or the start/end of the label -
+  `paypal-security-check.com`, `secure-allegro-login.pl`,
+  `paypal123.com` - a classic combosquatting pattern edit distance alone
+  won't catch, since inserting a dozen extra characters is a large
+  distance even though the brand name is sitting right there unmodified.
+  A brand name blended into another word with no such separator at all
+  (`paypalsecurity.com`) isn't caught by this check - deliberately, since
+  there's no reliable way to tell that apart from a legitimate compound
+  like `googleapis.com` without a curated exception list.
 
 An exact match or a real subdomain of the protected domain itself
 (`mail.google.com`, `accounts.google.com`) is explicitly never flagged -
@@ -1559,15 +1583,18 @@ through untouched.
 ### Local-TLD query alerts
 
 A separate, unrelated toggle in Settings -> DNS - "Local TLD query alerts",
-also off by default - simply logs when a client queries a domain under one
-of those same local-only TLDs (`dns.local_tld_list`, defaults to `local`,
-`lan`, `home`, `internal`, `corp`, `home.arpa`). This isn't a threat
-signal by itself (mDNS/homenet traffic is completely normal on most LANs);
-it's a low-severity, informational row in the Alerts tab
-(`dns.local_tld_cooldown_minutes` per domain/TLD combination, default 30)
-for people who want visibility into what's being queried under those
-suffixes - IoT devices probing `.local` names, say - without treating it as
-an incident. Leave it off if that's just noise for your network.
+also off by default - logs when a client queries a domain under one of
+those same local-only TLDs (`dns.local_tld_list`, defaults to `local`,
+`lan`, `home`, `internal`, `corp`, `home.arpa`). It only fires for clients
+with a non-private source IP - ordinary LAN devices (the typical source of
+mDNS/homenet traffic, and completely normal there) never trigger it by
+design; this is for noticing a *public* IP querying one of those suffixes,
+which is unusual enough to be worth a look. It's a low-severity,
+informational row in the Alerts tab, with a cooldown
+(`dns.local_tld_cooldown_minutes`, default 30) keyed per client and TLD -
+not per individual domain, so repeated queries for different hostnames
+under the same TLD from the same client still only alert once per cooldown
+window. Leave it off if you don't need this.
 
 ### Alert rules (watched domains and lists)
 
@@ -2083,25 +2110,28 @@ Slate & Cyan / Mist & Cyan, Forest & Emerald / Meadow & Emerald, and
 Plum & Violet / Lilac & Violet. Navy & Azure (dark) is the default.
 Applies instantly, stored in `web.theme`.
 
-### Dashboard language (English / Polski)
+### Dashboard language
 
-The dashboard is available in English and Polish (more of the UI is
-translated over time; anything not yet translated just stays in English).
-By default it follows your browser's own language (`navigator.language`) -
-no setting needed. To pin one language for your account regardless of
-which browser or device you sign in from, go to Settings -> General ->
-"Dashboard language" and pick English or Polski instead of "Automatic";
-this is stored per-account (`users[].language` - `en`, `pl`, or unset for
-automatic) and takes effect immediately, no reload needed. The public,
-signed-out view and the login page (no account to look a preference up on
-yet) always follow the browser's language. Translation happens entirely
-client-side against a small lookup table baked into the page - nothing is
-sent anywhere to translate it. The language list itself
-(`GET /api/languages`, backing that dropdown) and the server-side
-validation of what you can save both come from one shared list in the
-backend, so adding a whole new language later is exactly two edits: one
-line there, one translation dictionary in the page - nothing else in the
-UI needs to change to pick it up.
+The dashboard is available in eight languages - English, Polski,
+Deutsch, Français, العربية, 中文, 日本語, and 한국어 (more of the UI is
+translated over time; anything not yet translated just stays in
+English). By default it follows your browser's own language
+(`navigator.language`) - no setting needed. To pin one language for
+your account regardless of which browser or device you sign in from, go
+to Settings -> General -> "Dashboard language" and pick one instead of
+"Automatic"; this is stored per-account (`users[].language` - one of
+`en`/`pl`/`de`/`fr`/`ar`/`zh`/`ja`/`ko`, or unset for automatic) and
+takes effect immediately, no reload needed. The public, signed-out view
+and the login page (no account to look a preference up on yet) always
+follow the browser's language. Each language's translation dictionary
+is a JSON file under `app/locales/`, fetched from the same origin
+(`GET /api/locales/{lang}`) the first time that language is selected -
+nothing is sent to any third party to translate it. The language list
+itself (`GET /api/languages`, backing that dropdown) and the
+server-side validation of what you can save both come from one shared
+list in the backend, so adding a whole new language later is exactly
+two things: one entry in that list, one new locale JSON file - nothing
+else in the UI needs to change to pick it up.
 
 ### Mobile
 
@@ -2289,17 +2319,19 @@ port mappings to take effect).
 **Domains** are the core unit - one entry per set of hostnames sharing
 the same nginx server block. Each has: one or more hostnames, an
 ordered list of **rules** (each either a **proxy** rule - a path plus an
-upstream target nginx forwards to, with `Upgrade`/`Connection` headers
-already wired for websockets - or a **redirect** rule - a path plus a
+upstream target nginx forwards to, with an optional "WebSocket support"
+checkbox that wires the `Upgrade`/`Connection` headers it needs - or a
+**redirect** rule - a path plus a
 target URL and HTTP status code), optional TLS (certificate/key file
 paths, plus "force HTTPS" to also emit an HTTP->HTTPS redirect on port
 80), and an admin-only **custom nginx config** field appended verbatim
 into that domain's server block for anything the structured fields
 don't cover. A **health check** button resolves each hostname (through
 DNS-shield's own resolver, so it reflects whatever routing/rewrites are
-configured) and does an HTTP(S) reachability check against the first
-rule's upstream, so you can tell a broken domain apart from one that's
-just not been visited yet. **Get certificate** issues or renews a
+configured) and does an HTTP(S) reachability check against every
+rule's upstream/redirect target, reporting the domain reachable if any
+one of them answers - so you can tell a broken domain apart from one
+that's just not been visited yet. **Get certificate** issues or renews a
 Let's Encrypt certificate with `certbot certonly --webroot`, using the
 domain's own hostnames and the email address you provide - it needs the
 domain reachable on port 80 for the ACME HTTP-01 challenge to succeed,
@@ -2346,16 +2378,19 @@ and print a summary of exactly what was and wasn't carried over.
 
 Converts `AdGuardHome.yaml`: filter and whitelist-filter subscriptions,
 `user_rules` (both block rules and `@@` exceptions), upstream resolvers
-(`tls://`/`https://` converted to `dot://`/`doh://`), listen address/port,
-blocking mode, and each `clients.persistent[].ids` entry (IPs, CIDRs, and
-MAC addresses, converted to a `mac:` pattern - AdGuard's own client-ID
-strings aren't a concept DNS-shield has, those are skipped with a
-warning) as a `client_groups` entry.
+(`tls://`/`https://` converted to `dot://`/`doh://`), blocking mode, and
+each `clients.persistent[].ids` entry (IPs, CIDRs, and MAC addresses,
+converted to a `mac:` pattern - AdGuard's own client-ID strings aren't a
+concept DNS-shield has, those are skipped with a warning) as a
+`client_groups` entry. AdGuard's listen address/port are deliberately
+*not* imported - changing those here could stop matching your
+docker-compose port mapping, so DNS-shield always keeps its own.
 
 **From the dashboard**: upload the file, it's merged directly into the
 running config and takes effect immediately - blocklists refresh right
-away. This **replaces** your current blocklists and client groups with
-AdGuard's, but keeps everything else, including your web login.
+away. This **replaces** your current blocklists, client groups, blocking
+mode, and upstreams with AdGuard's, but keeps everything else - your
+listen address/port, your web login, and anything else not listed above.
 
 **From the command line**, for a fresh setup or to produce a file to review
 before applying:
@@ -2364,9 +2399,10 @@ before applying:
 docker compose exec dns-shield python -m app.import_adguard /path/to/AdGuardHome.yaml
 ```
 
-Not imported: parental control/safe browsing, DHCP, TLS termination, and
-your web UI password - AdGuard stores a bcrypt hash that can't be turned
-back into plaintext, so set that yourself from the dashboard.
+Not imported: listen address/port (see above), parental control/safe
+browsing, DHCP, TLS termination, and your web UI password - AdGuard
+stores a bcrypt hash that can't be turned back into plaintext, so set
+that yourself from the dashboard.
 
 ### Pi-hole
 

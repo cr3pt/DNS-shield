@@ -259,7 +259,7 @@ dns:
   listen_port: 53
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # dowolna liczba - zobacz niżej
   upstream_timeout_seconds: 3.0
-  upstream_strategy: "in_order"  # albo "fastest" / "most_stable" / "race" - zobacz niżej
+  upstream_strategy: "in_order"  # albo "fastest" / "most_stable" / "race" / "random" - zobacz niżej
   upstream_stats_window_minutes: 15
   block_mode: "nxdomain"                     # albo "null_ip"
   blocked_ipv4: "0.0.0.0"        # używane, gdy block_mode to "null_ip"
@@ -372,6 +372,8 @@ każdym zapytaniu - a przy `race` wszystkie naraz:
 - `most_stable` - najpierw ten z najmniejszą liczbą awarii i najbardziej
   stabilnym czasem odpowiedzi w tym oknie - niezawodność liczy się tu
   bardziej niż surowa szybkość.
+- `random` - losowa kolejność przy każdym zapytaniu, rozkładając ruch
+  równomiernie między dostawców, zamiast zawsze faworyzować jednego.
 - `race` ("Wszystkie naraz - FIFO") - zapytanie idzie jednocześnie do
   każdego skonfigurowanego serwera nadrzędnego, a klient dostaje odpowiedź
   od tego, który odpowie pierwszy; pozostałe nadal pracują w tle, wyłącznie
@@ -524,8 +526,9 @@ dns_rewrites:
 powyżej - *nie* dopasuje samej `internal.example`, ponieważ wzorzec wymaga
 przynajmniej jednego znaku przed dosłownym `.internal.example`; jeśli
 zależy Ci też na samej domenie bez subdomeny, dodaj dla niej osobny wpis.
-W obu przypadkach wyłącznie dla rekordów A/AAAA - bez podążania za CNAME,
-żeby to wyszukiwanie zawsze kończyło się w jednym kroku. Jest sprawdzane
+`type` może być `A`, `AAAA`, `CNAME` albo `TXT`; wartość wpisu typu
+`CNAME` jest zwracana dosłownie, nigdy sama dalej nie rozwiązywana, żeby
+to wyszukiwanie zawsze kończyło się w jednym kroku. Jest sprawdzane
 *po* blokowaniu, nie przed nim: w pełni zablokowany klient albo już
 zablokowana domena nadal zachowują się jak zablokowane, niezależnie od
 jakiegokolwiek rewrite'a - rewrite to odpowiedź, a nie zwolnienie z
@@ -862,7 +865,10 @@ client_groups:
 Okno jest sprawdzane względem klientów grupy przy każdym zapytaniu - gdy
 jest aktywne, wygrywa nawet z własną listą dozwolonych grupy (sens
 blokady na czas snu polega właśnie na tym, że jest całkowita), tak samo
-jak `blocked_clients` wygrywa ze wszystkim poza `enabled: false`.
+jak `blocked_clients` wygrywa ze wszystkim; żadnego z tych dwóch
+mechanizmów nie dotyczy flaga `enabled` grupy (ta flaga wyłącza tylko
+przynależność grupy do *list blokowanych/dozwolonych*, nie
+`blocked_clients` ani aktywny harmonogram).
 `start`/`end` mogą przechodzić przez północ (podane wyżej `22:00`-`07:00`
 obejmuje dwa dni kalendarzowe); flaga `enabled` wyłącza całość, nie
 usuwając zapisanego okna, i domyślnie jest wyłączona dla grupy, która jej
@@ -978,8 +984,9 @@ TTL, którym nie ufasz), a łączna liczba wpisów jest ograniczona przez
 coś, co nadal jest w cache, jest odpowiadane od razu, bez przekazywania go
 w ogóle do serwera nadrzędnego - niższe opóźnienie i mniej ruchu
 wychodzącego dla nazw hostów CDN, reklam i trackerów, które i tak stanowią
-większość powtarzalnego ruchu. To wyłącznie pamięć procesu: nic nie trafia
-na dysk i po restarcie cache jest znów pusty. Zakładka Stats pokazuje
+większość powtarzalnego ruchu. Cache jest okresowo zapisywany do
+`data/dns_cache.json` (co 5 minut) i wczytywany z niego przy starcie, więc
+wpisy przeżywają restart, o ile ich TTL w tym czasie nie wygasł. Zakładka Stats pokazuje
 bieżącą liczbę wpisów i współczynnik trafień; w Settings -> DNS answer
 cache jest przycisk "Clear cache", który czyści cache na żądanie (np. zaraz
 po zmianie serwerów nadrzędnych, żeby przestać serwować cokolwiek, co
@@ -995,10 +1002,9 @@ zamiast tego zaserwuje krótką stronę "ta domena jest zablokowana": skieruj
 `blocked_ipv4` na własny, osiągalny adres IP tego hosta w sieci LAN, a
 zwykłe żądanie HTTP do zablokowanej domeny trafi na `dns.block_page_port`
 (domyślnie 80) i dostanie w odpowiedzi stronę, która podaje nazwę domeny
-(odczytaną wprost z nagłówka `Host` żądania) **oraz powód blokady** -
-która subskrypcja listy blokad zadziałała, ręczny wpis na liście
-zablokowanych, albo fakt, że zablokowany jest sam klient - sprawdzane w
-ten sam sposób co ikona (i) w logu zapytań, względem Twojej *aktualnej*
+(odczytaną wprost z nagłówka `Host` żądania) **oraz powód blokady** - ten
+sam ciąg, który pokazuje ikona (i) w logu zapytań (zobacz niżej pełną
+listę możliwych powodów) - sprawdzany względem Twojej *aktualnej*
 konfiguracji, a nie tego, co obowiązywało w chwili udzielenia oryginalnej
 odpowiedzi DNS.
 
@@ -1052,8 +1058,11 @@ kasowanie. Nieodwracalne; panel najpierw prosi o potwierdzenie.
 Zablokowany wiersz pokazuje też ikonę (i) - najedź na nią kursorem, żeby
 zobaczyć dokładny powód blokady: która subskrypcja listy blokad zadziałała
 (z nazwy), ręczny wpis na liście zablokowanej (globalny albo konkretnej
-grupy klientów), albo filtr domen spoza pisma łacińskiego. Powód jest
-wyliczany w momencie zapytania i zapisywany osobno dla każdego wiersza
+grupy klientów), filtr domen spoza pisma łacińskiego, ręcznie zablokowany
+klient, aktywny harmonogram (bedtime), CNAME cloaking, ochrona przed DNS
+rebinding, zablokowany adres IP odpowiedzi, albo wzorzec z
+eksperymentalnej listy regex - którykolwiek mechanizm faktycznie
+zadziałał. Powód jest wyliczany w momencie zapytania i zapisywany osobno dla każdego wiersza
 (kolumna `reason` w `stats.db`, dla wierszy zalogowanych zanim ta funkcja
 powstała uzupełniona wartością `null` - dla nich najechanie kursorem
 niczego nie pokaże).
@@ -1230,8 +1239,9 @@ celów będących domenami jest po prostu pomijany (nie traktowane jest to
 jako błąd) i odpytywany wyłącznie dla adresów IP; VirusTotal i OTX
 obsługują oba typy celów.
 
-**Pięć kolejnych publicznych źródeł** stoi obok tych trzech, pod tym samym
-przełącznikiem i tym samym wymogiem darmowego klucza:
+**Siedem kolejnych publicznych źródeł** stoi obok tych trzech, pod tym
+samym przełącznikiem i tą samą bramą (większość wymaga darmowego klucza;
+dwa nie - zobacz niżej):
 [GreyNoise](https://www.greynoise.io/) i [Shodan](https://www.shodan.io/)
 (oba wyłącznie dla adresów IP) dodają odpowiednio klasyfikację skanowania
 internetu (czy dany adres to szum, znana i nieszkodliwa usługa biznesowa,
@@ -1239,7 +1249,15 @@ czy coś aktywnie złośliwego) oraz rekonesans wystawionych usług (otwarte
 porty, znane CVE, tagi nadużyć); [URLhaus](https://urlhaus.abuse.ch/)
 (abuse.ch, działa zarówno dla domen, jak i adresów IP, wymaga darmowego
 klucza Auth-Key z ich strony) sprawdza, czy dany wskaźnik hostował znane,
-złośliwe adresy URL - na żywo albo w przeszłości. **Wyszukiwanie
+złośliwe adresy URL - na żywo albo w przeszłości; [ipinfo.io](https://ipinfo.io/)
+(wyłącznie dla adresów IP, własny przełącznik on/off w Settings ->
+Threat intelligence, bo działa z kluczem API albo bez niego) dodaje
+geolokalizację i informacje o sieci/organizacji; **podsumowanie AI**
+(IP albo domena, wymaga klucza API do Gemini i własnego przełącznika
+`ai_enabled`) prosi Gemini o krótkie, faktyczne podsumowanie, kto
+najpewniej jest właścicielem/operatorem danego wskaźnika i do czego
+zwykle służy - sam wynik zapytania jest przekazywany do modelu jako dane
+do analizy, nie jako instrukcja. **Wyszukiwanie
 RDAP domen/adresów IP** oraz **transparentność certyfikatów z
 [crt.sh](https://crt.sh/)** to jedyne dwa źródła, które w ogóle nie
 wymagają klucza API - obydwa to darmowe, publiczne wyszukiwania bez konta
@@ -1265,7 +1283,7 @@ wszystko spróbować pokazać rejestratora/właściciela/datę wygaśnięcia -
 również za darmo, bez klucza API, pod tym samym przełącznikiem. crt.sh
 (tylko dla domen) po prostu, dla Twojej własnej wiedzy, podaje, ile
 certyfikatów i ile odrębnych nazw subdomen jest zarejestrowanych dla
-danej domeny. Wszystkie osiem publicznych źródeł zawodzi w ten sam,
+danej domeny. Wszystkie dziesięć publicznych źródeł zawodzi w ten sam,
 przewidywalny sposób: są pomijane (nie jako błąd) dla typu celu, którego
 nie obsługują, pokazywane jako wyłączone, gdy przełącznik publicznych
 wyszukiwań jest wyłączony, pokazywane jako nieskonfigurowane, gdy ich
@@ -1615,11 +1633,17 @@ wizyta na stronie tej marki nigdy by nie wyprodukowała:
   [odległość edycyjna Levenshteina](https://en.wikipedia.org/wiki/Levenshtein_distance)
   między etykietą odpytywanej domeny a etykietą domeny chronionej, w
   granicach `dns.typosquat_max_distance` (domyślnie 2).
-- **Nazwa marki osadzona w dłuższej domenie** - `paypal-security-check.com`,
-  `secure-allegro-login.pl` - klasyczny wzorzec combosquattingu, którego
-  sama odległość edycyjna nie wychwyci, bo dodanie tuzina dodatkowych
-  znaków to już duża odległość, mimo że sama nazwa marki siedzi tam
-  niezmieniona.
+- **Nazwa marki osadzona w dłuższej domenie**, o ile jest odgraniczona
+  myślnikiem, cyfrą, albo początkiem/końcem etykiety -
+  `paypal-security-check.com`, `secure-allegro-login.pl`,
+  `paypal123.com` - klasyczny wzorzec combosquattingu, którego sama
+  odległość edycyjna nie wychwyci, bo dodanie tuzina dodatkowych znaków
+  to już duża odległość, mimo że sama nazwa marki siedzi tam
+  niezmieniona. Nazwa marki zlepiona z innym słowem bez żadnego takiego
+  separatora (`paypalsecurity.com`) nie jest przez to wychwytywana -
+  celowo, bo nie ma wiarygodnego sposobu odróżnić to od uzasadnionego
+  złożenia typu `googleapis.com` bez osobnej, prowadzonej ręcznie listy
+  wyjątków.
 
 Dokładne dopasowanie albo prawdziwa subdomena samej chronionej domeny
 (`mail.google.com`, `accounts.google.com`) nigdy nie jest przy tym
@@ -1740,17 +1764,20 @@ zmian.
 ### Alerty zapytań o lokalne TLD
 
 Osobny, niezwiązany z powyższym przełącznik w Settings -> DNS - "Local
-TLD query alerts", również domyślnie wyłączony - po prostu loguje, gdy
-klient odpytuje domenę pod jednym z tych samych, wyłącznie lokalnych TLD
+TLD query alerts", również domyślnie wyłączony - loguje, gdy klient
+odpytuje domenę pod jednym z tych samych, wyłącznie lokalnych TLD
 (`dns.local_tld_list`, domyślnie `local`, `lan`, `home`, `internal`,
-`corp`, `home.arpa`). Sam w sobie nie jest to sygnał zagrożenia (ruch
-mDNS i homenet jest w większości sieci LAN czymś zupełnie normalnym) -
-to niskoważny, czysto informacyjny wiersz w zakładce Alerts
-(`dns.local_tld_cooldown_minutes` osobno dla każdej pary domena/TLD,
-domyślnie 30 minut), dla osób, które chcą widzieć, co jest odpytywane pod
-tymi sufiksami - powiedzmy, urządzenia IoT sondujące nazwy `.local` - bez
-traktowania tego jako incydentu. Zostaw to wyłączone, jeśli w Twojej
-sieci to tylko szum.
+`corp`, `home.arpa`). Uruchamia się tylko dla klientów z publicznym
+(nie-prywatnym) adresem źródłowym - zwykłe urządzenia w sieci LAN
+(typowe źródło ruchu mDNS/homenet, tam zupełnie normalne) z założenia
+nigdy go nie wywołują; chodzi o wykrycie *publicznego* adresu
+odpytującego jeden z tych sufiksów, co jest wystarczająco nietypowe, żeby
+na to spojrzeć. To niskoważny, czysto informacyjny wiersz w zakładce
+Alerts, z cooldownem (`dns.local_tld_cooldown_minutes`, domyślnie 30
+minut) liczonym osobno dla każdej pary klient+TLD - nie dla pojedynczej
+domeny, więc powtarzane zapytania o różne nazwy hostów pod tym samym TLD
+od tego samego klienta i tak zaalarmują tylko raz w danym okresie.
+Zostaw to wyłączone, jeśli tego nie potrzebujesz.
 
 ### Reguły alertów (obserwowane domeny i listy)
 
@@ -2318,28 +2345,31 @@ Meadow & Emerald oraz Plum & Violet / Lilac & Violet. Domyślna jest Navy &
 Azure (ciemna). Zmiana obowiązuje natychmiast, a wybór jest zapisywany w
 `web.theme`.
 
-### Język panelu (English / Polski)
+### Język panelu
 
-Panel jest dostępny w języku angielskim i polskim (z czasem tłumaczonych
-jest coraz więcej elementów interfejsu; to, co jeszcze nie zostało
-przetłumaczone, po prostu zostaje po angielsku). Domyślnie panel
+Panel jest dostępny w ośmiu językach - angielskim, polskim, niemieckim,
+francuskim, arabskim, chińskim, japońskim i koreańskim (z czasem
+tłumaczonych jest coraz więcej elementów interfejsu; to, co jeszcze nie
+zostało przetłumaczone, po prostu zostaje po angielsku). Domyślnie panel
 dopasowuje się do języka Twojej przeglądarki (`navigator.language`) - nie
 trzeba nic ustawiać. Żeby wymusić jeden konkretny język dla swojego konta,
 niezależnie od przeglądarki czy urządzenia, z którego się logujesz, wejdź
-w Settings -> General -> "Dashboard language" i wybierz English albo
-Polski zamiast "Automatic"; ustawienie to jest zapisywane per konto
-(`users[].language` - `en`, `pl`, albo brak wartości oznaczający tryb
-automatyczny) i obowiązuje natychmiast, bez przeładowania strony. Widok
-publiczny (bez logowania) oraz strona logowania (nie ma jeszcze konta,
-dla którego można by sprawdzić preferencję) zawsze kierują się językiem
-przeglądarki. Tłumaczenie odbywa się całkowicie po stronie przeglądarki,
-na podstawie małej tabeli wbudowanej w samą stronę - nic nie jest nigdzie
-wysyłane, żeby je przetłumaczyć. Sama lista języków (`GET /api/languages`,
-z której korzysta ta rozwijana lista) oraz walidacja po stronie serwera
-tego, co można zapisać, pochodzą z jednej wspólnej listy w backendzie,
-więc dodanie zupełnie nowego języka w przyszłości to dokładnie dwie
-zmiany: jedna linia tam, jeden słownik tłumaczeń w stronie - reszta
-interfejsu nie wymaga żadnych zmian, żeby go obsłużyć.
+w Settings -> General -> "Dashboard language" i wybierz go zamiast
+"Automatic"; ustawienie to jest zapisywane per konto (`users[].language` -
+jedno z `en`/`pl`/`de`/`fr`/`ar`/`zh`/`ja`/`ko`, albo brak wartości
+oznaczający tryb automatyczny) i obowiązuje natychmiast, bez przeładowania
+strony. Widok publiczny (bez logowania) oraz strona logowania (nie ma
+jeszcze konta, dla którego można by sprawdzić preferencję) zawsze kierują
+się językiem przeglądarki. Słownik tłumaczeń każdego języka to plik JSON
+w `app/locales/`, pobierany z tego samego serwera (`GET /api/locales/{lang}`)
+przy pierwszym wybraniu danego języka - nic nie jest wysyłane do żadnej
+firmy trzeciej, żeby to przetłumaczyć. Sama lista języków
+(`GET /api/languages`, z której korzysta ta rozwijana lista) oraz
+walidacja po stronie serwera tego, co można zapisać, pochodzą z jednej
+wspólnej listy w backendzie, więc dodanie zupełnie nowego języka w
+przyszłości to dokładnie dwie rzeczy: jeden wpis na tej liście, jeden
+nowy plik JSON z tłumaczeniami - reszta interfejsu nie wymaga żadnych
+zmian, żeby go obsłużyć.
 
 ### Wersja mobilna
 
@@ -2539,18 +2569,20 @@ portów zaczęło działać).
 nazw hostów współdzielących ten sam blok serwera nginx. Każda ma: jedną
 lub więcej nazw hostów, uporządkowaną listę **reguł** (każda albo typu
 **proxy** - ścieżka plus docelowy adres, do którego nginx przekazuje
-ruch, z już podpiętymi nagłówkami `Upgrade`/`Connection` dla
-websocketów - albo typu **redirect** - ścieżka plus docelowy adres URL i
-kod HTTP), opcjonalne TLS (ścieżki do certyfikatu/klucza plus "wymuś
-HTTPS", które dodatkowo generuje przekierowanie HTTP->HTTPS na porcie
-80), oraz dostępne wyłącznie dla administratora pole **niestandardowej
-konfiguracji nginx**, dołączane dosłownie do bloku serwera tej domeny na
-wszystko, czego nie pokrywają pola strukturalne. Przycisk **sprawdź
-kondycję** rozwiązuje każdą nazwę hosta (przez własny resolwer
-DNS-shield, więc odzwierciedla cały skonfigurowany routing/rewrites) i
-wykonuje test osiągalności HTTP(S) względem adresu docelowego pierwszej
-reguły, dzięki czemu odróżnisz zepsutą domenę od takiej, której po prostu
-jeszcze nikt nie odwiedził. **Uzyskaj certyfikat** wystawia albo odnawia
+ruch, z opcjonalnym checkboxem "WebSocket support", który podpina
+potrzebne nagłówki `Upgrade`/`Connection` - albo typu **redirect** -
+ścieżka plus docelowy adres URL i kod HTTP), opcjonalne TLS (ścieżki do
+certyfikatu/klucza plus "wymuś HTTPS", które dodatkowo generuje
+przekierowanie HTTP->HTTPS na porcie 80), oraz dostępne wyłącznie dla
+administratora pole **niestandardowej konfiguracji nginx**, dołączane
+dosłownie do bloku serwera tej domeny na wszystko, czego nie pokrywają
+pola strukturalne. Przycisk **sprawdź kondycję** rozwiązuje każdą nazwę
+hosta (przez własny resolwer DNS-shield, więc odzwierciedla cały
+skonfigurowany routing/rewrites) i wykonuje test osiągalności HTTP(S)
+względem adresu docelowego/celu przekierowania *każdej* reguły, uznając
+domenę za osiągalną, jeśli odpowie choć jedna z nich - dzięki czemu
+odróżnisz zepsutą domenę od takiej, której po prostu jeszcze nikt nie
+odwiedził. **Uzyskaj certyfikat** wystawia albo odnawia
 certyfikat Let's Encrypt poleceniem `certbot certonly --webroot`,
 używając nazw hostów danej domeny i podanego adresu e-mail - wymaga to
 osiągalności domeny na porcie 80 dla wyzwania ACME HTTP-01, tak jak w
@@ -2601,17 +2633,21 @@ tego, co dokładnie zostało przeniesione, a co nie.
 Konwertuje plik `AdGuardHome.yaml`: subskrypcje filtrów oraz filtrów list
 dozwolonych, `user_rules` (zarówno reguły blokujące, jak i wyjątki `@@`),
 serwery nadrzędne (`tls://`/`https://` konwertowane na `dot://`/`doh://`),
-adres i port nasłuchu, tryb blokowania oraz każdy wpis
-`clients.persistent[].ids` (adresy IP, zakresy CIDR i adresy MAC,
-konwertowane na wzorzec `mac:` - własne identyfikatory klientów AdGuarda
-to pojęcie, którego DNS-shield nie ma, więc takie wpisy są pomijane z
-ostrzeżeniem) jako wpis w `client_groups`.
+tryb blokowania oraz każdy wpis `clients.persistent[].ids` (adresy IP,
+zakresy CIDR i adresy MAC, konwertowane na wzorzec `mac:` - własne
+identyfikatory klientów AdGuarda to pojęcie, którego DNS-shield nie ma,
+więc takie wpisy są pomijane z ostrzeżeniem) jako wpis w
+`client_groups`. Adres i port nasłuchu AdGuarda są celowo *nie*
+importowane - zmiana ich tutaj mogłaby przestać odpowiadać mapowaniu
+portów w Twoim docker-compose, więc DNS-shield zawsze zachowuje swoje
+własne.
 
 **Z panelu**: prześlij plik, a zostanie on od razu scalony z działającą
 konfiguracją i wejdzie w życie natychmiast - listy blokad odświeżają się
-od razu. To **zastępuje** Twoje aktualne listy blokad i grupy klientów
-tymi z AdGuarda, ale zachowuje wszystko inne, w tym Twoje dane do
-logowania w panelu.
+od razu. To **zastępuje** Twoje aktualne listy blokad, grupy klientów,
+tryb blokowania i serwery nadrzędne tymi z AdGuarda, ale zachowuje
+wszystko inne - Twój adres i port nasłuchu, dane do logowania w panelu,
+i wszystko inne niewymienione powyżej.
 
 **Z linii poleceń** - przy świeżej instalacji, albo żeby najpierw
 wygenerować plik do przejrzenia, zanim go zastosujesz:
@@ -2620,10 +2656,11 @@ wygenerować plik do przejrzenia, zanim go zastosujesz:
 docker compose exec dns-shield python -m app.import_adguard /ścieżka/do/AdGuardHome.yaml
 ```
 
-Nieimportowane: kontrola rodzicielska i bezpieczne przeglądanie, DHCP,
-terminowanie TLS oraz hasło do panelu webowego - AdGuard przechowuje hash
-bcrypt, którego nie da się odwrócić z powrotem do czystego tekstu, więc to
-hasło musisz ustawić sam, z poziomu panelu.
+Nieimportowane: adres i port nasłuchu (zobacz wyżej), kontrola
+rodzicielska i bezpieczne przeglądanie, DHCP, terminowanie TLS oraz
+hasło do panelu webowego - AdGuard przechowuje hash bcrypt, którego nie
+da się odwrócić z powrotem do czystego tekstu, więc to hasło musisz
+ustawić sam, z poziomu panelu.
 
 ### Pi-hole
 
