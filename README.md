@@ -297,7 +297,7 @@ enrichment:                    # threat-intel settings - see Threat-intel enrich
 
 This example file (`config/config.example.yaml`) only matters for a *fresh*
 data volume's first boot, or to recover from a wiped `config.db` - see
-[Editing the config file directly](#editing-the-config-file-directly) below.
+[Resetting config from a hand-edited YAML file](#resetting-config-from-a-hand-edited-yaml-file) below.
 
 ### Encrypted upstream (DNS-over-TLS / DNS-over-HTTPS)
 
@@ -2114,10 +2114,11 @@ whole page to, and long domains wrap instead of stretching their column.
 There's no separate mobile app or API - it's the same page, same
 `GET /`, just responsive CSS.
 
-### Editing the config file directly
+### Resetting config from a hand-edited YAML file
 
 DNS-shield's live configuration lives in `./data/config.db`, not a YAML
-file - it's edited through the dashboard/REST API, and a full export is
+file - there is no live file to edit, and nothing ever writes config
+changes to one. Config is edited through the dashboard/REST API, and a full export is
 written to `./data/config.backup.yaml` every 12 hours and at every startup
 as a plain-text backup. That backup file is only ever *read* to seed a
 fresh database (an empty data volume's first boot, or after you delete

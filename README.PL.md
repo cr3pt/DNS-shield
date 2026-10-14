@@ -332,7 +332,7 @@ enrichment:                    # ustawienia threat-intel - zobacz "Wzbogacanie t
 Ten przykładowy plik (`config/config.example.yaml`) ma znaczenie tylko
 przy *pierwszym* uruchomieniu na świeżym woluminie danych, albo gdy
 trzeba odzyskać konfigurację po wyczyszczeniu `config.db` - zobacz
-[Bezpośrednia edycja pliku konfiguracyjnego](#bezpośrednia-edycja-pliku-konfiguracyjnego)
+[Resetowanie konfiguracji z ręcznie edytowanego pliku YAML](#resetowanie-konfiguracji-z-ręcznie-edytowanego-pliku-yaml)
 niżej.
 
 ### Szyfrowane połączenie z serwerem nadrzędnym (DNS-over-TLS / DNS-over-HTTPS)
@@ -2353,10 +2353,11 @@ zmuszać do przewijania całej strony, a długie nazwy domen zawijają się,
 zamiast rozciągać swoją kolumnę. Nie ma tu osobnej aplikacji mobilnej ani
 osobnego API - to ta sama strona, to samo `GET /`, tylko responsywny CSS.
 
-### Bezpośrednia edycja pliku konfiguracyjnego
+### Resetowanie konfiguracji z ręcznie edytowanego pliku YAML
 
 Aktywna konfiguracja DNS-shield trzymana jest w `./data/config.db`, nie w
-pliku YAML - edytuje się ją przez panel albo REST API, a jej pełny eksport
+pliku YAML - nie istnieje żaden "żywy" plik do edycji i nic nigdy nie
+zapisuje zmian konfiguracji do pliku. Konfigurację edytuje się przez panel albo REST API, a jej pełny eksport
 zapisywany jest do `./data/config.backup.yaml` co 12 godzin i przy każdym
 starcie, jako zwykły, tekstowy backup. Ten plik kopii zapasowej jest
 wyłącznie *odczytywany*, żeby zasiać danymi świeżą bazę (przy pierwszym
