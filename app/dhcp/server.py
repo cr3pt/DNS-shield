@@ -52,8 +52,13 @@ def determine_offer_ip(
     gateway = scope.get("gateway") or ""
     if gateway:
         excluded.add(gateway)
+    reserved = {
+        r["ip"]
+        for r in (scope.get("reservations") or [])
+        if str(r.get("mac", "")).upper() != mac.upper() and r.get("ip")
+    }
 
-    return find_free_ip(scope["pool_start"], scope["pool_end"], taken, excluded | declined, preferred)
+    return find_free_ip(scope["pool_start"], scope["pool_end"], taken, excluded | declined | reserved, preferred)
 
 
 def _build_reply(

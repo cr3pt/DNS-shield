@@ -2393,7 +2393,10 @@ To restore into an EXISTING instance (data/config.db already exists):
     def update_dns_settings(body: DnsSettingsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             dns_cfg = data.setdefault("dns", {})
+            old_max_distance = dns_cfg.get("typosquat_max_distance")
             dns_cfg.update({k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None})
+            if dns_cfg.get("typosquat_max_distance") != old_max_distance:
+                blocklist.clear_typosquat_cache()
             return {k: v for k, v in dns_cfg.items() if k != "upstreams"}
 
         return config_store.mutate(_mutate)

@@ -35,6 +35,14 @@ def test_embedded_brand_name_is_flagged_as_embedded():
     assert kind == "embedded"
 
 
+def test_digit_delimited_brand_embedding_is_flagged():
+    for qname in ("paypal123.com", "0paypal.com", "google99.com"):
+        result = _match(qname)
+        assert result is not None, f"expected {qname} to be flagged"
+        _protected, kind, _distance = result
+        assert kind == "embedded"
+
+
 def test_legitimate_compound_domains_are_not_flagged():
     for qname in (
         "firebaselogging.googleapis.com",

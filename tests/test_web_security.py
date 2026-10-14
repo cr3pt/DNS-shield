@@ -253,3 +253,23 @@ def test_bearer_token_request_is_not_subject_to_csrf_check(config_store, tmp_pat
     )
 
     assert response.status_code == 200
+
+
+def test_changing_typosquat_max_distance_clears_the_match_cache(config_store, tmp_path):
+    blocklist = BlocklistManager(config_store, tmp_path / "cache")
+    stats = Stats(tmp_path / "stats.db", config_store)
+    config_store.mutate(lambda d: d.setdefault("web", {}).update({"https_enabled": False}))
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update({"typosquat_enabled": True}))
+    app = create_app(config_store, blocklist, stats, started_at=0.0, data_dir=tmp_path)
+    client = TestClient(app)
+    response = client.post("/api/login", json={"username": "admin", "password": "changeme"})
+    assert response.status_code == 200
+    client.headers[CSRF_HEADER_NAME] = client.cookies[CSRF_COOKIE_NAME]
+
+    blocklist.typosquat_match("gooogle.com")
+    assert "gooogle.com" in blocklist._typosquat_cache
+
+    response = client.patch("/api/settings/dns", json={"typosquat_max_distance": 3})
+
+    assert response.status_code == 200
+    assert blocklist._typosquat_cache == {}

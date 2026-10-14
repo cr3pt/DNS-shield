@@ -2127,6 +2127,7 @@
         </div>
         <div class="field"><label data-i18n="proxy.field.path">Path</label><input type="text" id="proxy-new-path" value="/" required></div>
         <div class="field"><label data-i18n="proxy.field.upstream">Upstream (proxy) or target (redirect)</label><input type="text" id="proxy-new-target" placeholder="http://127.0.0.1:3000" required></div>
+        <div class="field"><label><input type="checkbox" id="proxy-new-websocket"> <span data-i18n="proxy.rule.websocket">WebSocket support (proxy rules only)</span></label></div>
       </form>
       <button type="button" id="add-proxy-domain-btn" data-i18n="proxy.add_domain">Add domain</button>
       <div id="proxy-domain-list" style="margin-top:1rem;"></div>
@@ -4632,15 +4633,20 @@ function renderProxyDomains(domains) {
     });
     const rulePath = el("input", { type: "text", placeholder: "/api", value: "/" });
     const ruleTarget = el("input", { type: "text", placeholder: "http://127.0.0.1:8080" });
+    const ruleWebsocket = el("input", { type: "checkbox" });
+    const ruleWebsocketLabel = el("label");
+    ruleWebsocketLabel.appendChild(ruleWebsocket);
+    ruleWebsocketLabel.appendChild(document.createTextNode(" " + t("proxy.rule.websocket", "WebSocket support (proxy rules only)")));
     ruleForm.appendChild(ruleType);
     ruleForm.appendChild(rulePath);
     ruleForm.appendChild(ruleTarget);
+    ruleForm.appendChild(ruleWebsocketLabel);
     ruleForm.appendChild(el("button", { type: "submit", text: t("common.add", "Add") }));
     ruleForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const newRule = ruleType.value === "redirect"
         ? { type: "redirect", path: rulePath.value.trim() || "/", target: ruleTarget.value.trim(), code: 301 }
-        : { type: "proxy", path: rulePath.value.trim() || "/", upstream: ruleTarget.value.trim(), websocket: false };
+        : { type: "proxy", path: rulePath.value.trim() || "/", upstream: ruleTarget.value.trim(), websocket: ruleWebsocket.checked };
       const rules = [...(domain.rules || []), newRule];
       try {
         await api(`/api/proxy/domains/${domain.id}`, {
@@ -4665,13 +4671,14 @@ document.getElementById("add-proxy-domain-btn").addEventListener("click", async 
   const ruleType = document.getElementById("proxy-new-rule-type").value;
   const path = document.getElementById("proxy-new-path").value.trim() || "/";
   const target = document.getElementById("proxy-new-target").value.trim();
+  const websocket = document.getElementById("proxy-new-websocket").checked;
   if (!hostnames.length || !target) {
     alert(t("proxy.fill_required", "Provide at least one hostname and a target."));
     return;
   }
   const rule = ruleType === "redirect"
     ? { type: "redirect", path, target, code: 301 }
-    : { type: "proxy", path, upstream: target, websocket: false };
+    : { type: "proxy", path, upstream: target, websocket };
   try {
     await api("/api/proxy/domains", {
       method: "POST", headers: { "Content-Type": "application/json" },

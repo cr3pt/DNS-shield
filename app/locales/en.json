@@ -600,6 +600,7 @@
   "proxy.field.rule_type": "First rule type",
   "proxy.rule.proxy": "Proxy",
   "proxy.rule.redirect": "Redirect",
+  "proxy.rule.websocket": "WebSocket support (proxy rules only)",
   "proxy.field.path": "Path",
   "proxy.field.upstream": "Target (proxy) or destination address (redirect)",
   "proxy.add_domain": "Add domain",

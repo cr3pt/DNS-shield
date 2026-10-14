@@ -94,7 +94,7 @@ def _second_level_label(domain: str) -> str:
 def _is_embedded_token(candidate_label: str, protected_label: str) -> bool:
     if protected_label == candidate_label:
         return False
-    pattern = r"(?:^|-)" + re.escape(protected_label) + r"(?:$|-)"
+    pattern = r"(?:^|[-0-9])" + re.escape(protected_label) + r"(?:$|[-0-9])"
     return re.search(pattern, candidate_label) is not None
 
 

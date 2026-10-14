@@ -97,10 +97,17 @@ class UpstreamStats:
             }
         return result
 
+    def _all_configured_upstreams(self) -> list[str]:
+        upstreams: set[str] = set(self._config.get("dns", "upstreams", default=[]) or [])
+        for rule in self._config.get("domain_upstreams", default=[]) or []:
+            upstreams.update(rule.get("upstreams") or [])
+        for group in self._config.get("client_groups", default=[]) or []:
+            upstreams.update(group.get("upstreams") or [])
+        return [u for u in upstreams if not upstream_transport.is_disabled(u)]
+
     def _probe_loop(self) -> None:
         while not self._stop_event.wait(120):
-            upstreams = self._config.get("dns", "upstreams", default=[]) or []
-            for upstream in upstreams:
+            for upstream in self._all_configured_upstreams():
                 threading.Thread(target=self._probe_one, args=(upstream,), daemon=True).start()
 
     def _probe_one(self, upstream: str) -> None:

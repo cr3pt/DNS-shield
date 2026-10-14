@@ -583,24 +583,24 @@ class BlocklistManager:
             domains, format_counts, source_exceptions = results[name]
             counts[name] = len(domains)
             formats[name] = describer(format_counts)
-            merged |= domains
+            effective = domains - source_exceptions
+            merged |= effective
             exceptions |= source_exceptions
-            for domain in domains:
+            for domain in effective:
                 domain_source.setdefault(domain, name)
         return merged, counts, formats, domain_source, exceptions
 
     def refresh(self, network: bool = True) -> None:
         with self._refresh_lock:
             sources = self._config.get("blocklists", "sources", default=[]) or []
-            merged, counts, formats, domain_source, block_exceptions = self._fetch_sources(
+            merged, counts, formats, domain_source, _block_exceptions = self._fetch_sources(
                 sources, network=network
             )
 
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
-            allow_merged, allow_counts, allow_formats, _, allow_exceptions = self._fetch_sources(
+            allow_merged, allow_counts, allow_formats, _, _allow_exceptions = self._fetch_sources(
                 allow_sources, network=network
             )
-            allow_merged |= block_exceptions | allow_exceptions
 
             alert_sources = self._config.get("alert_rules", "sources", default=[]) or []
             alert_merged, alert_counts, alert_formats, alert_domain_source, _ = self._fetch_sources(
