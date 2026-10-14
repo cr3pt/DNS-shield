@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
 # See the LICENSE file in the project root for full license terms.
 
-from app.blocklist import describe_format, describe_ip_format, parse_ip_list, parse_list
+from app.blocklist import BlocklistManager, describe_format, describe_ip_format, parse_ip_list, parse_list
 
 
 def test_plain_domain_list():
@@ -69,3 +69,43 @@ def test_describe_ip_format():
     assert describe_ip_format({}) == "unknown"
     assert describe_ip_format({"ip": 3}) == "IP list"
     assert describe_ip_format({"ip": 1, "cidr": 1}) == "mixed (IP list + CIDR list)"
+
+
+def test_exception_only_cancels_the_block_from_its_own_source(config_store, tmp_path):
+    cache_dir = tmp_path / "blocklist_cache"
+    cache_dir.mkdir()
+    (cache_dir / "ListA.cache").write_text("ads.example.com\n", encoding="utf-8")
+    (cache_dir / "ListB.cache").write_text("@@||ads.example.com^\n", encoding="utf-8")
+
+    config_store.mutate(
+        lambda d: d.setdefault("blocklists", {}).update(
+            {
+                "sources": [
+                    {"name": "ListA", "url": "https://a.example/list.txt", "enabled": True},
+                    {"name": "ListB", "url": "https://b.example/list.txt", "enabled": True},
+                ]
+            }
+        )
+    )
+
+    blocklist = BlocklistManager(config_store, cache_dir)
+    blocklist.refresh(network=False)
+
+    assert blocklist.is_blocked("ads.example.com")
+
+
+def test_exception_cancels_a_block_from_the_same_source(config_store, tmp_path):
+    cache_dir = tmp_path / "blocklist_cache"
+    cache_dir.mkdir()
+    (cache_dir / "ListA.cache").write_text("||ads.example.com^\n@@||ads.example.com^\n", encoding="utf-8")
+
+    config_store.mutate(
+        lambda d: d.setdefault("blocklists", {}).update(
+            {"sources": [{"name": "ListA", "url": "https://a.example/list.txt", "enabled": True}]}
+        )
+    )
+
+    blocklist = BlocklistManager(config_store, cache_dir)
+    blocklist.refresh(network=False)
+
+    assert not blocklist.is_blocked("ads.example.com")

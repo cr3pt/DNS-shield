@@ -60,6 +60,26 @@ def test_discover_for_reserved_mac_offers_reserved_ip(scope, lease_store):
     assert reply.yiaddr == "192.168.1.50"
 
 
+def test_discover_for_unreserved_mac_never_offers_an_in_pool_reservation(lease_store):
+    scope = {
+        "name": "lan",
+        "network": "192.168.1.0/24",
+        "pool_start": "192.168.1.100",
+        "pool_end": "192.168.1.102",
+        "gateway": "192.168.1.1",
+        "dns_servers": ["192.168.1.1"],
+        "lease_seconds": 3600,
+        "server_ip": SERVER_IP,
+        "reservations": [{"mac": "AA:BB:CC:DD:EE:02", "ip": "192.168.1.100", "hostname": "printer"}],
+    }
+
+    reply = dhcp_server.handle_packet(scope, _discover("AA:BB:CC:DD:EE:01"), lease_store, SERVER_IP)
+
+    assert reply.message_type == proto.OFFER
+    assert reply.yiaddr != "192.168.1.100"
+    assert reply.yiaddr == "192.168.1.101"
+
+
 def test_request_confirms_offered_address(scope, lease_store):
     offer = dhcp_server.handle_packet(scope, _discover("AA:BB:CC:DD:EE:01"), lease_store, SERVER_IP)
     ack = dhcp_server.handle_packet(

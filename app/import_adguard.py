@@ -167,15 +167,10 @@ def convert_dns_settings(adguard: dict) -> tuple[dict, list[str]]:
     dns_cfg = adguard.get("dns") or {}
     out: dict[str, Any] = {}
 
-    bind_hosts = dns_cfg.get("bind_hosts") or ["0.0.0.0"]
-    out["listen_address"] = bind_hosts[0]
-    if len(bind_hosts) > 1:
-        warnings.append(
-            f"dns.bind_hosts had {len(bind_hosts)} addresses; DNS-shield listens on one, "
-            f"using {bind_hosts[0]!r}"
-        )
-
-    out["listen_port"] = dns_cfg.get("port", 53)
+    warnings.append(
+        "dns.bind_hosts/port were not imported - DNS-shield keeps its own listen address/port, "
+        "since changing them here could stop matching your docker-compose port mapping"
+    )
 
     upstreams = []
     for entry in dns_cfg.get("upstream_dns") or []:
