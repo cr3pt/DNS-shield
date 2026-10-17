@@ -1922,10 +1922,16 @@ has to create the account by hand first and SSO only authenticates
 existing ones. Either way, an SSO-provisioned account gets a random,
 never-shown local password hash, so the password-login path stays
 impossible for it - only the identity provider (or a manual password
-reset by an admin afterward) can sign it in. Existing accounts work with
-SSO too: if the username the provider returns matches an account you
-already created, that account's own role and permissions apply, SSO or
-not. The client secret is stored the same way the SMTP and threat-intel
+reset by an admin afterward) can sign it in. An SSO identity can only ever bind to an account that was itself
+created via SSO - if the username your provider returns matches a
+*local*, password-based account (including the built-in `admin`
+account), DNS-shield refuses the login outright rather than signing
+into that account, since the username claim is something the identity
+provider (or, for a self-asserted field like `preferred_username`, the
+end user themselves) controls, not something DNS-shield can treat as
+proof of who they are. Logging back into an account SSO itself
+previously created works exactly as you'd expect, applying that
+account's own role and permissions each time. The client secret is stored the same way the SMTP and threat-intel
 API keys are - masked to a short preview once saved, and left untouched
 if you save the form again without retyping it.
 
@@ -2711,8 +2717,9 @@ pytest
   makes an explicit way to actually remove one necessary. `local_url` is
   stored and shown in plain text (it's a URL, not a secret) - don't put
   credentials in it, use the separate local API key field for that.
-- Fetching a blocklist/allow-list/watch-list source URL rejects a
-  hostname that resolves to a private, loopback, link-local, or otherwise
+- Fetching a blocklist/allow-list/watch-list source URL, a notification
+  webhook (Discord/Slack), or the URL-ping target rejects a hostname
+  that resolves to a private, loopback, link-local, or otherwise
   non-public address (SSRF protection), re-checked at the moment of the
   actual connection (not just the upfront validation) so a DNS answer
   that changes between the two can't slip a private address past the
@@ -2728,7 +2735,17 @@ pytest
 - Every place a secret is checked against a stored value (API tokens,
   2FA backup codes) uses a constant-time comparison, so a network
   attacker can't use response-timing differences to guess a valid value
-  one byte at a time.
+  one byte at a time. The dashboard login does the equivalent for
+  usernames: a login attempt for a username that doesn't exist still
+  runs a full (dummy) password hash check, so the response-time
+  difference between "wrong password" and "no such user" can't be used
+  to enumerate valid accounts.
+- An SSO login can only ever authenticate an account that was itself
+  created through SSO - if the identity your provider returns happens
+  to match a local, password-based account (including the built-in
+  `admin` account), the login is rejected rather than silently signed
+  into that account. See [Single sign-on](#single-sign-on-sso--openid-connect)
+  above.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") is off by default and is the actual gate on whether
   VirusTotal/AbuseIPDB/OTX are ever contacted - saving a key for one of

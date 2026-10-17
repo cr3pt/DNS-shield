@@ -3,6 +3,7 @@
 
 import pyotp
 
+import app.users as users_module
 from app.users import UserStore
 
 
@@ -10,6 +11,26 @@ def _store(config_store) -> UserStore:
     store = UserStore(config_store)
     store.create("alice", "hunter22", "user")
     return store
+
+
+def test_verify_login_hashes_a_dummy_password_for_an_unknown_username(config_store, monkeypatch):
+    store = _store(config_store)
+    calls = []
+    real_verify = users_module.verify_password
+
+    def spy(password, hashed):
+        calls.append(hashed)
+        return real_verify(password, hashed)
+
+    monkeypatch.setattr(users_module, "verify_password", spy)
+
+    assert store.verify_login("no-such-user", "whatever") is None
+    assert store.verify_login("alice", "wrong-password") is None
+    assert store.verify_login("alice", "hunter22") is not None
+
+    assert len(calls) == 3
+    assert calls[0] == users_module._DUMMY_PASSWORD_HASH
+    assert calls[1] != users_module._DUMMY_PASSWORD_HASH
 
 
 def test_create_token_round_trips_through_find_by_token(config_store):

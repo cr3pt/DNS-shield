@@ -58,6 +58,14 @@ def test_legitimate_compound_domains_are_not_flagged():
         assert _match(qname) is None, f"expected {qname} to NOT be flagged"
 
 
+def test_legitimate_compound_exception_is_scoped_to_its_real_domain_not_any_tld():
+    for qname in ("googleapis.tk", "amazonaws.ru", "paypalobjects.xyz", "microsoftonline.cf"):
+        result = _match(qname)
+        assert result is not None, f"expected {qname} to be flagged (not exempted on an unrelated TLD)"
+        _protected, kind, _distance = result
+        assert kind == "embedded"
+
+
 def test_short_protected_label_requires_a_delimiter_to_avoid_dictionary_word_collisions():
     for qname in ("cdn-canalplus.pl", "purchase-receipts.com", "pineapple-farm.com"):
         assert _match(qname) is None, f"expected {qname} to NOT be flagged"

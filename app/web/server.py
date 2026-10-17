@@ -995,6 +995,9 @@ def create_app(
         identity = str(identity).strip()
 
         existing = users.get(identity)
+        if existing is not None and not existing.get("sso"):
+            login_throttle.record_failure(client_ip)
+            return RedirectResponse("/login?error=sso_account_conflict")
         if existing is None:
             if not cfg.get("auto_provision", True):
                 return RedirectResponse("/login?error=sso_no_account")

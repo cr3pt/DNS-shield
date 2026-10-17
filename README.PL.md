@@ -2140,10 +2140,17 @@ musi najpierw ręcznie założyć administrator, a SSO tylko uwierzytelnia już
 istniejące. Tak czy inaczej, konto założone przez SSO dostaje losowy, nigdy
 nie pokazywany lokalny hash hasła, więc logowanie hasłem pozostaje dla
 niego niemożliwe - zalogować może je tylko dostawca tożsamości (albo
-późniejszy ręczny reset hasła przez administratora). Istniejące konta
-też działają z SSO: jeśli nazwa użytkownika zwrócona przez dostawcę
-pasuje do konta już wcześniej założonego, obowiązuje rola i uprawnienia
-tego konta, niezależnie od SSO. Client secret przechowywany jest tak samo,
+późniejszy ręczny reset hasła przez administratora). Tożsamość z SSO
+może się powiązać wyłącznie z kontem, które samo zostało założone przez
+SSO - jeśli nazwa użytkownika zwrócona przez dostawcę pasuje do
+*lokalnego* konta na hasło (w tym do wbudowanego konta `admin`),
+DNS-shield odmawia zalogowania, zamiast zalogować na to konto, bo nazwa
+z tego pola (zwłaszcza samodzielnie deklarowanego, jak
+`preferred_username`) jest kontrolowana przez dostawcę tożsamości albo
+samego użytkownika koncowego, a nie czymś, co DNS-shield może przyjąć
+jako dowód tego, kim naprawdę jest dana osoba. Ponowne logowanie na
+konto, które SSO samo wcześniej założyło, działa tak, jak należy -
+każdorazowo obowiązuje rola i uprawnienia tego konta. Client secret przechowywany jest tak samo,
 jak hasło SMTP czy klucze API do threat-intel - po zapisaniu widoczny jest
 tylko jako krótki, zamaskowany podgląd, a ponowny zapis formularza bez
 wpisania nowej wartości zostawia go bez zmian.
@@ -3021,8 +3028,9 @@ pytest
   przechowywane i pokazywane jawnym tekstem (to adres URL, nie sekret) -
   nie umieszczaj w nim żadnych poświadczeń, do tego służy osobne pole na
   lokalny klucz API.
-- Pobieranie adresu URL źródła (listy blokad/dozwolonej/obserwowanej)
-  odrzuca nazwę hosta, która rozwiązuje się do adresu prywatnego,
+- Pobieranie adresu URL źródła (listy blokad/dozwolonej/obserwowanej),
+  webhooka powiadomień (Discord/Slack), albo celu URL-ping, odrzuca
+  nazwę hosta, która rozwiązuje się do adresu prywatnego,
   loopback, link-local albo inaczej niepublicznego (ochrona przed SSRF),
   ponownie sprawdzaną w momencie samego łączenia (nie tylko przy
   wstępnej walidacji), więc odpowiedź DNS, która zmieni się między tymi
@@ -3041,7 +3049,17 @@ pytest
 - Każde miejsce, w którym sekret jest porównywany z zapisaną wartością
   (tokeny API, kody zapasowe 2FA), używa porównania w stałym czasie, więc
   atakujący z sieci nie może wykorzystać różnic w czasie odpowiedzi, by
-  odgadywać poprawną wartość bajt po bajcie.
+  odgadywać poprawną wartość bajt po bajcie. Logowanie do panelu robi to
+  samo dla nazw użytkowników: próba logowania dla nieistniejącej nazwy
+  użytkownika i tak wykonuje pełne (atrapowe) sprawdzenie hasha hasła,
+  więc różnicy w czasie odpowiedzi między "błędne hasło" a "nie ma
+  takiego użytkownika" nie da się użyć do wyliczenia istniejących kont.
+- Logowanie przez SSO może uwierzytelnić wyłącznie konto, które samo
+  zostało założone przez SSO - jeśli tożsamość zwrócona przez dostawcę
+  przypadkiem pasuje do lokalnego konta na hasło (w tym do wbudowanego
+  konta `admin`), logowanie jest odrzucane, zamiast po cichu zalogować
+  na to konto. Zobacz
+  [Logowanie SSO](#logowanie-sso-openid-connect) wyżej.
 - `enrichment.public_enabled` (Settings -> Threat intelligence -> "Enable
   public lookups") jest domyślnie wyłączone i to właśnie ono decyduje o
   tym, czy VirusTotal/AbuseIPDB/OTX są w ogóle kiedykolwiek kontaktowane -

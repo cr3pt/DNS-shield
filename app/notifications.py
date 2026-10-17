@@ -11,6 +11,8 @@ from typing import Any
 
 import requests
 
+from app.url_safety import check_public_url, public_dns_guard
+
 logger = logging.getLogger("dnsshield.notifications")
 
 _SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
@@ -104,13 +106,17 @@ class NotificationSender:
             url = (cfg.get("url") or "").strip()
             if not url:
                 raise ValueError("Discord webhook URL is required")
-            resp = requests.post(url, json={"content": text}, timeout=_WEBHOOK_TIMEOUT)
+            check_public_url(url)
+            with public_dns_guard(url):
+                resp = requests.post(url, json={"content": text}, timeout=_WEBHOOK_TIMEOUT)
             resp.raise_for_status()
         elif wtype == "slack":
             url = (cfg.get("url") or "").strip()
             if not url:
                 raise ValueError("Slack webhook URL is required")
-            resp = requests.post(url, json={"text": text}, timeout=_WEBHOOK_TIMEOUT)
+            check_public_url(url)
+            with public_dns_guard(url):
+                resp = requests.post(url, json={"text": text}, timeout=_WEBHOOK_TIMEOUT)
             resp.raise_for_status()
         elif wtype == "telegram":
             token = (cfg.get("telegram_bot_token") or "").strip()
