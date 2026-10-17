@@ -75,6 +75,22 @@ DEFAULT_PROTECTED_DOMAINS: tuple[str, ...] = (
 )
 
 _MIN_PROTECTED_LABEL_LENGTH_FOR_SUBSTRING = 4
+_MIN_PROTECTED_LABEL_LENGTH_FOR_UNBOUNDED_SUBSTRING = 6
+
+_LEGITIMATE_BRAND_COMPOUNDS: frozenset[str] = frozenset(
+    {
+        "googleapis.com", "googleusercontent.com", "googlesyndication.com", "googletagmanager.com",
+        "googleadservices.com", "googlevideo.com", "googledrive.com", "googlemail.com",
+        "amazonaws.com", "amazontrust.com",
+        "microsoftonline.com", "microsoftazure.com", "microsoftstore.com",
+        "paypalobjects.com",
+        "githubusercontent.com", "githubassets.com",
+        "dropboxusercontent.com", "dropboxapi.com", "dropboxstatic.com",
+        "ebaystatic.com", "ebayimg.com",
+        "facebookmail.com", "facebookresearch.com",
+        "appleid.com", "applecare.com",
+    }
+)
 
 
 def _base_domain(qname: str) -> str:
@@ -91,9 +107,13 @@ def _second_level_label(domain: str) -> str:
     return labels[-2] if len(labels) >= 2 else labels[0]
 
 
-def _is_embedded_token(candidate_label: str, protected_label: str) -> bool:
+def _is_embedded_token(candidate: str, candidate_label: str, protected_label: str) -> bool:
     if protected_label == candidate_label:
         return False
+    if candidate in _LEGITIMATE_BRAND_COMPOUNDS:
+        return False
+    if len(protected_label) >= _MIN_PROTECTED_LABEL_LENGTH_FOR_UNBOUNDED_SUBSTRING:
+        return protected_label in candidate_label
     pattern = r"(?:^|[-0-9])" + re.escape(protected_label) + r"(?:$|[-0-9])"
     return re.search(pattern, candidate_label) is not None
 
@@ -136,7 +156,7 @@ def find_typosquat_match(
         protected_label = _second_level_label(protected)
 
         if len(protected_label) >= _MIN_PROTECTED_LABEL_LENGTH_FOR_SUBSTRING:
-            if _is_embedded_token(candidate_label, protected_label):
+            if _is_embedded_token(candidate, candidate_label, protected_label):
                 return (protected, "embedded", 0)
 
         distance = _levenshtein(candidate_label, protected_label)

@@ -8,6 +8,8 @@ import threading
 
 import requests
 
+from app.url_safety import check_public_url, public_dns_guard
+
 logger = logging.getLogger("dnsshield.url_ping")
 
 _TIMEOUT = 10
@@ -33,9 +35,11 @@ class UrlPingTask:
         if not url:
             return
         try:
-            resp = requests.get(url, timeout=_TIMEOUT)
+            check_public_url(url)
+            with public_dns_guard(url):
+                resp = requests.get(url, timeout=_TIMEOUT)
             logger.info("url ping to %s completed with status %d", url, resp.status_code)
-        except requests.RequestException as exc:
+        except (requests.RequestException, ValueError) as exc:
             logger.warning("url ping to %s failed: %s", url, exc)
 
     def _loop(self) -> None:

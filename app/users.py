@@ -20,6 +20,7 @@ from app.two_factor import (
 )
 
 _TOKEN_TOUCH_MIN_INTERVAL = 60.0
+_DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 SUPPORTED_LANGUAGES = ("en", "pl", "de", "fr", "ar", "zh", "ja", "ko")
 LANGUAGE_NATIVE_NAMES = {
@@ -129,9 +130,8 @@ class UserStore:
 
     def verify_login(self, username: str, password: str) -> dict[str, Any] | None:
         user = self.get(username)
-        if user is None:
-            return None
-        if not verify_password(password, user.get("password_hash", "")):
+        password_hash = user.get("password_hash", "") if user is not None else _DUMMY_PASSWORD_HASH
+        if not verify_password(password, password_hash):
             return None
         return user
 
@@ -174,7 +174,7 @@ class UserStore:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             users = data.setdefault("users", [])
             for user in users:
-                if user.get("username") == username:
+                if user.get("username") == username and user.get("sso"):
                     return user
             user = {
                 "username": username,
