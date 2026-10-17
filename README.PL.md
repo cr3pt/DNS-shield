@@ -1633,17 +1633,23 @@ wizyta na stronie tej marki nigdy by nie wyprodukowała:
   [odległość edycyjna Levenshteina](https://en.wikipedia.org/wiki/Levenshtein_distance)
   między etykietą odpytywanej domeny a etykietą domeny chronionej, w
   granicach `dns.typosquat_max_distance` (domyślnie 2).
-- **Nazwa marki osadzona w dłuższej domenie**, o ile jest odgraniczona
-  myślnikiem, cyfrą, albo początkiem/końcem etykiety -
+- **Nazwa marki osadzona w dłuższej domenie** -
   `paypal-security-check.com`, `secure-allegro-login.pl`,
-  `paypal123.com` - klasyczny wzorzec combosquattingu, którego sama
-  odległość edycyjna nie wychwyci, bo dodanie tuzina dodatkowych znaków
-  to już duża odległość, mimo że sama nazwa marki siedzi tam
-  niezmieniona. Nazwa marki zlepiona z innym słowem bez żadnego takiego
-  separatora (`paypalsecurity.com`) nie jest przez to wychwytywana -
-  celowo, bo nie ma wiarygodnego sposobu odróżnić to od uzasadnionego
-  złożenia typu `googleapis.com` bez osobnej, prowadzonej ręcznie listy
-  wyjątków.
+  `paypal123.com`, a nawet nazwa marki zlepiona z innym słowem bez
+  żadnego separatora (`paypalsecurity.com`, `secureallegrologin.pl`) -
+  klasyczny wzorzec combosquattingu, którego sama odległość edycyjna nie
+  wychwyci, bo dodanie tuzina dodatkowych znaków to już duża odległość,
+  mimo że sama nazwa marki siedzi tam niezmieniona. Dla krótkiej
+  chronionej nazwy (`chase.com`, `apple.com`, poniżej 6 znaków) działa to
+  tylko, gdy jest odgraniczona myślnikiem, cyfrą, albo początkiem/końcem
+  etykiety - `purchase-receipts.com` i `pineapple-farm.com` są poprawnie
+  pomijane - bo niczym nieograniczone dopasowanie krótkiej nazwy marki
+  zbyt często koliduje ze zwykłymi słowami, których jest po prostu
+  podciągiem. Krótka, prowadzona ręcznie lista znanych, uzasadnionych
+  złożeń (`googleapis.com`, `amazonaws.com`, `githubusercontent.com`,
+  `paypalobjects.com`, `microsoftonline.com` i kilka innych) jest też
+  wyjątkiem w całości, bo nie ma wiarygodnego sposobu odróżnić ich od
+  prawdziwego combosquattingu samym wzorcem.
 
 Dokładne dopasowanie albo prawdziwa subdomena samej chronionej domeny
 (`mail.google.com`, `accounts.google.com`) nigdy nie jest przy tym

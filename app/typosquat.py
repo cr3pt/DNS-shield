@@ -75,6 +75,22 @@ DEFAULT_PROTECTED_DOMAINS: tuple[str, ...] = (
 )
 
 _MIN_PROTECTED_LABEL_LENGTH_FOR_SUBSTRING = 4
+_MIN_PROTECTED_LABEL_LENGTH_FOR_UNBOUNDED_SUBSTRING = 6
+
+_LEGITIMATE_BRAND_COMPOUNDS: frozenset[str] = frozenset(
+    {
+        "googleapis", "googleusercontent", "googlesyndication", "googletagmanager",
+        "googleadservices", "googlevideo", "googledrive", "googlemail",
+        "amazonaws", "amazontrust",
+        "microsoftonline", "microsoftazure", "microsoftstore",
+        "paypalobjects",
+        "githubusercontent", "githubassets",
+        "dropboxusercontent", "dropboxapi", "dropboxstatic",
+        "ebaystatic", "ebayimg",
+        "facebookmail", "facebookresearch",
+        "appleid", "applecare",
+    }
+)
 
 
 def _base_domain(qname: str) -> str:
@@ -94,6 +110,10 @@ def _second_level_label(domain: str) -> str:
 def _is_embedded_token(candidate_label: str, protected_label: str) -> bool:
     if protected_label == candidate_label:
         return False
+    if candidate_label in _LEGITIMATE_BRAND_COMPOUNDS:
+        return False
+    if len(protected_label) >= _MIN_PROTECTED_LABEL_LENGTH_FOR_UNBOUNDED_SUBSTRING:
+        return protected_label in candidate_label
     pattern = r"(?:^|[-0-9])" + re.escape(protected_label) + r"(?:$|[-0-9])"
     return re.search(pattern, candidate_label) is not None
 

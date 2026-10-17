@@ -1465,16 +1465,23 @@ domains for two things a real visit to that brand would never produce:
   [Levenshtein edit distance](https://en.wikipedia.org/wiki/Levenshtein_distance)
   between the queried domain's own label and the protected domain's,
   within `dns.typosquat_max_distance` (default 2).
-- **The brand name embedded in a longer domain**, as long as it's set off
-  by a hyphen, a digit, or the start/end of the label -
+- **The brand name embedded in a longer domain** -
   `paypal-security-check.com`, `secure-allegro-login.pl`,
-  `paypal123.com` - a classic combosquatting pattern edit distance alone
-  won't catch, since inserting a dozen extra characters is a large
-  distance even though the brand name is sitting right there unmodified.
-  A brand name blended into another word with no such separator at all
-  (`paypalsecurity.com`) isn't caught by this check - deliberately, since
-  there's no reliable way to tell that apart from a legitimate compound
-  like `googleapis.com` without a curated exception list.
+  `paypal123.com`, and even a brand blended into another word with no
+  separator at all (`paypalsecurity.com`, `secureallegrologin.pl`) - a
+  classic combosquatting pattern edit distance alone won't catch, since
+  inserting a dozen extra characters is a large distance even though the
+  brand name is sitting right there unmodified. For a short protected
+  name (`chase.com`, `apple.com`, under 6 characters) this only fires
+  when it's set off by a hyphen, a digit, or the start/end of the label
+  - `purchase-receipts.com` and `pineapple-farm.com` are correctly left
+  alone - since an unbounded match on a short brand name collides too
+  often with ordinary words it happens to be a substring of. A short,
+  curated list of known-legitimate compounds (`googleapis.com`,
+  `amazonaws.com`, `githubusercontent.com`, `paypalobjects.com`,
+  `microsoftonline.com`, and a handful of others) is also exempted
+  outright, since there's no reliable way to tell those apart from a
+  real combosquat by pattern alone.
 
 An exact match or a real subdomain of the protected domain itself
 (`mail.google.com`, `accounts.google.com`) is explicitly never flagged -

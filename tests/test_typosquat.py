@@ -49,8 +49,26 @@ def test_legitimate_compound_domains_are_not_flagged():
         "lcprd1.samsungcloudsolution.net",
         "api.amazon.co.uk",
         "adb-sc.cdn-canalplus.pl",
+        "static.amazonaws.com",
+        "raw.githubusercontent.com",
+        "content.dropboxusercontent.com",
+        "www.paypalobjects.com",
+        "login.microsoftonline.com",
     ):
         assert _match(qname) is None, f"expected {qname} to NOT be flagged"
+
+
+def test_short_protected_label_requires_a_delimiter_to_avoid_dictionary_word_collisions():
+    for qname in ("cdn-canalplus.pl", "purchase-receipts.com", "pineapple-farm.com"):
+        assert _match(qname) is None, f"expected {qname} to NOT be flagged"
+
+
+def test_brand_embedded_with_no_delimiter_is_now_flagged():
+    for qname in ("paypalsecurity.com", "securepaypalnow.com", "googleaccountverify.com"):
+        result = _match(qname)
+        assert result is not None, f"expected {qname} to be flagged"
+        _protected, kind, _distance = result
+        assert kind == "embedded"
 
 
 def test_short_protected_label_does_not_match_unrelated_short_domains():
