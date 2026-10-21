@@ -2136,9 +2136,13 @@ secret), po czym weryfikuje podpis zwróconego tokenu ID względem
 publicznego zestawu kluczy (JWKS) dostawcy, a także jego wystawcę
 (issuer), odbiorcę (audience) i nonce - dopiero wtedy ustawiane jest
 ciasteczko sesji DNS-shield, dokładnie tak samo jak przy logowaniu hasłem.
-Zbudowane na [Authlib](https://docs.authlib.org/) - takiej samej,
-dobrze przetestowanej bibliotece OAuth, po jaką sięgnąłby każdy framework,
-a nie na własnoręcznie napisanej weryfikacji tokenów.
+Zbudowane na [Authlib](https://docs.authlib.org/) (przepływ OAuth) i
+[joserfc](https://jose.authlib.org/) (weryfikacja JWT/JWKS) - takich samych,
+dobrze przetestowanych bibliotekach, po jakie sięgnąłby każdy framework,
+a nie na własnoręcznie napisanej weryfikacji tokenów. Akceptowane są
+wyłącznie asymetryczne algorytmy podpisu (RS/PS/ES/EdDSA) - tokeny `none`
+i HMAC są odrzucane - a token musi zawierać czas wygaśnięcia (`exp`);
+tolerowana jest minuta różnicy zegarów.
 
 Pierwsze udane logowanie tożsamości, której DNS-shield jeszcze nie zna,
 automatycznie zakłada dla niej lokalne konto (ustawienie **username claim**,
@@ -2753,7 +2757,7 @@ app/
   passkeys.py             ceremonie rejestracji i uwierzytelniania WebAuthn (zobacz
                         "Klucze dostępu" wyżej), cienki wrapper na bibliotece webauthn
   sso.py                  odkrywanie OpenID Connect, wymiana kodu autoryzacyjnego i
-                        weryfikacja tokenu ID (zobacz "Logowanie SSO" wyżej), na Authlib
+                        weryfikacja tokenu ID (zobacz "Logowanie SSO" wyżej), na Authlib + joserfc
   dns_rewrites.py       dopasowywanie niestandardowych, lokalnych rekordów A/AAAA
                        (zobacz "Niestandardowe rekordy DNS" wyżej)
   dns_cache.py         cache odpowiedzi z serwerów nadrzędnych w pamięci, respektujący

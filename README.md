@@ -1917,9 +1917,13 @@ browser never sees the client secret), and verifies the returned ID
 token's signature against the provider's own published JWKS key set plus
 its issuer, audience, and nonce - only then does a DNS-shield session
 cookie get set, exactly like a password login would. Built on
-[Authlib](https://docs.authlib.org/), the same kind of well-audited OAuth
-library any framework would reach for, rather than hand-rolled token
-verification.
+[Authlib](https://docs.authlib.org/) (the OAuth flow) and
+[joserfc](https://jose.authlib.org/) (JWT/JWKS verification), the same
+kind of well-audited libraries any framework would reach for, rather than
+hand-rolled token verification. Only asymmetric signature algorithms
+(RS/PS/ES/EdDSA) are accepted - `none` and HMAC tokens are refused - and
+the token must carry an expiry (`exp`); a minute of clock skew is
+tolerated.
 
 A first successful sign-in for an identity DNS-shield hasn't seen before
 creates its local account automatically (the **username claim** setting,
@@ -2483,7 +2487,7 @@ app/
   passkeys.py             WebAuthn registration/authentication ceremonies (see Passkeys
                         above), thin wrapper over the webauthn library
   sso.py                  OpenID Connect discovery, authorization-code exchange, and ID
-                        token verification (see Single sign-on above), built on Authlib
+                        token verification (see Single sign-on above), built on Authlib + joserfc
   dns_rewrites.py       custom local A/AAAA record matching (see Custom DNS records above)
   dns_cache.py         in-memory, TTL-respecting cache of upstream answers (LRU-bounded,
                        nothing persisted to disk)
