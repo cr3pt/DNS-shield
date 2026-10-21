@@ -1188,7 +1188,13 @@ dotykowym), żeby przybliżyć lub oddalić względem wskaźnika, przeciągnij
 tło, żeby przesunąć widok, przeciągnij węzeł, żeby go przenieść, a
 podwójne kliknięcie (albo przycisk **Reset view**) przywraca domyślne
 przybliżenie i przesunięcie widoku - przydatne, gdy ruchliwa sieć
-rozciągnęła graf szerzej, niż mieści się na płótnie naraz. Przycisk
+rozciągnęła graf szerzej, niż mieści się na płótnie naraz. Układ sam
+stygnie i stabilizuje się w ciągu kilku sekund, niezależnie od liczby
+relacji i zapytań na krawędź w ruchliwej sieci: rozmiar kropek maleje
+wraz z gęstością grafu, więc kropki nie nakładają się na siebie, a
+etykietę mają tylko podejrzane, wskazane, zaznaczone albo przybliżone
+węzły. Przeciąganie węzła kończy się po puszczeniu przycisku myszy w
+dowolnym miejscu, także poza płótnem. Przycisk
 **Clear graph data**, dostępny wyłącznie dla administratora (`POST
 /api/graph/clear`), czyści całą historię relacji w `graph.db` - nie ma
 to żadnego wpływu na sam log zapytań, tylko na pamięć grafu o tym, kto z

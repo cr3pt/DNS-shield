@@ -1071,7 +1071,12 @@ touch devices) to zoom in and out centered on the pointer, drag the
 background to pan, drag a node to reposition it, and double-click (or
 the **Reset view** button) to snap back to the default zoom/pan - handy
 once a busy network has spread the graph out further than the canvas
-can show at once. An admin-only **Clear graph data** button (`POST
+can show at once. The layout cools down and settles on its own within a
+few seconds, however many relationships or queries per edge a busy
+network has: dot size shrinks as the graph gets denser so dots never pile
+on top of each other, and only suspicious, hovered, selected, or
+zoomed-in nodes carry a label. Dragging a node ends when you release the
+mouse button anywhere, even outside the canvas. An admin-only **Clear graph data** button (`POST
 /api/graph/clear`) wipes `graph.db`'s entire relationship history - it
 has no effect on the query log itself, only on the graph's own memory of
 who's talked to whom.
