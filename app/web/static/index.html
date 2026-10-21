@@ -2274,7 +2274,11 @@
 </main>
 
 <script>
-const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString();
+const fmtTime = (ts) =>
+  new Date(ts * 1000).toLocaleString([], {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
 
 function intField(id) {
   const raw = document.getElementById(id).value.trim();
@@ -3013,9 +3017,10 @@ function fmtTrendLabel(ts, rangeKey) {
 
 function fmtTrendTooltipLabel(ts, rangeKey) {
   const d = new Date(ts * 1000);
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
   return rangeKey === "24h"
-    ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-    : d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString([], { hour: "numeric" });
+    ? date + ", " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : date + ", " + d.toLocaleTimeString([], { hour: "numeric" });
 }
 
 function renderTrendLegend() {
@@ -3260,6 +3265,8 @@ const graphState = {
   panX: 0,
   panY: 0,
   animId: null,
+  alpha: 1,
+  radiusCap: 20,
   settled: false,
   loaded: false,
 };
@@ -3286,7 +3293,12 @@ function graphZoomAt(screenX, screenY, factor) {
 }
 
 function graphNodeRadius(node) {
-  return Math.max(4, Math.min(20, 4 + Math.log2((node.total || 0) + 1) * 1.6));
+  const natural = 4 + Math.log2((node.total || 0) + 1) * 1.6;
+  return Math.max(4, Math.min(20, graphState.radiusCap || 20, natural));
+}
+
+function graphRadiusCap(count, w, h) {
+  return Math.max(6, Math.min(20, Math.sqrt((0.16 * w * h) / (Math.PI * Math.max(1, count)))));
 }
 
 function graphNodeColor(node) {
@@ -3301,94 +3313,140 @@ function graphNodeLabel(node) {
 
 function buildGraphNodes(data) {
   const wrap = document.getElementById("graph-canvas-wrap") || document.querySelector(".graph-canvas-wrap");
-  const w = graphState.width || (wrap ? wrap.clientWidth : 800);
-  const h = graphState.height || (wrap ? wrap.clientHeight : 560);
+  const w = graphState.width || (wrap ? wrap.clientWidth : 800) || 800;
+  const h = graphState.height || (wrap ? wrap.clientHeight : 560) || 560;
   const previous = graphState.nodeById;
+  const total = data.clients.length + data.domains.length;
+  graphState.radiusCap = graphRadiusCap(total, w, h);
   const nodes = [];
-  for (const c of data.clients) {
-    const prev = previous.get("c:" + c.id);
+  const add = (type, prefix, item) => {
+    const prev = previous.get(prefix + item.id);
+    const start = prev || graphInitialPosition(nodes.length, total, w, h);
     nodes.push({
-      key: "c:" + c.id, id: c.id, type: "client",
-      degree: c.degree, total: c.total, blocked: c.blocked, score: c.score, suspicious: c.suspicious,
-      first_seen: c.first_seen, last_seen: c.last_seen,
-      x: prev ? prev.x : w / 2 + (Math.random() - 0.5) * w * 0.6,
-      y: prev ? prev.y : h / 2 + (Math.random() - 0.5) * h * 0.6,
-      vx: 0, vy: 0,
+      key: prefix + item.id, id: item.id, type,
+      degree: item.degree, total: item.total, blocked: item.blocked, score: item.score, suspicious: item.suspicious,
+      first_seen: item.first_seen, last_seen: item.last_seen,
+      x: start.x, y: start.y, vx: 0, vy: 0,
+      r: graphNodeRadius(item),
     });
-  }
-  for (const d of data.domains) {
-    const prev = previous.get("d:" + d.id);
-    nodes.push({
-      key: "d:" + d.id, id: d.id, type: "domain",
-      degree: d.degree, total: d.total, blocked: d.blocked, score: d.score, suspicious: d.suspicious,
-      first_seen: d.first_seen, last_seen: d.last_seen,
-      x: prev ? prev.x : w / 2 + (Math.random() - 0.5) * w * 0.6,
-      y: prev ? prev.y : h / 2 + (Math.random() - 0.5) * h * 0.6,
-      vx: 0, vy: 0,
-    });
-  }
+  };
+  data.clients.forEach((c) => add("client", "c:", c));
+  data.domains.forEach((d) => add("domain", "d:", d));
   const nodeById = new Map(nodes.map((n) => [n.key, n]));
   const edges = data.edges
     .map((e) => ({ source: nodeById.get("c:" + e.client), target: nodeById.get("d:" + e.domain), count: e.count, blocked: e.blocked }))
     .filter((e) => e.source && e.target);
+  graphPrepareEdges(edges);
   graphState.nodes = nodes;
   graphState.nodeById = nodeById;
   graphState.edges = edges;
+  graphState.alpha = previous.size ? 0.5 : 1;
   graphState.settled = false;
   graphResetView();
 }
 
+const GRAPH_ALPHA_DECAY = 0.0228;
+const GRAPH_ALPHA_MIN = 0.005;
+const GRAPH_REHEAT_ALPHA = 0.3;
+const GRAPH_VELOCITY_KEEP = 0.6;
+
+function graphIdealLength(w, h) {
+  return Math.max(32, Math.min(90, Math.min(w, h) / 6));
+}
+
+function graphInitialPosition(index, total, w, h) {
+  const spread = Math.min(graphIdealLength(w, h) * 0.55, (0.45 * Math.min(w, h)) / Math.sqrt(Math.max(1, total)));
+  const radius = spread * Math.sqrt(index + 0.5);
+  const angle = index * 2.399963229728653;
+  return { x: w / 2 + Math.cos(angle) * radius, y: h / 2 + Math.sin(angle) * radius };
+}
+
+function graphPrepareEdges(edges) {
+  const degree = new Map();
+  for (const e of edges) {
+    degree.set(e.source, (degree.get(e.source) || 0) + 1);
+    degree.set(e.target, (degree.get(e.target) || 0) + 1);
+  }
+  for (const e of edges) {
+    const ds = degree.get(e.source), dt = degree.get(e.target);
+    const weight = 0.5 + 0.5 * Math.min(1, Math.log2(2 + e.count) / 12);
+    e.strength = weight / Math.min(ds, dt);
+    e.bias = ds / (ds + dt);
+  }
+}
+
 function stepGraphSimulation() {
-  const { nodes, edges, width: w, height: h } = graphState;
+  const { nodes, edges, width: w, height: h, alpha } = graphState;
   const n = nodes.length;
-  if (n === 0) return 0;
-  const idealLen = Math.max(32, Math.min(90, Math.min(w, h) / 6));
+  if (n === 0 || w < 1 || h < 1) return;
+  const idealLen = graphIdealLength(w, h);
   const repulseK = 2600 * (idealLen / 90) ** 2;
-  const springK = 0.02;
+  const minDistSq = (idealLen / 3) ** 2;
+  const maxStep = idealLen / 2;
   const centerK = 0.01;
-  const damping = 0.82;
+  const collideK = 0.35;
 
   for (const node of nodes) {
-    if (node === graphState.dragging) continue;
     node.fx = (w / 2 - node.x) * centerK;
     node.fy = (h / 2 - node.y) * centerK;
+    node.cx = 0;
+    node.cy = 0;
   }
   for (let i = 0; i < n; i++) {
     const a = nodes[i];
     for (let j = i + 1; j < n; j++) {
       const b = nodes[j];
       let dx = a.x - b.x, dy = a.y - b.y;
-      let distSq = dx * dx + dy * dy;
-      if (distSq < 1) distSq = 1;
-      const dist = Math.sqrt(distSq);
-      const force = repulseK / distSq;
+      if (dx === 0 && dy === 0) {
+        const angle = (i * 31 + j) * 2.399963229728653;
+        dx = Math.cos(angle) * 0.01;
+        dy = Math.sin(angle) * 0.01;
+      }
+      const dist = Math.hypot(dx, dy);
+      const force = repulseK / Math.max(dist * dist, minDistSq);
       const fx = (dx / dist) * force, fy = (dy / dist) * force;
       a.fx += fx; a.fy += fy;
       b.fx -= fx; b.fy -= fy;
+      const touching = a.r + b.r + 3;
+      if (dist < touching) {
+        const push = ((touching - dist) / dist) * collideK;
+        a.cx += dx * push; a.cy += dy * push;
+        b.cx -= dx * push; b.cy -= dy * push;
+      }
     }
   }
   for (const e of edges) {
     const dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
-    const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-    const force = springK * (dist - idealLen) * Math.log2(2 + e.count);
-    const fx = (dx / dist) * force, fy = (dy / dist) * force;
-    e.source.fx += fx; e.source.fy += fy;
-    e.target.fx -= fx; e.target.fy -= fy;
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    const pull = ((dist - idealLen) / dist) * e.strength;
+    e.source.fx += dx * pull * (1 - e.bias);
+    e.source.fy += dy * pull * (1 - e.bias);
+    e.target.fx -= dx * pull * e.bias;
+    e.target.fy -= dy * pull * e.bias;
   }
 
-  let maxSpeed = 0;
   const margin = Math.max(12, Math.min(24, Math.min(w, h) / 12));
   for (const node of nodes) {
-    if (node === graphState.dragging) continue;
-    node.vx = (node.vx + node.fx) * damping;
-    node.vy = (node.vy + node.fy) * damping;
-    node.x += node.vx;
-    node.y += node.vy;
-    node.x = Math.max(margin, Math.min(w - margin, node.x));
-    node.y = Math.max(margin, Math.min(h - margin, node.y));
-    maxSpeed = Math.max(maxSpeed, Math.abs(node.vx), Math.abs(node.vy));
+    if (node === graphState.dragging) {
+      node.vx = 0;
+      node.vy = 0;
+      continue;
+    }
+    let vx = (node.vx + node.fx * alpha + node.cx) * GRAPH_VELOCITY_KEEP;
+    let vy = (node.vy + node.fy * alpha + node.cy) * GRAPH_VELOCITY_KEEP;
+    const speed = Math.hypot(vx, vy);
+    if (speed > maxStep) {
+      vx *= maxStep / speed;
+      vy *= maxStep / speed;
+    }
+    let x = node.x + vx, y = node.y + vy;
+    if (x < margin) { x = margin; vx = 0; } else if (x > w - margin) { x = w - margin; vx = 0; }
+    if (y < margin) { y = margin; vy = 0; } else if (y > h - margin) { y = h - margin; vy = 0; }
+    node.x = x;
+    node.y = y;
+    node.vx = vx;
+    node.vy = vy;
   }
-  return maxSpeed;
 }
 
 function graphNodeVisible(node) {
@@ -3454,7 +3512,8 @@ function renderGraphFrame() {
       ctx.strokeStyle = resolve("var(--danger)");
       ctx.stroke();
     }
-    if (visible && (r > 9 || node === graphState.hovered || node === graphState.selected)) {
+    const labelled = r * zoom > (nodes.length > 60 ? 16 : 9) || node.suspicious;
+    if (visible && (labelled || node === graphState.hovered || node === graphState.selected)) {
       ctx.globalAlpha = 1;
       ctx.fillStyle = mutedColor;
       ctx.font = "10px sans-serif";
@@ -3468,17 +3527,25 @@ function renderGraphFrame() {
 }
 
 function animateGraph() {
-  const speed = stepGraphSimulation();
+  stepGraphSimulation();
   renderGraphFrame();
-  if (speed > 0.05 || graphState.dragging) {
+  if (graphState.dragging) {
+    graphState.alpha = Math.max(graphState.alpha, GRAPH_REHEAT_ALPHA);
+  } else {
+    graphState.alpha -= graphState.alpha * GRAPH_ALPHA_DECAY;
+  }
+  if (graphState.alpha > GRAPH_ALPHA_MIN) {
     graphState.animId = requestAnimationFrame(animateGraph);
   } else {
+    graphState.alpha = 0;
     graphState.settled = true;
     graphState.animId = null;
   }
 }
 
-function wakeGraphSimulation() {
+function wakeGraphSimulation(reheat = 0) {
+  graphState.alpha = Math.max(graphState.alpha, reheat);
+  graphState.settled = false;
   if (graphState.animId == null) {
     graphState.animId = requestAnimationFrame(animateGraph);
   }
@@ -3594,12 +3661,17 @@ function resizeGraphCanvas() {
   renderGraphFrame();
 }
 
+function onGraphWindowResize() {
+  resizeGraphCanvas();
+  if (graphState.nodes.length) wakeGraphSimulation(GRAPH_REHEAT_ALPHA);
+}
+
 function initGraphCanvas() {
   if (graphState.canvas) return;
   const canvas = document.getElementById("graph-canvas");
   graphState.canvas = canvas;
   resizeGraphCanvas();
-  window.addEventListener("resize", resizeGraphCanvas);
+  window.addEventListener("resize", onGraphWindowResize);
 
   const pointerDown = (x, y, sx, sy) => {
     const node = graphNodeAt(x, y);
@@ -3607,7 +3679,7 @@ function initGraphCanvas() {
       graphState.dragging = node;
       graphState.dragMoved = false;
       canvas.classList.add("dragging");
-      wakeGraphSimulation();
+      wakeGraphSimulation(GRAPH_REHEAT_ALPHA);
     } else {
       graphState.panning = true;
       graphState.panStart = { sx, sy, panX: graphState.panX, panY: graphState.panY };
@@ -3621,7 +3693,7 @@ function initGraphCanvas() {
       graphState.dragging.vx = 0;
       graphState.dragging.vy = 0;
       graphState.dragMoved = true;
-      wakeGraphSimulation();
+      wakeGraphSimulation(GRAPH_REHEAT_ALPHA);
       return;
     }
     if (graphState.panning) {
@@ -3656,7 +3728,7 @@ function initGraphCanvas() {
     const w = graphScreenToWorld(s.x, s.y);
     pointerMove(w.x, w.y, s.x, s.y);
   });
-  canvas.addEventListener("mouseup", pointerUp);
+  window.addEventListener("mouseup", pointerUp);
   canvas.addEventListener("mouseleave", () => {
     if (!graphState.dragging && !graphState.panning) {
       graphState.hovered = null;

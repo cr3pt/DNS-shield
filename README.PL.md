@@ -1031,7 +1031,10 @@ Sekcja **Query log** w panelu przeszukuje pełną, zachowaną historię (nie
 tylko kilka ostatnich wpisów) - filtruj po fragmencie nazwy domeny,
 fragmencie adresu klienta (IP albo rozwiązana nazwa), typie rekordu, tym,
 czy zapytanie było zablokowane, oraz po zakresie czasu; kolejne strony
-wyników wczytuje się przyciskiem "Load more". Każdy wiersz ma przycisk
+wyników wczytuje się przyciskiem "Load more". Kolumna **Time** (tutaj i w
+zakładce Alerts) zawsze pokazuje pełną datę *i* godzinę, w formacie i
+strefie czasowej Twojej przeglądarki, więc wpisów z różnych dni nie da
+się ze sobą pomylić. Każdy wiersz ma przycisk
 **Block**/**Unblock** (ten, który pasuje do aktualnego stanu danego
 wiersza) oraz przycisk **Hide**.
 
@@ -1185,7 +1188,13 @@ dotykowym), żeby przybliżyć lub oddalić względem wskaźnika, przeciągnij
 tło, żeby przesunąć widok, przeciągnij węzeł, żeby go przenieść, a
 podwójne kliknięcie (albo przycisk **Reset view**) przywraca domyślne
 przybliżenie i przesunięcie widoku - przydatne, gdy ruchliwa sieć
-rozciągnęła graf szerzej, niż mieści się na płótnie naraz. Przycisk
+rozciągnęła graf szerzej, niż mieści się na płótnie naraz. Układ sam
+stygnie i stabilizuje się w ciągu kilku sekund, niezależnie od liczby
+relacji i zapytań na krawędź w ruchliwej sieci: rozmiar kropek maleje
+wraz z gęstością grafu, więc kropki nie nakładają się na siebie, a
+etykietę mają tylko podejrzane, wskazane, zaznaczone albo przybliżone
+węzły. Przeciąganie węzła kończy się po puszczeniu przycisku myszy w
+dowolnym miejscu, także poza płótnem. Przycisk
 **Clear graph data**, dostępny wyłącznie dla administratora (`POST
 /api/graph/clear`), czyści całą historię relacji w `graph.db` - nie ma
 to żadnego wpływu na sam log zapytań, tylko na pamięć grafu o tym, kto z
