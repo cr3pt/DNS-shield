@@ -1031,7 +1031,10 @@ Sekcja **Query log** w panelu przeszukuje pełną, zachowaną historię (nie
 tylko kilka ostatnich wpisów) - filtruj po fragmencie nazwy domeny,
 fragmencie adresu klienta (IP albo rozwiązana nazwa), typie rekordu, tym,
 czy zapytanie było zablokowane, oraz po zakresie czasu; kolejne strony
-wyników wczytuje się przyciskiem "Load more". Każdy wiersz ma przycisk
+wyników wczytuje się przyciskiem "Load more". Kolumna **Time** (tutaj i w
+zakładce Alerts) zawsze pokazuje pełną datę *i* godzinę, w formacie i
+strefie czasowej Twojej przeglądarki, więc wpisów z różnych dni nie da
+się ze sobą pomylić. Każdy wiersz ma przycisk
 **Block**/**Unblock** (ten, który pasuje do aktualnego stanu danego
 wiersza) oraz przycisk **Hide**.
 

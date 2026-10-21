@@ -932,7 +932,10 @@ other devices on your network.
 The dashboard's **Query log** section searches the full retained history
 (not just the last few entries) - filter by domain substring, client
 (IP or resolved name) substring, record type, blocked/allowed, and a time
-range, with pagination via "Load more". Each row has a **Block**/**Unblock**
+range, with pagination via "Load more". The **Time** column (here and in
+the Alerts tab) always shows the full date *and* time, in your browser's
+own locale and timezone, so entries from different days can't be
+mistaken for each other. Each row has a **Block**/**Unblock**
 button (whichever applies to that row's current state) and a **Hide**
 button.
 
