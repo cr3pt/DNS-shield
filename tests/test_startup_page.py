@@ -67,14 +67,14 @@ def test_respond_swallows_client_disconnect_mid_write():
     handler.wfile = MagicMock()
     handler.wfile.write.side_effect = BrokenPipeError()
 
-    handler._respond()  # must not raise
+    handler._respond()
 
 
 def test_finish_swallows_client_disconnect(monkeypatch):
     monkeypatch.setattr(socketserver.StreamRequestHandler, "finish", MagicMock(side_effect=ConnectionResetError()))
     handler = object.__new__(_StartupPageHandler)
 
-    handler.finish()  # must not raise
+    handler.finish()
 
 
 def test_startup_page_falls_back_to_http_on_bad_cert(tmp_path):

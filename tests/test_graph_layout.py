@@ -49,7 +49,7 @@ const rand = () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 
-const build = vm.runInContext(`(function (sc, rand) {
+const originalBuild = vm.runInContext(`(function (sc, rand) {
   const total = sc.clients + sc.domains;
   graphState.radiusCap = graphRadiusCap(total, sc.w, sc.h);
   const nodes = [];
@@ -75,7 +75,38 @@ const build = vm.runInContext(`(function (sc, rand) {
   graphState.alpha = 1;
   return nodes;
 })`, sandbox);
-const nodes = build(scenario, rand);
+const clustered = scenario.clusters || 0;
+const build = vm.runInContext(`(function (sc, rand) {
+  const total = sc.clients + sc.domains;
+  graphState.radiusCap = graphRadiusCap(total, sc.w, sc.h);
+  const nodes = [];
+  const seen = new Map();
+  for (let i = 0; i < total; i++) {
+    const total_q = Math.floor(rand() * 5000) + 1;
+    const cluster = sc.clusters ? i % sc.clusters : null;
+    const start = sc.clusters
+      ? graphClusterPosition(cluster, sc.clusters, seen, sc.w, sc.h)
+      : sc.stacked ? { x: sc.w / 2, y: sc.h / 2 } : graphInitialPosition(i, total, sc.w, sc.h);
+    const node = { type: "domain", total: total_q, cluster, x: start.x, y: start.y, vx: 0, vy: 0 };
+    node.r = graphNodeRadius(node);
+    nodes.push(node);
+  }
+  const edges = [];
+  for (let i = 0; i < total; i++) {
+    for (let k = 0; k < 3; k++) {
+      const j = Math.floor(rand() * total);
+      const sameGroup = !sc.clusters || nodes[i].cluster === nodes[j].cluster;
+      if (i !== j && (sameGroup || rand() < 0.05)) edges.push({ source: nodes[i], target: nodes[j], count: 1 + Math.floor(rand() * 20), blocked: 0 });
+    }
+  }
+  graphPrepareEdges(edges);
+  graphState.nodes = nodes;
+  graphState.edges = edges;
+  graphState.alpha = 1;
+  return nodes;
+})`, sandbox);
+const projected = clustered ? build(scenario, rand) : null;
+const nodes = projected || originalBuild(scenario, rand);
 
 vm.runInContext("wakeGraphSimulation()", sandbox);
 let ticks = 0, peak = 0;
@@ -97,7 +128,15 @@ for (let i = 0; i < nodes.length; i++) {
     worstOverlap = Math.min(worstOverlap, d / (nodes[i].r + nodes[j].r));
   }
 }
-console.log(JSON.stringify({ ticks, settled: sandbox.graphState.settled, peak, nonFinite, outOfBounds, worstOverlap, nodes: nodes.length }));
+let within = 0, withinCount = 0, between = 0, betweenCount = 0;
+for (let i = 0; i < nodes.length; i++) {
+  for (let j = i + 1; j < nodes.length; j++) {
+    const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+    if (nodes[i].cluster === nodes[j].cluster) { within += d; withinCount++; } else { between += d; betweenCount++; }
+  }
+}
+const separation = clustered ? (between / betweenCount) / (within / withinCount) : null;
+console.log(JSON.stringify({ separation, ticks, settled: sandbox.graphState.settled, peak, nonFinite, outOfBounds, worstOverlap, nodes: nodes.length }));
 """
 
 SCENARIOS = {
@@ -108,6 +147,8 @@ SCENARIOS = {
     "mobile": dict(clients=8, domains=32, minCount=1, maxCount=50000, w=303, h=418),
     "tablet": dict(clients=15, domains=65, minCount=1, maxCount=50000, w=668, h=418),
     "all-nodes-start-stacked": dict(clients=10, domains=40, minCount=1, maxCount=1000, w=808, h=558, stacked=True),
+    "three-groups": dict(clients=0, domains=90, minCount=1, maxCount=1, w=808, h=558, clusters=3),
+    "five-groups-mobile": dict(clients=0, domains=50, minCount=1, maxCount=1, w=303, h=418, clusters=5),
     "single-node": dict(clients=1, domains=0, minCount=1, maxCount=1, w=808, h=558),
 }
 
@@ -142,6 +183,14 @@ def test_force_layout_keeps_dots_from_piling_on_top_of_each_other(name):
     result = _run(name)
 
     assert result["worstOverlap"] > 0.9
+
+
+@pytest.mark.parametrize("name", ["three-groups", "five-groups-mobile"])
+def test_force_layout_keeps_groups_of_similar_nodes_together(name):
+    result = _run(name)
+
+    assert result["settled"] is True
+    assert result["separation"] > 2.5
 
 
 def test_dragging_ends_when_the_button_is_released_outside_the_canvas():

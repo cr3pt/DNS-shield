@@ -1055,9 +1055,22 @@ than everyone else, is what this is meant to surface. Both thresholds
 are configurable from the dashboard (they're admin-only settings,
 `PATCH /api/settings/graph`) and are intentionally simple: this is a
 degree/z-score heuristic, not the graph-theoretic centrality analysis
-(PageRank, HITS, community detection) that a tool like LogonTracer's
-Neo4j backend can do - good enough to point at "this node looks
+(PageRank, HITS) that a tool like LogonTracer's Neo4j backend can do -
+good enough to point at "this node looks
 unusual," not a substitute for actually looking at what it queried.
+
+The **View** selector switches between three layouts of the same data:
+**Clients and domains** (the default - every client linked to the
+domains it queried), **Domains** (domains linked to each other when the
+same clients query them, so you can see which sites belong together) and
+**Clients** (clients linked when they query the same domains). The
+similarity behind a link is the cosine of the two nodes' per-neighbour
+query counts, each node keeps only its three closest neighbours so a busy
+network doesn't turn into a hairball, and a simple label-propagation pass
+colours the groups that behave alike (suspicious nodes stay red). A
+restricted user's projection is computed from the clients they may see
+only. The same filters, search and drill-down work in every view;
+`GET /api/graph?view=bipartite|domains|clients` returns the data.
 
 The canvas itself is a hand-rolled force-directed layout (same
 philosophy as the inline-SVG query-trend chart above - no external

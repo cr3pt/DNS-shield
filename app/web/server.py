@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from app.anomaly import _base_domain
 from app.auth import verify_password
 from app.blocklist import check_regex_pattern_safety
+from app.graph import GRAPH_VIEWS
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app import dns_rewrites
 from app import new_client_detection
@@ -1182,12 +1183,18 @@ def create_app(
     def get_graph(
         min_count: int = 1,
         limit_nodes: int = 150,
+        view: str = "bipartite",
         user: dict[str, Any] = Depends(require_permission("view_graph")),
     ) -> dict[str, Any]:
         if client_domain_graph is None:
             raise HTTPException(status_code=503, detail="Graph is not available")
+        if view not in GRAPH_VIEWS:
+            raise HTTPException(status_code=400, detail="Unknown graph view")
         return client_domain_graph.get_graph(
-            restrict_client_ips=_allowed_client_ips(user), min_count=max(1, min_count), limit_nodes=limit_nodes
+            restrict_client_ips=_allowed_client_ips(user),
+            min_count=max(1, min_count),
+            limit_nodes=limit_nodes,
+            view=view,
         )
 
     @app.get("/api/graph/client/{client}")

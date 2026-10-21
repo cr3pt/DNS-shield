@@ -1169,10 +1169,23 @@ albo domeny odpytywanej przez zauważalnie więcej różnych klientów niż
 reszta. Oba progi konfiguruje się z poziomu panelu (to ustawienia
 wyłącznie dla administratora, `PATCH /api/settings/graph`) i są one
 celowo proste: to heurystyka stopień/z-score, a nie analiza grafowa
-oparta o centralność (PageRank, HITS, wykrywanie społeczności), jaką
-potrafi zrobić np. baza Neo4j stojąca za LogonTracerem - wystarczająco
-dobra, żeby wskazać "ten węzeł wygląda nietypowo", ale nie zastępuje
+oparta o centralność (PageRank, HITS), jaką potrafi zrobić np. baza Neo4j stojąca za
+LogonTracerem - wystarczająco dobra, żeby wskazać "ten węzeł wygląda nietypowo", ale nie zastępuje
 faktycznego sprawdzenia, o co dany węzeł właściwie pytał.
+
+Przełącznik **View** zmienia układ tych samych danych na jeden z trzech:
+**Clients and domains** (domyślny - każdy klient połączony z odpytanymi
+domenami), **Domains** (domeny połączone ze sobą, gdy odpytują je ci sami
+klienci, dzięki czemu widać, które strony należą do siebie) oraz
+**Clients** (klienci połączeni, gdy odpytują te same domeny). Podobieństwo
+stojące za połączeniem to cosinus liczb zapytań obu węzłów względem
+wspólnych sąsiadów, każdy węzeł zachowuje tylko trzech najbliższych
+sąsiadów, żeby ruchliwa sieć nie zamieniła się w kłębowisko, a prosty
+przebieg label propagation koloruje grupy o podobnym zachowaniu
+(podejrzane węzły pozostają czerwone). Widok użytkownika z ograniczeniami
+liczony jest wyłącznie z klientów, których może widzieć. Te same filtry,
+wyszukiwanie i podgląd szczegółów działają w każdym widoku;
+`GET /api/graph?view=bipartite|domains|clients` zwraca dane.
 
 Sam wykres to ręcznie napisany układ typu force-directed (ta sama
 filozofia co wykres trendu zapytań w inline SVG opisany wyżej - bez

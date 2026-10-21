@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
 # See the LICENSE file in the project root for full license terms.
 
+import pytest
+
 from app.graph import ClientDomainGraph
 
 
@@ -122,9 +124,9 @@ def test_get_graph_min_count_filters_edges(config_store, tmp_path):
     graph = _make_graph(config_store, tmp_path, stats)
     graph._process_new_queries()
 
-    stats.add("example.com", "10.0.0.1")  # count 1
+    stats.add("example.com", "10.0.0.1")
     stats.add("example.org", "10.0.0.2")
-    stats.add("example.org", "10.0.0.2")  # count 2
+    stats.add("example.org", "10.0.0.2")
     graph._process_new_queries()
 
     result = graph.get_graph(min_count=2)
@@ -252,3 +254,190 @@ def test_clear_wipes_all_edges(config_store, tmp_path):
     assert result["clients"] == []
     assert result["domains"] == []
     assert result["edges"] == []
+
+
+def _seed(graph, stats, rows):
+    graph._process_new_queries()
+    for domain, client, times in rows:
+        for _ in range(times):
+            stats.add(domain, client)
+    graph._process_new_queries()
+
+
+def _link_pairs(result):
+    return {frozenset((link["a"], link["b"])) for link in result["links"]}
+
+
+def test_domain_view_links_domains_that_the_same_clients_query(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(
+        graph,
+        stats,
+        [
+            ("a.com", "10.0.0.1", 5),
+            ("b.com", "10.0.0.1", 5),
+            ("c.com", "10.0.0.2", 5),
+        ],
+    )
+
+    result = graph.get_graph(view="domains")
+
+    assert result["view"] == "domains"
+    assert result["clients"] == []
+    assert result["edges"] == []
+    assert {d["id"] for d in result["domains"]} == {"a.com", "b.com", "c.com"}
+    assert _link_pairs(result) == {frozenset(("a.com", "b.com"))}
+    link = result["links"][0]
+    assert link["shared"] == 1
+    assert link["weight"] == 1.0
+
+
+def test_domain_view_weights_domains_by_how_alike_their_audiences_are(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(
+        graph,
+        stats,
+        [
+            ("same-a.com", "10.0.0.1", 10),
+            ("same-a.com", "10.0.0.2", 10),
+            ("same-b.com", "10.0.0.1", 10),
+            ("same-b.com", "10.0.0.2", 10),
+            ("lopsided.com", "10.0.0.1", 1),
+            ("lopsided.com", "10.0.0.2", 30),
+        ],
+    )
+
+    result = graph.get_graph(view="domains")
+    weights = {frozenset((link["a"], link["b"])): link["weight"] for link in result["links"]}
+
+    assert weights[frozenset(("same-a.com", "same-b.com"))] == 1.0
+    assert weights[frozenset(("same-a.com", "lopsided.com"))] < 1.0
+    assert all(link["shared"] == 2 for link in result["links"])
+
+
+def test_client_view_links_clients_that_query_the_same_domains(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(
+        graph,
+        stats,
+        [
+            ("shared.com", "10.0.0.1", 3),
+            ("shared.com", "10.0.0.2", 3),
+            ("lonely.com", "10.0.0.3", 3),
+        ],
+    )
+
+    result = graph.get_graph(view="clients")
+
+    assert result["view"] == "clients"
+    assert result["domains"] == []
+    assert {c["id"] for c in result["clients"]} == {"10.0.0.1", "10.0.0.2", "10.0.0.3"}
+    assert _link_pairs(result) == {frozenset(("10.0.0.1", "10.0.0.2"))}
+
+
+def test_default_view_is_unchanged_and_carries_no_links(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(graph, stats, [("a.com", "10.0.0.1", 1), ("b.com", "10.0.0.1", 1)])
+
+    result = graph.get_graph()
+
+    assert result["view"] == "bipartite"
+    assert result["links"] == []
+    assert len(result["edges"]) == 2
+    assert len(result["clients"]) == 1
+    assert len(result["domains"]) == 2
+
+
+def test_projection_never_reveals_clients_a_restricted_user_may_not_see(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(
+        graph,
+        stats,
+        [
+            ("mine.com", "10.0.0.1", 4),
+            ("overlap.com", "10.0.0.1", 4),
+            ("overlap.com", "10.0.0.2", 4),
+            ("hidden-only.com", "10.0.0.2", 4),
+            ("hidden-pair.com", "10.0.0.2", 4),
+        ],
+    )
+
+    restricted = graph.get_graph(view="domains", restrict_client_ips=["10.0.0.1"])
+
+    assert {d["id"] for d in restricted["domains"]} == {"mine.com", "overlap.com"}
+    assert _link_pairs(restricted) == {frozenset(("mine.com", "overlap.com"))}
+    assert restricted["links"][0]["shared"] == 1
+    assert graph.get_graph(view="domains", restrict_client_ips=[])["links"] == []
+    assert graph.get_graph(view="clients", restrict_client_ips=["10.0.0.1"])["links"] == []
+
+
+def test_projection_respects_the_minimum_queries_per_edge(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(
+        graph,
+        stats,
+        [
+            ("busy-a.com", "10.0.0.1", 5),
+            ("busy-b.com", "10.0.0.1", 5),
+            ("quiet.com", "10.0.0.1", 1),
+        ],
+    )
+
+    result = graph.get_graph(view="domains", min_count=3)
+
+    assert {d["id"] for d in result["domains"]} == {"busy-a.com", "busy-b.com"}
+    assert _link_pairs(result) == {frozenset(("busy-a.com", "busy-b.com"))}
+
+
+def test_projection_keeps_only_the_closest_neighbours_of_each_node(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    domains = [f"site{i:02d}.com" for i in range(12)]
+    _seed(graph, stats, [(domain, "10.0.0.1", 2) for domain in domains])
+
+    result = graph.get_graph(view="domains")
+
+    degree = {}
+    for link in result["links"]:
+        degree[link["a"]] = degree.get(link["a"], 0) + 1
+        degree[link["b"]] = degree.get(link["b"], 0) + 1
+    assert set(degree) == set(domains)
+    assert len(result["links"]) <= len(domains) * 3
+    assert len(result["links"]) < len(domains) * (len(domains) - 1) // 2
+
+
+def test_projection_is_empty_with_a_single_node(config_store, tmp_path):
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(graph, stats, [("only.com", "10.0.0.1", 2)])
+
+    assert graph.get_graph(view="domains")["links"] == []
+
+
+def test_an_unknown_view_is_rejected(config_store, tmp_path):
+    graph = _make_graph(config_store, tmp_path)
+
+    with pytest.raises(ValueError):
+        graph.get_graph(view="everything")
+
+
+def test_projection_views_cap_how_many_nodes_they_will_compare(config_store, tmp_path, monkeypatch):
+    import app.graph as graph_module
+
+    monkeypatch.setattr(graph_module, "_PROJECTION_MAX_NODES", 5)
+    stats = FakeGraphStats()
+    graph = _make_graph(config_store, tmp_path, stats)
+    _seed(graph, stats, [(f"site{i}.com", "10.0.0.1", i + 1) for i in range(12)])
+
+    for limit in (0, 1000):
+        result = graph.get_graph(view="domains", limit_nodes=limit)
+        assert len(result["domains"]) == 5
+        assert result["truncated"] is True
+
+    assert len(graph.get_graph(view="bipartite", limit_nodes=0)["domains"]) == 12
