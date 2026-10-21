@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
 # See the LICENSE file in the project root for full license terms.
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 

@@ -10,11 +10,18 @@ from typing import Any
 
 import requests
 from authlib.integrations.requests_client import OAuth2Session
-from authlib.jose import JsonWebKey
-from authlib.jose import jwt as jose_jwt
+from joserfc import jwt as jose_jwt
+from joserfc.jwk import KeySet
 
 _STATE_TTL_SECONDS = 600
 _HTTP_TIMEOUT = 10
+_CLOCK_SKEW_SECONDS = 60
+_ID_TOKEN_ALGORITHMS = [
+    "RS256", "RS384", "RS512",
+    "PS256", "PS384", "PS512",
+    "ES256", "ES384", "ES512",
+    "EdDSA",
+]
 
 
 class OIDCError(Exception):
@@ -100,16 +107,15 @@ def verify_id_token(id_token: str, metadata: dict[str, Any], cfg: dict[str, Any]
     try:
         resp = requests.get(jwks_uri, timeout=_HTTP_TIMEOUT)
         resp.raise_for_status()
-        jwks = JsonWebKey.import_key_set(resp.json())
-        claims = jose_jwt.decode(
-            id_token,
-            jwks,
-            claims_options={
-                "iss": {"essential": True, "value": metadata.get("issuer")},
-                "aud": {"essential": True, "value": cfg.get("client_id", "")},
-            },
-        )
-        claims.validate()
+        jwks = KeySet.import_key_set(resp.json())
+        token = jose_jwt.decode(id_token, jwks, algorithms=_ID_TOKEN_ALGORITHMS)
+        claims = token.claims
+        jose_jwt.JWTClaimsRegistry(
+            leeway=_CLOCK_SKEW_SECONDS,
+            iss={"essential": True, "value": metadata.get("issuer")},
+            aud={"essential": True, "value": cfg.get("client_id", "")},
+            exp={"essential": True},
+        ).validate(claims)
     except Exception as exc:
         raise OIDCError(f"ID token verification failed: {exc}") from exc
     if claims.get("nonce") != nonce:

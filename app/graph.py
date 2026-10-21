@@ -16,6 +16,11 @@ logger = logging.getLogger("dnsshield.graph")
 
 _POLL_INTERVAL_SECONDS = 10
 _REVERSE_DNS_SUFFIXES = (".in-addr.arpa", ".ip6.arpa")
+_PROJECTION_NEIGHBOURS = 3
+_CLUSTER_MIN_WEIGHT = 0.4
+_CLUSTER_MAX_ROUNDS = 30
+_PROJECTION_MAX_NODES = 300
+GRAPH_VIEWS = ("bipartite", "domains", "clients")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS edges (
@@ -39,6 +44,34 @@ def _degree_scores(degrees: list[int], zscore_threshold: float, min_degree: int)
     mean = sum(degrees) / n
     variance = sum((d - mean) ** 2 for d in degrees) / n
     return mean, variance**0.5
+
+
+def _communities(candidates: list[tuple[float, int, str, str]]) -> dict[str, int]:
+    neighbours: dict[str, list[tuple[str, float]]] = {}
+    for weight, _shared, left_id, right_id in candidates:
+        if weight < _CLUSTER_MIN_WEIGHT:
+            continue
+        neighbours.setdefault(left_id, []).append((right_id, weight))
+        neighbours.setdefault(right_id, []).append((left_id, weight))
+    order = sorted(neighbours)
+    label = {node: index for index, node in enumerate(order)}
+    for _ in range(_CLUSTER_MAX_ROUNDS):
+        changed = False
+        for node in order:
+            totals: dict[int, float] = {}
+            for other, weight in neighbours[node]:
+                totals[label[other]] = totals.get(label[other], 0.0) + weight
+            best = max(totals, key=lambda lab: (round(totals[lab], 9), -lab))
+            if best != label[node] and round(totals[best], 9) > round(totals.get(label[node], 0.0), 9):
+                label[node] = best
+                changed = True
+        if not changed:
+            break
+    members: dict[int, list[str]] = {}
+    for node, lab in label.items():
+        members.setdefault(lab, []).append(node)
+    groups = sorted((nodes for nodes in members.values() if len(nodes) > 1), key=lambda nodes: (-len(nodes), min(nodes)))
+    return {node: index for index, nodes in enumerate(groups) for node in nodes}
 
 
 class ClientDomainGraph:
@@ -127,7 +160,10 @@ class ClientDomainGraph:
         restrict_client_ips: list[str] | None = None,
         min_count: int = 1,
         limit_nodes: int = 150,
+        view: str = "bipartite",
     ) -> dict[str, Any]:
+        if view not in GRAPH_VIEWS:
+            raise ValueError(f"Unknown graph view: {view}")
         zscore_threshold = float(self._config.get("graph", "suspicious_zscore", default=2.5))
         min_degree = int(self._config.get("graph", "suspicious_min_degree", default=15))
 
@@ -192,6 +228,8 @@ class ClientDomainGraph:
 
             clients.sort(key=lambda c: c["total"], reverse=True)
             domains.sort(key=lambda d: d["total"], reverse=True)
+            if view != "bipartite":
+                limit_nodes = min(limit_nodes, _PROJECTION_MAX_NODES) if limit_nodes > 0 else _PROJECTION_MAX_NODES
             truncated = limit_nodes > 0 and (len(clients) > limit_nodes or len(domains) > limit_nodes)
             if limit_nodes > 0:
                 clients = clients[:limit_nodes]
@@ -199,8 +237,22 @@ class ClientDomainGraph:
 
             client_ids = {c["id"] for c in clients}
             domain_ids = {d["id"] for d in domains}
-            if not client_ids or not domain_ids:
+            links: list[dict[str, Any]] = []
+            if view != "bipartite":
                 edges: list[dict[str, Any]] = []
+                node_column = "domain" if view == "domains" else "client"
+                links, clusters = self._projection(
+                    conn, node_column, domain_ids if view == "domains" else client_ids, min_count, restrict_client_ips
+                )
+                shown = domains if view == "domains" else clients
+                for node in shown:
+                    node["cluster"] = clusters.get(node["id"])
+                if view == "domains":
+                    clients = []
+                else:
+                    domains = []
+            elif not client_ids or not domain_ids:
+                edges = []
             else:
                 edge_where = where_sql
                 edge_params = list(params)
@@ -229,7 +281,79 @@ class ClientDomainGraph:
         finally:
             conn.close()
 
-        return {"clients": clients, "domains": domains, "edges": edges, "truncated": truncated}
+        return {
+            "clients": clients,
+            "domains": domains,
+            "edges": edges,
+            "links": links,
+            "truncated": truncated,
+            "view": view,
+        }
+
+    @staticmethod
+    def _projection(
+        conn: sqlite3.Connection,
+        node_column: str,
+        node_ids: set[str],
+        min_count: int,
+        restrict_client_ips: list[str] | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        if node_column not in ("client", "domain") or len(node_ids) < 2:
+            return [], {}
+        other_column = "client" if node_column == "domain" else "domain"
+        ids = sorted(node_ids)
+        marks = ",".join("?" for _ in ids)
+
+        def _filters(alias: str) -> tuple[str, list[Any]]:
+            sql = f"{alias}.count >= ? AND {alias}.{node_column} IN ({marks})"
+            params: list[Any] = [min_count, *ids]
+            if restrict_client_ips is not None:
+                if not restrict_client_ips:
+                    return sql + " AND 0", params
+                sql += f" AND {alias}.client IN ({','.join('?' for _ in restrict_client_ips)})"
+                params.extend(restrict_client_ips)
+            return sql, params
+
+        a_sql, a_params = _filters("a")
+        b_sql, b_params = _filters("b")
+        pair_rows = conn.execute(
+            f"SELECT a.{node_column} AS left_id, b.{node_column} AS right_id, "
+            f"COUNT(*) AS shared, SUM(a.count * b.count) AS dot "
+            f"FROM edges a JOIN edges b ON a.{other_column} = b.{other_column} "
+            f"AND a.{node_column} < b.{node_column} "
+            f"WHERE {a_sql} AND {b_sql} GROUP BY a.{node_column}, b.{node_column}",
+            [*a_params, *b_params],
+        ).fetchall()
+        if not pair_rows:
+            return [], {}
+        n_sql, n_params = _filters("e")
+        norms = {
+            row[0]: row[1] ** 0.5
+            for row in conn.execute(
+                f"SELECT e.{node_column}, SUM(e.count * e.count) FROM edges e WHERE {n_sql} GROUP BY e.{node_column}",
+                n_params,
+            )
+        }
+
+        candidates: list[tuple[float, int, str, str]] = []
+        for left_id, right_id, shared, dot in pair_rows:
+            denominator = norms.get(left_id, 0.0) * norms.get(right_id, 0.0)
+            if denominator <= 0:
+                continue
+            candidates.append((dot / denominator, shared, left_id, right_id))
+        candidates.sort(key=lambda c: (-c[0], -c[1], c[2], c[3]))
+
+        clusters = _communities(candidates)
+
+        taken: dict[str, int] = {}
+        links: list[dict[str, Any]] = []
+        for weight, shared, left_id, right_id in candidates:
+            if taken.get(left_id, 0) >= _PROJECTION_NEIGHBOURS and taken.get(right_id, 0) >= _PROJECTION_NEIGHBOURS:
+                continue
+            taken[left_id] = taken.get(left_id, 0) + 1
+            taken[right_id] = taken.get(right_id, 0) + 1
+            links.append({"a": left_id, "b": right_id, "shared": shared, "weight": round(weight, 3)})
+        return links, clusters
 
     def client_detail(self, client: str, restrict_client_ips: list[str] | None = None) -> dict[str, Any] | None:
         if restrict_client_ips is not None and client not in restrict_client_ips:

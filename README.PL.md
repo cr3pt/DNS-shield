@@ -1169,10 +1169,23 @@ albo domeny odpytywanej przez zauważalnie więcej różnych klientów niż
 reszta. Oba progi konfiguruje się z poziomu panelu (to ustawienia
 wyłącznie dla administratora, `PATCH /api/settings/graph`) i są one
 celowo proste: to heurystyka stopień/z-score, a nie analiza grafowa
-oparta o centralność (PageRank, HITS, wykrywanie społeczności), jaką
-potrafi zrobić np. baza Neo4j stojąca za LogonTracerem - wystarczająco
-dobra, żeby wskazać "ten węzeł wygląda nietypowo", ale nie zastępuje
+oparta o centralność (PageRank, HITS), jaką potrafi zrobić np. baza Neo4j stojąca za
+LogonTracerem - wystarczająco dobra, żeby wskazać "ten węzeł wygląda nietypowo", ale nie zastępuje
 faktycznego sprawdzenia, o co dany węzeł właściwie pytał.
+
+Przełącznik **View** zmienia układ tych samych danych na jeden z trzech:
+**Clients and domains** (domyślny - każdy klient połączony z odpytanymi
+domenami), **Domains** (domeny połączone ze sobą, gdy odpytują je ci sami
+klienci, dzięki czemu widać, które strony należą do siebie) oraz
+**Clients** (klienci połączeni, gdy odpytują te same domeny). Podobieństwo
+stojące za połączeniem to cosinus liczb zapytań obu węzłów względem
+wspólnych sąsiadów, każdy węzeł zachowuje tylko trzech najbliższych
+sąsiadów, żeby ruchliwa sieć nie zamieniła się w kłębowisko, a prosty
+przebieg label propagation koloruje grupy o podobnym zachowaniu
+(podejrzane węzły pozostają czerwone). Widok użytkownika z ograniczeniami
+liczony jest wyłącznie z klientów, których może widzieć. Te same filtry,
+wyszukiwanie i podgląd szczegółów działają w każdym widoku;
+`GET /api/graph?view=bipartite|domains|clients` zwraca dane.
 
 Sam wykres to ręcznie napisany układ typu force-directed (ta sama
 filozofia co wykres trendu zapytań w inline SVG opisany wyżej - bez
@@ -2136,9 +2149,13 @@ secret), po czym weryfikuje podpis zwróconego tokenu ID względem
 publicznego zestawu kluczy (JWKS) dostawcy, a także jego wystawcę
 (issuer), odbiorcę (audience) i nonce - dopiero wtedy ustawiane jest
 ciasteczko sesji DNS-shield, dokładnie tak samo jak przy logowaniu hasłem.
-Zbudowane na [Authlib](https://docs.authlib.org/) - takiej samej,
-dobrze przetestowanej bibliotece OAuth, po jaką sięgnąłby każdy framework,
-a nie na własnoręcznie napisanej weryfikacji tokenów.
+Zbudowane na [Authlib](https://docs.authlib.org/) (przepływ OAuth) i
+[joserfc](https://jose.authlib.org/) (weryfikacja JWT/JWKS) - takich samych,
+dobrze przetestowanych bibliotekach, po jakie sięgnąłby każdy framework,
+a nie na własnoręcznie napisanej weryfikacji tokenów. Akceptowane są
+wyłącznie asymetryczne algorytmy podpisu (RS/PS/ES/EdDSA) - tokeny `none`
+i HMAC są odrzucane - a token musi zawierać czas wygaśnięcia (`exp`);
+tolerowana jest minuta różnicy zegarów.
 
 Pierwsze udane logowanie tożsamości, której DNS-shield jeszcze nie zna,
 automatycznie zakłada dla niej lokalne konto (ustawienie **username claim**,
@@ -2753,7 +2770,7 @@ app/
   passkeys.py             ceremonie rejestracji i uwierzytelniania WebAuthn (zobacz
                         "Klucze dostępu" wyżej), cienki wrapper na bibliotece webauthn
   sso.py                  odkrywanie OpenID Connect, wymiana kodu autoryzacyjnego i
-                        weryfikacja tokenu ID (zobacz "Logowanie SSO" wyżej), na Authlib
+                        weryfikacja tokenu ID (zobacz "Logowanie SSO" wyżej), na Authlib + joserfc
   dns_rewrites.py       dopasowywanie niestandardowych, lokalnych rekordów A/AAAA
                        (zobacz "Niestandardowe rekordy DNS" wyżej)
   dns_cache.py         cache odpowiedzi z serwerów nadrzędnych w pamięci, respektujący
