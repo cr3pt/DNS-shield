@@ -1275,14 +1275,37 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
+    def _clients_in_group_scope(
+        user: dict[str, Any], group: str | None, no_group: bool
+    ) -> list[str] | None:
+        if group and no_group:
+            raise HTTPException(status_code=400, detail="Use either group or no_group, not both")
+        restrict = _allowed_client_ips(user)
+        if not (group or no_group):
+            return restrict
+        if group and group not in {str(g.get("name", "")) for g in config_store.get("client_groups", default=[]) or []}:
+            raise HTTPException(status_code=404, detail="No such client group")
+        candidates = stats.distinct_clients() if restrict is None else restrict
+        return [
+            ip
+            for ip in candidates
+            if (blocklist.group_name_for(ip) == group if group else blocklist.group_name_for(ip) is None)
+        ]
+
     @app.get("/api/query-log/clients")
-    def get_query_log_clients(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    def get_query_log_clients(
+        group: str | None = None,
+        no_group: bool = False,
+        user: dict[str, Any] = Depends(require_auth),
+    ) -> dict[str, Any]:
         allowed = _allowed_client_ips(user)
-        clients = stats.distinct_clients() if allowed is None else allowed
+        everyone = stats.distinct_clients() if allowed is None else allowed
+        scoped = _clients_in_group_scope(user, group, no_group)
+        clients = everyone if scoped is None else scoped
         if allowed is None:
             group_names = [str(g.get("name", "")) for g in config_store.get("client_groups", default=[]) or []]
         else:
-            group_names = sorted({name for name in (blocklist.group_name_for(ip) for ip in clients) if name})
+            group_names = sorted({name for name in (blocklist.group_name_for(ip) for ip in everyone) if name})
         return {
             "clients": sorted(clients),
             "groups": group_names,
@@ -1303,20 +1326,7 @@ def create_app(
         no_group: bool = False,
         user: dict[str, Any] = Depends(require_auth),
     ) -> dict[str, Any]:
-        if group and no_group:
-            raise HTTPException(status_code=400, detail="Use either group or no_group, not both")
-        restrict = _allowed_client_ips(user)
-        if group or no_group:
-            if group and group not in {
-                str(g.get("name", "")) for g in config_store.get("client_groups", default=[]) or []
-            }:
-                raise HTTPException(status_code=404, detail="No such client group")
-            candidates = stats.distinct_clients() if restrict is None else restrict
-            restrict = [
-                ip
-                for ip in candidates
-                if (blocklist.group_name_for(ip) == group if group else blocklist.group_name_for(ip) is None)
-            ]
+        restrict = _clients_in_group_scope(user, group, no_group)
         blocked_bool: bool | None = None
         if blocked == "true":
             blocked_bool = True

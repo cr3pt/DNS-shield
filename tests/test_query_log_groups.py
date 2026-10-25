@@ -129,3 +129,51 @@ def test_restricted_users_only_see_and_filter_within_their_own_clients(config_st
     assert outside.json()["rows"] == []
     assert listing["groups"] == ["Guests", "Kids"]
     assert set(kids.json()["client_groups"]) == {"192.168.1.50"}
+
+
+def test_client_list_can_be_limited_to_one_group(logged):
+    body = logged.get("/api/query-log/clients", params={"group": "Kids"}).json()
+
+    assert body["clients"] == ["192.168.1.50", "192.168.1.60"]
+    assert body["groups"] == ["Kids", "Guests", "Empty"]
+
+
+def test_client_list_can_be_limited_to_clients_outside_every_group(logged):
+    body = logged.get("/api/query-log/clients", params={"no_group": "true"}).json()
+
+    assert body["clients"] == ["192.168.1.98", "192.168.1.99"]
+
+
+def test_client_list_of_a_group_without_logged_clients_is_empty(logged):
+    assert logged.get("/api/query-log/clients", params={"group": "Empty"}).json()["clients"] == []
+
+
+def test_client_list_without_a_group_still_returns_everyone(logged):
+    assert len(logged.get("/api/query-log/clients").json()["clients"]) == 5
+
+
+def test_client_list_rejects_an_unknown_group_and_conflicting_options(logged):
+    assert logged.get("/api/query-log/clients", params={"group": "Nope"}).status_code == 404
+    assert logged.get("/api/query-log/clients", params={"group": "Kids", "no_group": "true"}).status_code == 400
+
+
+def test_a_restricted_users_group_scoped_client_list_stays_within_their_clients(config_store, logged):
+    config_store.mutate(
+        lambda d: d.setdefault("users", []).append(
+            {
+                "username": "parent",
+                "password_hash": hash_password("pw-parent-1"),
+                "role": "user",
+                "permissions": {"view_logs": True, "allowed_clients": ["192.168.1.50", "10.1.0.7"]},
+            }
+        )
+    )
+    other = TestClient(logged.app)
+    assert other.post("/api/login", json={"username": "parent", "password": "pw-parent-1"}).status_code == 200
+
+    scoped = other.get("/api/query-log/clients", params={"group": "Kids"}).json()
+    outside = other.get("/api/query-log/clients", params={"no_group": "true"}).json()
+
+    assert scoped["clients"] == ["192.168.1.50"]
+    assert outside["clients"] == []
+    assert scoped["groups"] == ["Guests", "Kids"]
