@@ -711,6 +711,23 @@ main reason to allowlist something in the first place. Manage groups
 (and their per-group allow/deny lists) from the dashboard or by editing
 this list directly.
 
+In the dashboard (Settings > Clients) each group card has a **Filtering
+for this group** switch - on means the blocklists and rules apply, off
+means pass-through (`enabled: false`) - and a **Clients in this group**
+editor: type one or several entries (IP, CIDR, `mac:...`, `host:...`,
+separated by commas or spaces) and press Add, or click the x on a chip to
+remove one. **Rename** next to the group's name changes it in place:
+users' *allowed client groups* that referenced the old name follow the
+rename and the group's extra blocklists keep working, and names must be
+unique (case-insensitive, up to 255 characters). Entries are validated and normalized (MACs upper-cased with
+colons, hostnames lower-cased, duplicates dropped) when a group is created
+or extended, and a group can't lose its last entry (delete the group
+instead). The same actions are available over the API:
+`POST /api/client-groups/{index}/match` with `{"patterns": [...]}`,
+`DELETE /api/client-groups/{index}/match?pattern=...` and
+`PUT /api/client-groups/{index}/enabled` with `{"enabled": true|false}`
+and `PUT /api/client-groups/{index}/name` with `{"name": "..."}`.
+
 A group's `blocklist_sources` are its own subscribed lists (same
 hosts/AdBlock/plain formats and fetch/parse/cache behavior as the global
 Blocklists section), fetched and matched *in addition to* the global

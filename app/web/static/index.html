@@ -419,6 +419,15 @@
     margin-bottom: 0.75rem;
   }
   .group-card h3 { margin: 0; font-size: 0.95rem; }
+  .switch { display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; font-weight: 600; }
+  .switch input { appearance: none; -webkit-appearance: none; width: 2.5rem; height: 1.4rem; margin: 0; flex-shrink: 0; border-radius: 999px; background: var(--panel-border); position: relative; cursor: pointer; transition: background 0.15s; }
+  .switch input::after { content: ""; position: absolute; top: 0.15rem; left: 0.15rem; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+  .switch input:checked { background: var(--good); }
+  .switch input:checked::after { transform: translateX(1.1rem); }
+  .switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .switch input:disabled { opacity: 0.6; cursor: progress; }
+  .group-state { margin-top: 0.4rem; }
+  .group-error { color: var(--danger); font-size: 0.8rem; margin-top: 0.3rem; }
   .rule-editor { margin: 0.5rem 0; }
   .rule-editor .title { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.3rem; }
   .rule-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem; }
@@ -1979,7 +1988,7 @@
         <input type="text" id="group-name" data-i18n-ph="clients.group_name_ph" placeholder="Name (e.g. Kids)" required>
         <input type="text" id="group-match" data-i18n-ph="clients.group_match_ph" placeholder="IPs/CIDRs, mac:.., host:.. - comma separated" required style="min-width:260px">
         <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.85rem">
-          <input type="checkbox" id="group-enabled" checked> <span data-i18n="clients.filter_this_group">Filter this group</span>
+          <input type="checkbox" id="group-enabled" checked> <span data-i18n="clients.filter_this_group">Filtering on for this group (untick for pass-through)</span>
         </label>
         <button type="submit" data-i18n="clients.add_group">Add group</button>
       </form>
@@ -2333,6 +2342,7 @@ async function api(path, options = {}) {
     let detail = "";
     try {
       detail = (await res.json()).detail || "";
+      if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg) || String(d)).join("; ");
     } catch (err) {
       detail = await res.text();
     }
@@ -4099,6 +4109,136 @@ function buildRuleEditor(title, items, onAdd, onRemove) {
   return wrap;
 }
 
+function buildGroupHeader(index, group, deleteButton) {
+  const title = el("h3", { text: group.name });
+  const renameBtn = el("button", { type: "button", class: "secondary", text: t("groups.rename", "Rename") });
+  const left = el("div", { class: "inline", style: "margin:0;" }, [title, renameBtn]);
+  const row = el("div", { class: "row" }, [left, deleteButton]);
+  renameBtn.onclick = () => {
+    const input = el("input", { type: "text", value: group.name, maxlength: "255", "aria-label": t("groups.rename", "Rename"), style: "min-width:220px;" });
+    const form = document.createElement("form");
+    form.className = "inline";
+    form.style.margin = "0";
+    const error = el("span", { class: "group-error", style: "display:none;margin:0;" });
+    const cancel = el("button", { type: "button", class: "secondary", text: t("common.cancel", "Cancel") });
+    form.append(input, el("button", { type: "submit", text: t("common.save", "Save") }), cancel, error);
+    cancel.onclick = () => left.replaceChildren(title, renameBtn);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") cancel.onclick();
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name || name === group.name) {
+        cancel.onclick();
+        return;
+      }
+      error.style.display = "none";
+      try {
+        await withDelayedSpinner(e.submitter, async () => {
+          await api(`/api/client-groups/${index}/name`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+        });
+        refreshAll();
+      } catch (err) {
+        error.textContent = err && err.message ? err.message : String(err);
+        error.style.display = "";
+      }
+    });
+    left.replaceChildren(form);
+    input.focus();
+    input.select();
+  };
+  return row;
+}
+
+function buildGroupFilterSwitch(index, group) {
+  const on = group.enabled !== false;
+  const input = el("input", { type: "checkbox" });
+  input.checked = on;
+  const label = el("label", { class: "switch" }, [
+    input,
+    el("span", { text: t("groups.filtering_switch", "Filtering for this group") + ": " + (on ? t("groups.state_on", "On") : t("groups.state_off", "Off (pass-through)")) }),
+  ]);
+  const hint = el("div", {
+    class: "muted",
+    style: "font-size:0.78rem;margin-top:0.25rem;",
+    text: on
+      ? t("groups.filtering_on_hint", "Blocklists and rules apply to the clients in this group.")
+      : t("groups.filtering_off_hint", "Pass-through: blocklists are not applied to the clients in this group (explicit deny rules still are)."),
+  });
+  input.addEventListener("change", async () => {
+    input.disabled = true;
+    try {
+      await api(`/api/client-groups/${index}/enabled`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: input.checked }) });
+      refreshAll();
+    } catch (err) {
+      input.checked = !input.checked;
+      input.disabled = false;
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    }
+  });
+  return el("div", { class: "group-state" }, [label, hint]);
+}
+
+function buildGroupMatchEditor(index, patterns) {
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: t("groups.match_title", "Clients in this group") }));
+  const error = el("div", { class: "group-error", style: "display:none;" });
+  const fail = (err) => {
+    error.textContent = err && err.message ? err.message : String(err);
+    error.style.display = "";
+  };
+
+  const tags = el("div", { class: "rule-tags" });
+  for (const pattern of patterns) {
+    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(pattern)]);
+    if (patterns.length > 1) {
+      const rm = el("button", { type: "button", text: "×", title: t("common.remove", "Remove") });
+      rm.onclick = async () => {
+        try {
+          await api(`/api/client-groups/${index}/match?pattern=${encodeURIComponent(pattern)}`, { method: "DELETE" });
+          refreshAll();
+        } catch (err) {
+          fail(err);
+        }
+      };
+      tag.appendChild(rm);
+    }
+    tags.appendChild(tag);
+  }
+  wrap.appendChild(tags);
+
+  const form = document.createElement("form");
+  form.className = "inline";
+  const input = el("input", {
+    type: "text",
+    placeholder: t("groups.match_add_ph", "IP, CIDR, mac:.. or host:.. - several separated by commas or spaces"),
+    style: "min-width:260px;flex:1;",
+  });
+  form.appendChild(input);
+  form.appendChild(el("button", { type: "submit", text: t("common.add", "Add") }));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const entries = input.value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (!entries.length) return;
+    error.style.display = "none";
+    try {
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${index}/match`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patterns: entries }) });
+      });
+      refreshAll();
+    } catch (err) {
+      fail(err);
+    }
+  });
+  wrap.appendChild(form);
+  wrap.appendChild(error);
+  if (patterns.length === 1) {
+    wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;", text: t("groups.match_last_hint", "A group needs at least one entry - delete the group to remove it entirely.") }));
+  }
+  return wrap;
+}
+
 function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDomains, catalog) {
   const wrap = el("div", { class: "rule-editor" });
   wrap.appendChild(el("div", { class: "title", text: t("groups.extra_blocklist_title", "Extra blocklist sources for this group (adds to the global blocklist)") }));
@@ -4209,29 +4349,11 @@ async function loadClientGroups() {
   container.innerHTML = "";
 
   groups.forEach((g, i) => {
-    const toggleBtn = el("button", { class: "secondary", text: g.enabled ? t("groups.disable_filtering", "Disable filtering") : t("groups.enable_filtering", "Enable filtering") });
-    toggleBtn.onclick = async () => {
-      try {
-        await withSpinner(toggleBtn, () => api(`/api/client-groups/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
-        refreshAll();
-      } catch (err) {
-        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
-      }
-    };
     const delBtn = ruleDeleteButton(t("groups.delete_group", "Delete group"), `/api/client-groups/${i}`);
 
-    const header = el("div", { class: "row" }, [
-      el("div", {}, [
-        el("h3", { text: g.name }),
-        el("span", { class: "muted", text: (g.match || []).join(", ") }),
-      ]),
-      el("span", {
-        class: "tag " + (g.enabled ? "allowed" : "blocked"),
-        text: g.enabled ? t("groups.filtering_on", "filtering on") : t("groups.filtering_off", "filtering off"),
-      }),
-    ]);
-
-    const actions = el("div", { class: "inline", style: "margin: 0.5rem 0 0;" }, [toggleBtn, delBtn]);
+    const header = buildGroupHeader(i, g, delBtn);
+    const filterSwitch = buildGroupFilterSwitch(i, g);
+    const matchEditor = buildGroupMatchEditor(i, g.match || []);
 
     const allowEditor = buildRuleEditor(
       t("editor.group_allow", "Allow (never blocked for this group)"),
@@ -4345,7 +4467,7 @@ async function loadClientGroups() {
       refreshAll();
     });
 
-    container.appendChild(el("div", { class: "group-card" }, [header, actions, allowEditor, denyEditor, upstreamsForm, safeSearchForm, scheduleForm, groupBlocklistEditor]));
+    container.appendChild(el("div", { class: "group-card" }, [header, filterSwitch, matchEditor, allowEditor, denyEditor, upstreamsForm, safeSearchForm, scheduleForm, groupBlocklistEditor]));
   });
 }
 
@@ -7392,14 +7514,19 @@ document.getElementById("export-config-btn").addEventListener("click", async () 
 document.getElementById("add-group-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = document.getElementById("group-name").value.trim();
-  const match = document.getElementById("group-match").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const match = document.getElementById("group-match").value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
   const enabled = document.getElementById("group-enabled").checked;
   if (!name || !match.length) return;
-  await api("/api/client-groups", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, match, enabled, allowlist: [], denylist: [] }),
-  });
+  try {
+    await api("/api/client-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, match, enabled, allowlist: [], denylist: [] }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
   e.target.reset();
   refreshAll();
 });

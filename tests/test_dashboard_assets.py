@@ -35,3 +35,18 @@ def test_trend_tooltip_always_includes_the_date():
 
     assert re.search(r'rangeKey === "24h"\s*\?\s*date\s*\+', body)
     assert re.search(r":\s*date\s*\+", body)
+
+
+def test_client_group_editor_manages_match_patterns_and_filtering_with_explicit_calls():
+    source = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "/api/client-groups/${index}/match" in source
+    assert "/api/client-groups/${index}/enabled" in source
+    assert "/api/client-groups/${i}/toggle" not in source
+
+
+def test_client_group_editor_can_rename_a_group():
+    source = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "/api/client-groups/${index}/name" in source
+    assert 'method: "PUT"' in source

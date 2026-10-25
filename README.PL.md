@@ -784,6 +784,24 @@ zadziała); lista dozwolonych wygrywa tylko z *listami blokad*
 niej dodawać. Grupami (i ich listami dozwolonych/zablokowanych) zarządzasz
 z panelu albo edytując tę listę bezpośrednio.
 
+W panelu (Settings > Clients) każda karta grupy ma przełącznik **Filtering
+for this group** - włączony oznacza, że obowiązują listy blokad i reguły,
+wyłączony to przepuszczanie bez filtrowania (`enabled: false`) - oraz
+edytor **Clients in this group**: wpisz jeden lub kilka wpisów (IP, CIDR,
+`mac:...`, `host:...`, oddzielonych przecinkami lub spacjami) i naciśnij
+Add albo kliknij x na znaczniku, żeby usunąć wpis. **Rename** obok nazwy
+grupy zmienia ją w miejscu: *allowed client groups* użytkowników, które
+wskazywały starą nazwę, podążają za zmianą, a dodatkowe listy blokad
+grupy dalej działają; nazwy muszą być unikalne (bez względu na wielkość
+liter, do 255 znaków). Wpisy są walidowane i
+normalizowane (adresy MAC wielkimi literami z dwukropkami, nazwy hostów
+małymi literami, duplikaty odrzucane) przy tworzeniu i rozszerzaniu grupy,
+a grupa nie może stracić ostatniego wpisu (usuń wtedy całą grupę). To samo
+jest dostępne przez API: `POST /api/client-groups/{index}/match` z
+`{"patterns": [...]}`, `DELETE /api/client-groups/{index}/match?pattern=...`,
+`PUT /api/client-groups/{index}/enabled` z `{"enabled": true|false}` oraz
+`PUT /api/client-groups/{index}/name` z `{"name": "..."}`.
+
 Własne `blocklist_sources` grupy to jej osobne, subskrybowane listy (te
 same formaty hosts/AdBlock/plain oraz sposób pobierania, parsowania i
 buforowania, co globalna sekcja Blocklists), pobierane i dopasowywane
