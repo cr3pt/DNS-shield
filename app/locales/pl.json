@@ -237,6 +237,8 @@
   "logs.query_log": "Log zapytań",
   "logs.ph.domain": "Domena zawiera...",
   "logs.all_clients": "Wszyscy klienci",
+  "logs.all_groups": "Wszystkie grupy",
+  "logs.no_group": "Bez grupy (polityka domyślna)",
   "logs.all_types": "Wszystkie typy",
   "logs.all_results": "Wszystkie wyniki",
   "logs.blocked": "Zablokowane",

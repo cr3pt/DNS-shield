@@ -237,6 +237,8 @@
   "logs.query_log": "Query log",
   "logs.ph.domain": "Domain contains...",
   "logs.all_clients": "All clients",
+  "logs.all_groups": "All groups",
+  "logs.no_group": "No group (default policy)",
   "logs.all_types": "All types",
   "logs.all_results": "All results",
   "logs.blocked": "Blocked",

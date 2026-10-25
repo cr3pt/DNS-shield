@@ -237,6 +237,8 @@
   "logs.query_log": "查询日志",
   "logs.ph.domain": "域名包含...",
   "logs.all_clients": "所有客户端",
+  "logs.all_groups": "所有分组",
+  "logs.no_group": "无分组(默认策略)",
   "logs.all_types": "所有类型",
   "logs.all_results": "所有结果",
   "logs.blocked": "已拦截",

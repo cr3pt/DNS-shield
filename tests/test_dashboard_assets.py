@@ -50,3 +50,11 @@ def test_client_group_editor_can_rename_a_group():
 
     assert "/api/client-groups/${index}/name" in source
     assert 'method: "PUT"' in source
+
+
+def test_query_log_can_be_filtered_by_client_group():
+    source = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert 'id="ql-group"' in source
+    assert 'params.set("group"' in source
+    assert 'params.set("no_group"' in source

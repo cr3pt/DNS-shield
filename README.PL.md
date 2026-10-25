@@ -1052,7 +1052,17 @@ czy zapytanie było zablokowane, oraz po zakresie czasu; kolejne strony
 wyników wczytuje się przyciskiem "Load more". Kolumna **Time** (tutaj i w
 zakładce Alerts) zawsze pokazuje pełną datę *i* godzinę, w formacie i
 strefie czasowej Twojej przeglądarki, więc wpisów z różnych dni nie da
-się ze sobą pomylić. Każdy wiersz ma przycisk
+się ze sobą pomylić. Selektor **group** zawęża log do klientów jednej
+[grupy klientów](#polityki-dla-poszczególnych-klientów-i-grup) (albo do **No
+group (default policy)**, czyli klientów, których nie dopasowała żadna
+grupa), a każdy wiersz klienta należącego do grupy pokazuje jej nazwę pod
+adresem. Przynależność jest ustalana tak samo jak w serwerze DNS - wygrywa
+pierwsza pasująca grupa, także dla wzorców `mac:` i `host:` - na podstawie
+*aktualnego* dopasowania klienta, więc klient przeniesiony do innej grupy
+pojawia się pod nową w całej swojej historii. Użytkownik z ograniczeniami
+widzi tylko grupy zawierające klientów, których wolno mu oglądać. Ten sam
+filtr jest dostępny jako `GET /api/query-log?group=NAZWA` lub
+`?no_group=true`. Każdy wiersz ma przycisk
 **Block**/**Unblock** (ten, który pasuje do aktualnego stanu danego
 wiersza) oraz przycisk **Hide**.
 

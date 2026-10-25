@@ -237,6 +237,8 @@
   "logs.query_log": "سجل الاستعلامات",
   "logs.ph.domain": "النطاق يحتوي على...",
   "logs.all_clients": "جميع العملاء",
+  "logs.all_groups": "كل المجموعات",
+  "logs.no_group": "بدون مجموعة (السياسة الافتراضية)",
   "logs.all_types": "جميع الأنواع",
   "logs.all_results": "جميع النتائج",
   "logs.blocked": "محظور",

@@ -237,6 +237,8 @@
   "logs.query_log": "Journal des requêtes",
   "logs.ph.domain": "Le domaine contient…",
   "logs.all_clients": "Tous les clients",
+  "logs.all_groups": "Tous les groupes",
+  "logs.no_group": "Aucun groupe (politique par défaut)",
   "logs.all_types": "Tous les types",
   "logs.all_results": "Tous les résultats",
   "logs.blocked": "Bloqué",

@@ -2176,6 +2176,9 @@
     <h2 data-i18n="logs.query_log">Query log</h2>
     <form class="inline" id="query-log-filter-form">
       <input type="text" id="ql-domain" placeholder="Domain contains..." data-i18n-ph="logs.ph.domain">
+      <select id="ql-group" aria-label="Group">
+        <option value="" data-i18n="logs.all_groups">All groups</option>
+      </select>
       <select id="ql-client">
         <option value="" data-i18n="logs.all_clients">All clients</option>
       </select>
@@ -5369,10 +5372,12 @@ function getCookie(name) {
 }
 
 const QUERY_LOG_FILTER_COOKIE = "dnsshield_query_log_filters";
+const QUERY_LOG_NO_GROUP = "none";
 
 function saveQueryLogFilters() {
   const state = {
     domain: document.getElementById("ql-domain").value,
+    group: document.getElementById("ql-group").value,
     client: document.getElementById("ql-client").value,
     qtype: document.getElementById("ql-qtype").value,
     status: document.getElementById("ql-status").value,
@@ -5392,6 +5397,9 @@ function restoreQueryLogFilters() {
     return;
   }
   document.getElementById("ql-domain").value = state.domain || "";
+  const groupSelect = document.getElementById("ql-group");
+  groupSelect.value = state.group || "";
+  if (groupSelect.value !== (state.group || "")) groupSelect.value = "";
   document.getElementById("ql-client").value = state.client || "";
   document.getElementById("ql-qtype").value = state.qtype || "";
   document.getElementById("ql-status").value = state.status || "";
@@ -5407,11 +5415,23 @@ function queryLogFilterParams() {
   const status = document.getElementById("ql-status").value;
   const range = document.getElementById("ql-range").value;
   if (domain) params.set("domain", domain);
+  const group = document.getElementById("ql-group").value;
+  if (group === QUERY_LOG_NO_GROUP) params.set("no_group", "true");
+  else if (group.startsWith("g:")) params.set("group", group.slice(2));
   if (client) params.set("client", client);
   if (qtype) params.set("qtype", qtype);
   if (status) params.set("blocked", status);
   if (range) params.set("since", (Date.now() / 1000 - parseInt(range, 10)).toString());
   return params;
+}
+
+let queryLogClientGroups = {};
+
+function clientLogCell(client) {
+  const cell = addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip"), clientBlockButton(client)] : [], client, "Client");
+  const group = queryLogClientGroups[client];
+  if (group) cell.appendChild(el("div", { class: "muted", style: "font-size:0.75rem;", text: group }));
+  return cell;
 }
 
 function renderQueryLogRow(q) {
@@ -5471,7 +5491,7 @@ function renderQueryLogRow(q) {
     el("td", { text: fmtTime(q.ts), "data-label": "Time" }),
     domainCell(q.domain, q.answer_ip),
     el("td", { text: q.qtype, class: "col-qtype", "data-label": "Type" }),
-    addressCell(clientLabel(q.client), isIpAddress(q.client) ? [enrichButton(q.client, "ip"), clientBlockButton(q.client)] : [], q.client, "Client"),
+    clientLogCell(q.client),
     el("td", { "data-label": "Result" }, resultCell),
     el("td", { "data-label": "Actions" }, [blockBtn, hideBtn]),
   ]);
@@ -5480,6 +5500,15 @@ function renderQueryLogRow(q) {
 async function loadQueryLogClients() {
   const result = await api("/api/query-log/clients");
   clientNames = { ...clientNames, ...(result.client_names || {}) };
+  const groupSelect = document.getElementById("ql-group");
+  const previousGroup = groupSelect.value;
+  groupSelect.innerHTML = "";
+  groupSelect.appendChild(el("option", { value: "", text: t("logs.all_groups", "All groups") }));
+  const groups = result.groups || [];
+  for (const name of groups) groupSelect.appendChild(el("option", { value: "g:" + name, text: name }));
+  groupSelect.appendChild(el("option", { value: QUERY_LOG_NO_GROUP, text: t("logs.no_group", "No group (default policy)") }));
+  groupSelect.value = previousGroup;
+  if (groupSelect.value !== previousGroup) groupSelect.value = "";
   const select = document.getElementById("ql-client");
   const previous = select.value;
   select.innerHTML = "";
@@ -5501,6 +5530,8 @@ async function loadQueryLog(reset) {
 
   const result = await api(`/api/query-log?${params.toString()}`);
   clientNames = { ...clientNames, ...(result.client_names || {}) };
+  if (reset) queryLogClientGroups = {};
+  queryLogClientGroups = { ...queryLogClientGroups, ...(result.client_groups || {}) };
 
   const rows = document.getElementById("query-log-rows");
   if (reset) rows.innerHTML = "";

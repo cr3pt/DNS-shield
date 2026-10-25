@@ -237,6 +237,8 @@
   "logs.query_log": "クエリログ",
   "logs.ph.domain": "ドメインに含まれる文字列...",
   "logs.all_clients": "すべてのクライアント",
+  "logs.all_groups": "すべてのグループ",
+  "logs.no_group": "グループなし(デフォルトポリシー)",
   "logs.all_types": "すべての種別",
   "logs.all_results": "すべての結果",
   "logs.blocked": "ブロック済み",

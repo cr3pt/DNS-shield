@@ -952,7 +952,16 @@ The dashboard's **Query log** section searches the full retained history
 range, with pagination via "Load more". The **Time** column (here and in
 the Alerts tab) always shows the full date *and* time, in your browser's
 own locale and timezone, so entries from different days can't be
-mistaken for each other. Each row has a **Block**/**Unblock**
+mistaken for each other. The **group** selector narrows the log to the
+clients of one [client group](#per-clientgroup-policies) (or to **No group
+(default policy)**, the clients no group matches), and every row of a
+grouped client shows its group name under the address. Membership is
+decided the same way the DNS server decides it - first matching group
+wins, including `mac:` and `host:` patterns - using each client's *current*
+match, so a client moved to another group shows up under the new one for
+its whole logged history. A restricted user only sees groups that contain
+clients they are allowed to see. The same filter is available as
+`GET /api/query-log?group=NAME` or `?no_group=true`. Each row has a **Block**/**Unblock**
 button (whichever applies to that row's current state) and a **Hide**
 button.
 

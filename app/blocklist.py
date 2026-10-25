@@ -405,6 +405,10 @@ class BlocklistManager:
     def _client_hostname(self, client_ip: str) -> str | None:
         return self._client_names.get(client_ip) if self._client_names is not None else None
 
+    def group_name_for(self, client_ip: str | None) -> str | None:
+        group = self._find_group(client_ip)
+        return str(group.get("name", "")) if group is not None else None
+
     def _find_group(self, client_ip: str | None) -> dict[str, Any] | None:
         if not client_ip:
             return None

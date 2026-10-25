@@ -237,6 +237,8 @@
   "logs.query_log": "Abfrageprotokoll",
   "logs.ph.domain": "Domain enthält …",
   "logs.all_clients": "Alle Clients",
+  "logs.all_groups": "Alle Gruppen",
+  "logs.no_group": "Keine Gruppe (Standardrichtlinie)",
   "logs.all_types": "Alle Typen",
   "logs.all_results": "Alle Ergebnisse",
   "logs.blocked": "Blockiert",

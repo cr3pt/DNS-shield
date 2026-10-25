@@ -237,6 +237,8 @@
   "logs.query_log": "쿼리 로그",
   "logs.ph.domain": "도메인에 포함된 문자열...",
   "logs.all_clients": "모든 클라이언트",
+  "logs.all_groups": "모든 그룹",
+  "logs.no_group": "그룹 없음(기본 정책)",
   "logs.all_types": "모든 유형",
   "logs.all_results": "모든 결과",
   "logs.blocked": "차단됨",
