@@ -1252,9 +1252,17 @@ wspólnych sąsiadów, każdy węzeł zachowuje tylko trzech najbliższych
 sąsiadów, żeby ruchliwa sieć nie zamieniła się w kłębowisko, a prosty
 przebieg label propagation koloruje grupy o podobnym zachowaniu
 (podejrzane węzły pozostają czerwone). Widok użytkownika z ograniczeniami
-liczony jest wyłącznie z klientów, których może widzieć. Te same filtry,
+liczony jest wyłącznie z klientów, których może widzieć. Selektor **Group**
+ogranicza graf do jednej [grupy klientów](#polityki-dla-poszczególnych-klientów-i-grup)
+(albo do *No group*): rysowani są tylko klienci tej grupy, domeny, które
+odpytali, i ich połączenia, a panel szczegółów domeny liczy wyłącznie
+klientów z grupy. Przynależność do grupy opiera się na tej samej regule
+najbardziej szczegółowego dopasowania co reszta panelu, a wyniki
+"podejrzane" są liczone na nowo w obrębie wybranej grupy. Te same filtry,
 wyszukiwanie i podgląd szczegółów działają w każdym widoku;
-`GET /api/graph?view=bipartite|domains|clients` zwraca dane.
+`GET /api/graph?view=bipartite|domains|clients` zwraca dane, a
+`group=NAZWA` lub `no_group=true` włącza filtr grupy (przyjmuje go także
+`GET /api/graph/domain/{domain}`).
 
 Sam wykres to ręcznie napisany układ typu force-directed (ta sama
 filozofia co wykres trendu zapytań w inline SVG opisany wyżej - bez

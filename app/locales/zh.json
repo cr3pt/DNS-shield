@@ -696,6 +696,7 @@
   "graph.search_ph": "192.168.1.50 或 example.com",
   "graph.min_count": "每条连接的最小查询次数",
   "graph.view": "视图",
+  "graph.group": "分组",
   "graph.view.bipartite": "客户端与域名",
   "graph.view.domains": "域名",
   "graph.view.clients": "客户端",

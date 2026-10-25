@@ -696,6 +696,7 @@
   "graph.search_ph": "192.168.1.50 oder example.com",
   "graph.min_count": "Min. Anfragen pro Verbindung",
   "graph.view": "Ansicht",
+  "graph.group": "Gruppe",
   "graph.view.bipartite": "Clients und Domains",
   "graph.view.domains": "Domains",
   "graph.view.clients": "Clients",

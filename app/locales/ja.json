@@ -696,6 +696,7 @@
   "graph.search_ph": "192.168.1.50 または example.com",
   "graph.min_count": "エッジあたりの最小クエリ数",
   "graph.view": "表示",
+  "graph.group": "グループ",
   "graph.view.bipartite": "クライアントとドメイン",
   "graph.view.domains": "ドメイン",
   "graph.view.clients": "クライアント",

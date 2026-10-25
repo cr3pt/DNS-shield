@@ -620,6 +620,12 @@
             <option value="clients" data-i18n="graph.view.clients">Clients</option>
           </select>
         </div>
+        <div class="field" style="max-width:200px;">
+          <label for="graph-group" data-i18n="graph.group">Group</label>
+          <select id="graph-group">
+            <option value="" data-i18n="logs.all_groups">All groups</option>
+          </select>
+        </div>
         <div class="field" style="max-width:140px;">
           <label for="graph-min-count" data-i18n="graph.min_count">Min. queries per edge</label>
           <input type="number" id="graph-min-count" value="1" min="1">
@@ -3659,7 +3665,7 @@ async function selectGraphNode(node) {
   try {
     const data = node.type === "client"
       ? await api(`/api/graph/client/${encodeURIComponent(node.id)}`)
-      : await api(`/api/graph/domain/${encodeURIComponent(node.id)}`);
+      : await api(`/api/graph/domain/${encodeURIComponent(node.id)}?${graphGroupParams().toString()}`);
     const rows = node.type === "client" ? data.domains : data.clients;
     const rowLabel = node.type === "client" ? t("graph.col.domain", "Domain") : t("graph.col.client", "Client");
     const table = el("table", {}, [
@@ -3869,6 +3875,25 @@ function initGraphCanvas() {
   });
 }
 
+function graphGroupParams() {
+  const group = document.getElementById("graph-group").value;
+  const params = new URLSearchParams();
+  if (group === QUERY_LOG_NO_GROUP) params.set("no_group", "true");
+  else if (group.startsWith("g:")) params.set("group", group.slice(2));
+  return params;
+}
+
+function renderGraphGroupOptions(groups) {
+  const select = document.getElementById("graph-group");
+  const previous = select.value;
+  select.innerHTML = "";
+  select.appendChild(el("option", { value: "", text: t("logs.all_groups", "All groups") }));
+  for (const name of groups || []) select.appendChild(el("option", { value: "g:" + name, text: name }));
+  select.appendChild(el("option", { value: QUERY_LOG_NO_GROUP, text: t("logs.no_group", "No group (default policy)") }));
+  select.value = previous;
+  if (select.value !== previous) select.value = "";
+}
+
 function graphView() {
   const value = document.getElementById("graph-view").value;
   return value === "domains" || value === "clients" ? value : "bipartite";
@@ -3897,11 +3922,24 @@ async function loadGraph() {
   const limitNodes = window.innerWidth < 640 ? 40 : window.innerWidth < 900 ? 80 : 150;
   let data;
   try {
-    data = await api(`/api/graph?min_count=${minCount}&limit_nodes=${limitNodes}&view=${graphView()}`);
+    const params = graphGroupParams();
+    params.set("min_count", String(minCount));
+    params.set("limit_nodes", String(limitNodes));
+    params.set("view", graphView());
+    try {
+      data = await api(`/api/graph?${params.toString()}`);
+    } catch (err) {
+      if (!document.getElementById("graph-group").value) throw err;
+      document.getElementById("graph-group").value = "";
+      params.delete("group");
+      params.delete("no_group");
+      data = await api(`/api/graph?${params.toString()}`);
+    }
   } catch (err) {
     summary.textContent = String(err.message || err);
     return;
   }
+  renderGraphGroupOptions(data.groups);
   buildGraphNodes(data);
   recomputeSuspiciousNeighbors();
   renderGraphSuspiciousList();
@@ -3921,6 +3959,11 @@ document.getElementById("graph-reset-view-btn").addEventListener("click", () => 
   renderGraphFrame();
 });
 document.getElementById("graph-min-count").addEventListener("change", loadGraph);
+document.getElementById("graph-group").addEventListener("change", () => {
+  graphState.selected = null;
+  selectGraphNode(null);
+  loadGraph();
+});
 document.getElementById("graph-view").addEventListener("change", () => {
   graphState.selected = null;
   selectGraphNode(null);

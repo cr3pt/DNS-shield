@@ -1226,18 +1226,26 @@ def create_app(
         min_count: int = 1,
         limit_nodes: int = 150,
         view: str = "bipartite",
+        group: str | None = None,
+        no_group: bool = False,
         user: dict[str, Any] = Depends(require_permission("view_graph")),
     ) -> dict[str, Any]:
         if client_domain_graph is None:
             raise HTTPException(status_code=503, detail="Graph is not available")
         if view not in GRAPH_VIEWS:
             raise HTTPException(status_code=400, detail="Unknown graph view")
-        return client_domain_graph.get_graph(
-            restrict_client_ips=_allowed_client_ips(user),
+        allowed = _allowed_client_ips(user)
+        result = client_domain_graph.get_graph(
+            restrict_client_ips=_clients_in_group_scope(user, group, no_group, client_domain_graph.distinct_clients),
             min_count=max(1, min_count),
             limit_nodes=limit_nodes,
             view=view,
         )
+        if allowed is None:
+            result["groups"] = [str(g.get("name", "")) for g in config_store.get("client_groups", default=[]) or []]
+        else:
+            result["groups"] = sorted({name for name in (blocklist.group_name_for(ip) for ip in allowed) if name})
+        return result
 
     @app.get("/api/graph/client/{client}")
     def get_graph_client(
@@ -1253,11 +1261,17 @@ def create_app(
 
     @app.get("/api/graph/domain/{domain}")
     def get_graph_domain(
-        domain: str, user: dict[str, Any] = Depends(require_permission("view_graph"))
+        domain: str,
+        group: str | None = None,
+        no_group: bool = False,
+        user: dict[str, Any] = Depends(require_permission("view_graph")),
     ) -> dict[str, Any]:
         if client_domain_graph is None:
             raise HTTPException(status_code=503, detail="Graph is not available")
-        return client_domain_graph.domain_detail(domain.lower(), restrict_client_ips=_allowed_client_ips(user))
+        return client_domain_graph.domain_detail(
+            domain.lower(),
+            restrict_client_ips=_clients_in_group_scope(user, group, no_group, client_domain_graph.distinct_clients),
+        )
 
     @app.post("/api/graph/clear")
     def clear_graph(_: dict[str, Any] = Depends(require_admin)) -> dict[str, bool]:
@@ -1276,7 +1290,7 @@ def create_app(
         return config_store.mutate(_mutate)
 
     def _clients_in_group_scope(
-        user: dict[str, Any], group: str | None, no_group: bool
+        user: dict[str, Any], group: str | None, no_group: bool, known_clients=None
     ) -> list[str] | None:
         if group and no_group:
             raise HTTPException(status_code=400, detail="Use either group or no_group, not both")
@@ -1285,7 +1299,7 @@ def create_app(
             return restrict
         if group and group not in {str(g.get("name", "")) for g in config_store.get("client_groups", default=[]) or []}:
             raise HTTPException(status_code=404, detail="No such client group")
-        candidates = stats.distinct_clients() if restrict is None else restrict
+        candidates = (known_clients or stats.distinct_clients)() if restrict is None else restrict
         return [
             ip
             for ip in candidates
