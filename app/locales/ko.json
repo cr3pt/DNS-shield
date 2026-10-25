@@ -696,6 +696,7 @@
   "graph.search_ph": "192.168.1.50 또는 example.com",
   "graph.min_count": "엣지당 최소 쿼리 수",
   "graph.view": "보기",
+  "graph.group": "그룹",
   "graph.view.bipartite": "클라이언트와 도메인",
   "graph.view.domains": "도메인",
   "graph.view.clients": "클라이언트",

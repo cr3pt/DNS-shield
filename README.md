@@ -1136,8 +1136,16 @@ query counts, each node keeps only its three closest neighbours so a busy
 network doesn't turn into a hairball, and a simple label-propagation pass
 colours the groups that behave alike (suspicious nodes stay red). A
 restricted user's projection is computed from the clients they may see
-only. The same filters, search and drill-down work in every view;
-`GET /api/graph?view=bipartite|domains|clients` returns the data.
+only. The **Group** selector limits the graph to one
+[client group](#per-clientgroup-policies) (or to *No group*): only that
+group's clients, the domains they queried, and their connections are
+drawn, and the domain detail panel counts only the group's clients. Group
+membership uses the same most-specific-match rule as the rest of the
+dashboard, and the "suspicious" scores are recomputed within the selected
+group. The same filters, search and drill-down work in every view;
+`GET /api/graph?view=bipartite|domains|clients` returns the data, with
+`group=NAME` or `no_group=true` for the group filter (also accepted by
+`GET /api/graph/domain/{domain}`).
 
 The canvas itself is a hand-rolled force-directed layout (same
 philosophy as the inline-SVG query-trend chart above - no external

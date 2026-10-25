@@ -696,6 +696,7 @@
   "graph.search_ph": "192.168.1.50 أو example.com",
   "graph.min_count": "أدنى عدد استعلامات لكل رابطة",
   "graph.view": "العرض",
+  "graph.group": "المجموعة",
   "graph.view.bipartite": "العملاء والنطاقات",
   "graph.view.domains": "النطاقات",
   "graph.view.clients": "العملاء",

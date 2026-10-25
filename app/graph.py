@@ -155,6 +155,13 @@ class ClientDomainGraph:
             finally:
                 conn.close()
 
+    def distinct_clients(self) -> list[str]:
+        conn = self._connect()
+        try:
+            return [row[0] for row in conn.execute("SELECT DISTINCT client FROM edges")]
+        finally:
+            conn.close()
+
     def get_graph(
         self,
         restrict_client_ips: list[str] | None = None,
