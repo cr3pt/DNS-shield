@@ -996,9 +996,13 @@ grouped client shows its group name under the address. Membership is
 decided the same way the DNS server decides it - the most specific
 matching group wins, including `mac:` and `host:` patterns - using each client's *current*
 match, so a client moved to another group shows up under the new one for
-its whole logged history. A restricted user only sees groups that contain
+its whole logged history. While a group is selected, the **client** selector lists only that
+group's clients (so you can't pick a client that would give an empty log),
+and a client that is not in the chosen group is deselected automatically.
+A restricted user only sees groups that contain
 clients they are allowed to see. The same filter is available as
-`GET /api/query-log?group=NAME` or `?no_group=true`. Each row has a **Block**/**Unblock**
+`GET /api/query-log?group=NAME` or `?no_group=true` (and the same parameters on
+`GET /api/query-log/clients` for the client list). Each row has a **Block**/**Unblock**
 button (whichever applies to that row's current state) and a **Hide**
 button.
 

@@ -5415,9 +5415,7 @@ function queryLogFilterParams() {
   const status = document.getElementById("ql-status").value;
   const range = document.getElementById("ql-range").value;
   if (domain) params.set("domain", domain);
-  const group = document.getElementById("ql-group").value;
-  if (group === QUERY_LOG_NO_GROUP) params.set("no_group", "true");
-  else if (group.startsWith("g:")) params.set("group", group.slice(2));
+  for (const [key, value] of queryLogGroupParams()) params.set(key, value);
   if (client) params.set("client", client);
   if (qtype) params.set("qtype", qtype);
   if (status) params.set("blocked", status);
@@ -5497,8 +5495,22 @@ function renderQueryLogRow(q) {
   ]);
 }
 
+function queryLogGroupParams() {
+  const group = document.getElementById("ql-group").value;
+  const params = new URLSearchParams();
+  if (group === QUERY_LOG_NO_GROUP) params.set("no_group", "true");
+  else if (group.startsWith("g:")) params.set("group", group.slice(2));
+  return params;
+}
+
 async function loadQueryLogClients() {
-  const result = await api("/api/query-log/clients");
+  let result;
+  try {
+    result = await api(`/api/query-log/clients?${queryLogGroupParams().toString()}`);
+  } catch (err) {
+    document.getElementById("ql-group").value = "";
+    result = await api("/api/query-log/clients");
+  }
   clientNames = { ...clientNames, ...(result.client_names || {}) };
   const groupSelect = document.getElementById("ql-group");
   const previousGroup = groupSelect.value;
@@ -7695,8 +7707,11 @@ document.getElementById("query-log-filter-form").addEventListener("submit", asyn
 document.getElementById("query-log-clear").addEventListener("click", () => {
   document.getElementById("query-log-filter-form").reset();
   saveQueryLogFilters();
+  loadQueryLogClients();
   loadQueryLog(true);
 });
+
+document.getElementById("ql-group").addEventListener("change", () => loadQueryLogClients());
 
 document.getElementById("query-log-load-more").addEventListener("click", () => {
   queryLogOffset += QUERY_LOG_PAGE_SIZE;
@@ -7958,6 +7973,7 @@ async function boot() {
   renderTotpStatus();
   await loadQueryLogClients();
   restoreQueryLogFilters();
+  if (document.getElementById("ql-group").value) await loadQueryLogClients();
 
   await refreshAll();
   setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);

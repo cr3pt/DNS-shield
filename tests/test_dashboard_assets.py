@@ -58,3 +58,10 @@ def test_query_log_can_be_filtered_by_client_group():
     assert 'id="ql-group"' in source
     assert 'params.set("group"' in source
     assert 'params.set("no_group"' in source
+
+
+def test_client_selector_follows_the_selected_log_group():
+    source = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "/api/query-log/clients?${queryLogGroupParams().toString()}" in source
+    assert 'document.getElementById("ql-group").addEventListener("change", () => loadQueryLogClients())' in source

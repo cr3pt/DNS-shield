@@ -1098,10 +1098,12 @@ grupa), a każdy wiersz klienta należącego do grupy pokazuje jej nazwę pod
 adresem. Przynależność jest ustalana tak samo jak w serwerze DNS - wygrywa
 najbardziej szczegółowa pasująca grupa, także dla wzorców `mac:` i `host:` - na podstawie
 *aktualnego* dopasowania klienta, więc klient przeniesiony do innej grupy
-pojawia się pod nową w całej swojej historii. Użytkownik z ograniczeniami
+pojawia się pod nową w całej swojej historii. Gdy wybrana jest grupa, selektor **client** pokazuje tylko klientów tej
+grupy (nie da się więc wybrać klienta, który dałby pusty log), a klient
+spoza wybranej grupy jest automatycznie odznaczany. Użytkownik z ograniczeniami
 widzi tylko grupy zawierające klientów, których wolno mu oglądać. Ten sam
 filtr jest dostępny jako `GET /api/query-log?group=NAZWA` lub
-`?no_group=true`. Każdy wiersz ma przycisk
+`?no_group=true` (te same parametry przyjmuje `GET /api/query-log/clients` dla listy klientów). Każdy wiersz ma przycisk
 **Block**/**Unblock** (ten, który pasuje do aktualnego stanu danego
 wiersza) oraz przycisk **Hide**.
 
