@@ -16,7 +16,7 @@ from typing import Any, Iterable
 import regex
 import requests
 
-from app.netmatch import client_matches
+from app.netmatch import best_matching_group, client_matches
 from app.schedule import is_schedule_blocked
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
 from app.upstream import protected_hostnames
@@ -405,17 +405,22 @@ class BlocklistManager:
     def _client_hostname(self, client_ip: str) -> str | None:
         return self._client_names.get(client_ip) if self._client_names is not None else None
 
+    def group_name_for(self, client_ip: str | None) -> str | None:
+        group = self._find_group(client_ip)
+        return str(group.get("name", "")) if group is not None else None
+
+    def group_for(self, client_ip: str | None) -> dict[str, Any] | None:
+        return self._find_group(client_ip)
+
     def _find_group(self, client_ip: str | None) -> dict[str, Any] | None:
         if not client_ip:
             return None
-        groups = self._config.get("client_groups", default=[]) or []
-        for group in groups:
-            for pattern in group.get("match", []) or []:
-                if client_matches(
-                    client_ip, pattern, mac=self.mac_for(client_ip), hostname=self._client_hostname(client_ip)
-                ):
-                    return group
-        return None
+        return best_matching_group(
+            self._config.get("client_groups", default=[]) or [],
+            client_ip,
+            mac=self.mac_for(client_ip),
+            hostname=self._client_hostname(client_ip),
+        )
 
     def safe_search_enabled_for(self, client_ip: str | None) -> bool:
         group = self._find_group(client_ip)

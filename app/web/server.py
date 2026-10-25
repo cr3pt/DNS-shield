@@ -1279,8 +1279,13 @@ def create_app(
     def get_query_log_clients(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
         allowed = _allowed_client_ips(user)
         clients = stats.distinct_clients() if allowed is None else allowed
+        if allowed is None:
+            group_names = [str(g.get("name", "")) for g in config_store.get("client_groups", default=[]) or []]
+        else:
+            group_names = sorted({name for name in (blocklist.group_name_for(ip) for ip in clients) if name})
         return {
             "clients": sorted(clients),
+            "groups": group_names,
             "client_names": client_names.snapshot() if client_names is not None else {},
         }
 
@@ -1294,8 +1299,24 @@ def create_app(
         until: float | None = None,
         limit: int = 100,
         offset: int = 0,
+        group: str | None = None,
+        no_group: bool = False,
         user: dict[str, Any] = Depends(require_auth),
     ) -> dict[str, Any]:
+        if group and no_group:
+            raise HTTPException(status_code=400, detail="Use either group or no_group, not both")
+        restrict = _allowed_client_ips(user)
+        if group or no_group:
+            if group and group not in {
+                str(g.get("name", "")) for g in config_store.get("client_groups", default=[]) or []
+            }:
+                raise HTTPException(status_code=404, detail="No such client group")
+            candidates = stats.distinct_clients() if restrict is None else restrict
+            restrict = [
+                ip
+                for ip in candidates
+                if (blocklist.group_name_for(ip) == group if group else blocklist.group_name_for(ip) is None)
+            ]
         blocked_bool: bool | None = None
         if blocked == "true":
             blocked_bool = True
@@ -1318,11 +1339,17 @@ def create_app(
             until=until,
             limit=max(1, min(limit, 1000)),
             offset=max(0, offset),
-            restrict_client_ips=_allowed_client_ips(user),
+            restrict_client_ips=restrict,
         )
+        client_groups = {}
+        for ip in {row["client"] for row in rows}:
+            name = blocklist.group_name_for(ip)
+            if name is not None:
+                client_groups[ip] = name
         return {
             "rows": rows,
             "total": total,
+            "client_groups": client_groups,
             "client_names": client_names.snapshot() if client_names is not None else {},
         }
 

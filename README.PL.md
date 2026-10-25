@@ -730,9 +730,10 @@ dysk (tylko w pamięci, `dns.client_name_cache_seconds`).
 `client_groups` pozwala nadpisać globalną politykę dla wybranych klientów -
 np. surowszą listę zablokowanych dla urządzeń dzieci, albo całkowite
 wyłączenie filtrowania dla NAS-a czy serwera, który przestaje działać, gdy
-jakieś domeny są zablokowane. Wygrywa pierwsza pasująca grupa; klient, który
-nie pasuje do żadnej z nich, po prostu dostaje politykę globalną opisaną
-wyżej. Wpis w `match` może być adresem IP/CIDR (domyślnie), adresem MAC w
+jakieś domeny są zablokowane. Klient, który nie pasuje do żadnej grupy,
+po prostu dostaje politykę globalną opisaną wyżej; gdy pasuje kilka grup,
+wygrywa najbardziej szczegółowa (zobacz
+[Priorytety](#priorytety-domyślne-grupa-pojedynczy-host) niżej). Wpis w `match` może być adresem IP/CIDR (domyślnie), adresem MAC w
 formie `mac:AA:BB:CC:DD:EE:FF`, albo rozwiązaną nazwą hosta w formie
 `host:nazwa` (lub `host:*.sufiks` przy dopasowaniu po sufiksie):
 
@@ -754,6 +755,44 @@ client_groups:
     match: ["mac:AA:BB:CC:DD:EE:FF", "host:tablet-dzieci"]
     enabled: true
 ```
+
+#### Priorytety: domyślne, grupa, pojedynczy host
+
+Ustawienia działają w trzech warstwach i wygrywa ta bardziej szczegółowa:
+**domyślne** (polityka globalna) < **grupa / pula adresów** (zakres typu
+`192.168.1.0/24` albo `10.0.0.0/8`) < **pojedynczy host** (jeden adres IP,
+`mac:` albo dokładna nazwa `host:`). Kolejność grup na liście nie ma
+znaczenia. Gdy do klienta pasuje więcej niż jedna grupa, o zwycięstwie
+decyduje jej najbardziej szczegółowy pasujący wzorzec:
+
+1. pojedynczy adres IP (także `/32` i `/128`)
+2. `mac:`
+3. `host:nazwa`
+4. `host:*.sufiks` (dłuższy sufiks wygrywa z krótszym)
+5. zakres adresów - dłuższy prefiks wygrywa z krótszym (`/28` > `/24` >
+   `/16` > `/8`; tak samo dla IPv6)
+
+Grupy równie szczegółowe rozstrzyga kolejność na liście. Obowiązują
+ustawienia zwycięskiej grupy w całości - pojedynczy host **nie**
+dziedziczy list dozwolonych/zablokowanych, upstreamów, SafeSearch ani
+harmonogramu swojej puli, więc grupa hosta musi zawierać wszystko, czego
+potrzebuje. Przykład: cała podsieć pod ścisłym filtrowaniem, ale jeden
+zaufany komputer je omija:
+
+```yaml
+client_groups:
+  - name: "Sieć dzieci"
+    match: ["192.168.10.0/24"]
+    enabled: true
+    denylist: ["gry.example"]
+  - name: "Laptop taty"
+    match: ["192.168.10.5"]
+    enabled: false
+```
+
+Ta sama reguła rozstrzyga o nadpisaniu upstreamów klienta, SafeSearch,
+harmonogramie nocnym, dodatkowych listach blokad oraz o grupie widocznej w
+logu zapytań.
 
 Dopasowanie po `mac:` czyta tabelę ARP jądra systemu (`/proc/net/arp`) -
 znajdują się w niej tylko wpisy urządzeń, z którymi host DNS-shield
@@ -1052,7 +1091,17 @@ czy zapytanie było zablokowane, oraz po zakresie czasu; kolejne strony
 wyników wczytuje się przyciskiem "Load more". Kolumna **Time** (tutaj i w
 zakładce Alerts) zawsze pokazuje pełną datę *i* godzinę, w formacie i
 strefie czasowej Twojej przeglądarki, więc wpisów z różnych dni nie da
-się ze sobą pomylić. Każdy wiersz ma przycisk
+się ze sobą pomylić. Selektor **group** zawęża log do klientów jednej
+[grupy klientów](#polityki-dla-poszczególnych-klientów-i-grup) (albo do **No
+group (default policy)**, czyli klientów, których nie dopasowała żadna
+grupa), a każdy wiersz klienta należącego do grupy pokazuje jej nazwę pod
+adresem. Przynależność jest ustalana tak samo jak w serwerze DNS - wygrywa
+najbardziej szczegółowa pasująca grupa, także dla wzorców `mac:` i `host:` - na podstawie
+*aktualnego* dopasowania klienta, więc klient przeniesiony do innej grupy
+pojawia się pod nową w całej swojej historii. Użytkownik z ograniczeniami
+widzi tylko grupy zawierające klientów, których wolno mu oglądać. Ten sam
+filtr jest dostępny jako `GET /api/query-log?group=NAZWA` lub
+`?no_group=true`. Każdy wiersz ma przycisk
 **Block**/**Unblock** (ten, który pasuje do aktualnego stanu danego
 wiersza) oraz przycisk **Hide**.
 

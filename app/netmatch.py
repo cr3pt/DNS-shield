@@ -77,3 +77,42 @@ def normalize_client_patterns(raw: list[str]) -> list[str]:
         if normalized not in seen:
             seen.append(normalized)
     return seen
+
+
+def pattern_specificity(pattern: str) -> tuple[int, int]:
+    lowered = pattern.lower()
+    if lowered.startswith("mac:"):
+        return (4, 0)
+    if lowered.startswith("host:"):
+        host = pattern[5:].strip().rstrip(".")
+        if host.startswith("*."):
+            return (2, len(host) - 2)
+        return (3, 0)
+    try:
+        if "/" in pattern:
+            network = ipaddress.ip_network(pattern, strict=False)
+            if network.prefixlen == network.max_prefixlen:
+                return (5, 0)
+            return (1, network.prefixlen)
+        ipaddress.ip_address(pattern)
+        return (5, 0)
+    except ValueError:
+        return (3, 0)
+
+
+def best_matching_group(
+    groups: list[dict],
+    client_ip: str,
+    mac: str | None = None,
+    hostname: str | None = None,
+) -> dict | None:
+    best: dict | None = None
+    best_rank: tuple[int, int] | None = None
+    for group in groups:
+        for pattern in group.get("match", []) or []:
+            if not client_matches(client_ip, pattern, mac=mac, hostname=hostname):
+                continue
+            rank = pattern_specificity(pattern)
+            if best_rank is None or rank > best_rank:
+                best, best_rank = group, rank
+    return best
