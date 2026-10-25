@@ -1980,7 +1980,7 @@
     <section>
       <h2 data-i18n="clients.groups_title">Client groups</h2>
       <p class="muted" data-i18n="clients.hint.groups">
-        Per-client overrides. First matching group wins; unmatched clients get the global policy
+        Per-client overrides. The most specific group wins, whatever the order: a single device beats an address range and a longer prefix beats a shorter one; unmatched clients get the global policy
         above. Match patterns accept an IP/CIDR, <code>mac:AA:BB:CC:DD:EE:FF</code>, or
         <code>host:name</code> (wildcards like <code>host:*.kids</code> match a hostname suffix).
       </p>

@@ -660,9 +660,10 @@ nothing is written to disk (in-memory cache only, `dns.client_name_cache_seconds
 
 `client_groups` lets you override the global policy for specific clients -
 e.g. a stricter denylist for kids' devices, or turning filtering off
-entirely for a NAS/server that breaks when domains are blocked. First
-matching group wins; a client that matches no group just gets the global
-policy above. A `match` entry can be an IP/CIDR (the default), a MAC
+entirely for a NAS/server that breaks when domains are blocked. A client
+that matches no group just gets the global policy above; when several
+groups match, the most specific one wins (see
+[Priorities](#priorities-default-group-individual-host) below). A `match` entry can be an IP/CIDR (the default), a MAC
 address as `mac:AA:BB:CC:DD:EE:FF`, or a resolved hostname as
 `host:name` (or `host:*.suffix` for a suffix match):
 
@@ -684,6 +685,42 @@ client_groups:
     match: ["mac:AA:BB:CC:DD:EE:FF", "host:kids-tablet"]
     enabled: true
 ```
+
+#### Priorities: default, group, individual host
+
+Settings apply in three layers, and the more specific layer wins:
+**default** (the global policy) < **group / address pool** (a range such
+as `192.168.1.0/24` or `10.0.0.0/8`) < **individual host** (one IP, a
+`mac:` or an exact `host:` name). The order of groups in the list does not
+matter. When more than one group matches a client, the winner is chosen by
+its most specific matching pattern:
+
+1. a single IP (including `/32` and `/128`)
+2. `mac:`
+3. `host:name`
+4. `host:*.suffix` (a longer suffix beats a shorter one)
+5. an address range - a longer prefix beats a shorter one (`/28` > `/24` >
+   `/16` > `/8`; the same for IPv6)
+
+Equally specific groups fall back to list order. The winning group's
+settings are used as they are - an individual host does **not** inherit
+its pool's allow/deny lists, upstreams, SafeSearch or schedule, so give the
+host group everything it needs. Example: put a whole subnet under strict
+filtering but let one trusted machine bypass it:
+
+```yaml
+client_groups:
+  - name: "Kids network"
+    match: ["192.168.10.0/24"]
+    enabled: true
+    denylist: ["games.example"]
+  - name: "Dad's laptop"
+    match: ["192.168.10.5"]
+    enabled: false
+```
+
+The same rule decides a client's upstream override, SafeSearch, bedtime
+schedule, extra blocklists and the group shown in the query log.
 
 `mac:` matching reads the kernel's ARP table (`/proc/net/arp`) - it only
 contains entries for devices DNS-shield's host has actually talked to at
@@ -956,8 +993,8 @@ mistaken for each other. The **group** selector narrows the log to the
 clients of one [client group](#per-clientgroup-policies) (or to **No group
 (default policy)**, the clients no group matches), and every row of a
 grouped client shows its group name under the address. Membership is
-decided the same way the DNS server decides it - first matching group
-wins, including `mac:` and `host:` patterns - using each client's *current*
+decided the same way the DNS server decides it - the most specific
+matching group wins, including `mac:` and `host:` patterns - using each client's *current*
 match, so a client moved to another group shows up under the new one for
 its whole logged history. A restricted user only sees groups that contain
 clients they are allowed to see. The same filter is available as

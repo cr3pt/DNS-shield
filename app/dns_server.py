@@ -256,12 +256,11 @@ class FilteringResolver:
                     return upstreams
 
         if client_ip:
-            for group in self._config.get("client_groups", default=[]) or []:
-                if any(ip_matches(client_ip, pattern) for pattern in group.get("match", []) or []):
-                    upstreams = [u for u in (group.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
-                    if upstreams:
-                        return upstreams
-                    break
+            group = self._blocklist.group_for(client_ip)
+            if group is not None:
+                upstreams = [u for u in (group.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
+                if upstreams:
+                    return upstreams
 
         upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
         return [u for u in upstreams if not upstream_transport.is_disabled(u)]
