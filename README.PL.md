@@ -793,7 +793,7 @@ Add albo kliknij x na znaczniku, żeby usunąć wpis. **Rename** obok nazwy
 grupy zmienia ją w miejscu: *allowed client groups* użytkowników, które
 wskazywały starą nazwę, podążają za zmianą, a dodatkowe listy blokad
 grupy dalej działają; nazwy muszą być unikalne (bez względu na wielkość
-liter, do 64 znaków). Wpisy są walidowane i
+liter, do 255 znaków). Wpisy są walidowane i
 normalizowane (adresy MAC wielkimi literami z dwukropkami, nazwy hostów
 małymi literami, duplikaty odrzucane) przy tworzeniu i rozszerzaniu grupy,
 a grupa nie może stracić ostatniego wpisu (usuń wtedy całą grupę). To samo

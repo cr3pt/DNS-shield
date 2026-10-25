@@ -719,7 +719,7 @@ separated by commas or spaces) and press Add, or click the x on a chip to
 remove one. **Rename** next to the group's name changes it in place:
 users' *allowed client groups* that referenced the old name follow the
 rename and the group's extra blocklists keep working, and names must be
-unique (case-insensitive, up to 64 characters). Entries are validated and normalized (MACs upper-cased with
+unique (case-insensitive, up to 255 characters). Entries are validated and normalized (MACs upper-cased with
 colons, hostnames lower-cased, duplicates dropped) when a group is created
 or extended, and a group can't lose its last entry (delete the group
 instead). The same actions are available over the API:

@@ -252,7 +252,7 @@ class RegexPatternIn(BaseModel):
     pattern: str
 
 
-_GROUP_NAME_MAX_LENGTH = 64
+_GROUP_NAME_MAX_LENGTH = 255
 
 
 def _clean_group_name(value: str) -> str:

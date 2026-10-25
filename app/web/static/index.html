@@ -4115,7 +4115,7 @@ function buildGroupHeader(index, group, deleteButton) {
   const left = el("div", { class: "inline", style: "margin:0;" }, [title, renameBtn]);
   const row = el("div", { class: "row" }, [left, deleteButton]);
   renameBtn.onclick = () => {
-    const input = el("input", { type: "text", value: group.name, maxlength: "64", "aria-label": t("groups.rename", "Rename"), style: "min-width:220px;" });
+    const input = el("input", { type: "text", value: group.name, maxlength: "255", "aria-label": t("groups.rename", "Rename"), style: "min-width:220px;" });
     const form = document.createElement("form");
     form.className = "inline";
     form.style.margin = "0";

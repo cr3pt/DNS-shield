@@ -255,7 +255,7 @@ def test_creating_a_group_with_a_taken_name_is_refused(config_store, tmp_path):
     assert len(config_store.get("client_groups")) == 1
 
 
-@pytest.mark.parametrize("name", ["", "   ", "x" * 65, "bad\nname", "tab\tname"])
+@pytest.mark.parametrize("name", ["", "   ", "x" * 256, "bad\nname", "tab\tname"])
 def test_unusable_group_names_are_rejected(config_store, tmp_path, name):
     client = _admin_client(config_store, tmp_path)
     _create(client)
@@ -294,3 +294,12 @@ def test_extra_blocklist_data_follows_a_renamed_group(config_store, tmp_path):
     assert "Kids" not in manager._group_blocked
     assert manager._group_blocked["Children"] == frozenset({"bad.example"})
     manager.rename_group("Missing", "Whatever")
+
+
+def test_long_descriptive_group_names_up_to_255_characters_are_accepted(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+    name = "n" * 255
+
+    assert client.put("/api/client-groups/0/name", json={"name": name}).json()["name"] == name
+    assert client.post("/api/client-groups", json={"name": "m" * 255, "match": ["10.0.0.1"]}).status_code == 200
