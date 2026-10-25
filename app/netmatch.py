@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 
 
 def ip_matches(client_ip: str, pattern: str) -> bool:
@@ -38,3 +39,41 @@ def client_matches(client_ip: str, pattern: str, mac: str | None = None, hostnam
     if pattern.lower().startswith("host:"):
         return _hostname_matches(hostname, pattern[5:])
     return ip_matches(client_ip, pattern)
+
+
+_MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$")
+_HOST_RE = re.compile(r"^(\*\.)?[a-z0-9_]([a-z0-9_.-]*[a-z0-9_])?$")
+_MAX_PATTERN_LENGTH = 253
+
+
+def normalize_client_pattern(raw: str) -> str:
+    pattern = (raw or "").strip()
+    if not pattern or len(pattern) > _MAX_PATTERN_LENGTH:
+        raise ValueError("Empty or too long client pattern")
+    lowered = pattern.lower()
+    if lowered.startswith("mac:"):
+        mac = pattern[4:].strip()
+        if not _MAC_RE.match(mac):
+            raise ValueError(f"Invalid MAC address in {pattern!r} (expected mac:AA:BB:CC:DD:EE:FF)")
+        return "mac:" + mac.upper().replace("-", ":")
+    if lowered.startswith("host:"):
+        host = pattern[5:].strip().rstrip(".").lower()
+        if not host or not _HOST_RE.match(host):
+            raise ValueError(f"Invalid hostname in {pattern!r} (expected host:name or host:*.suffix)")
+        return "host:" + host
+    try:
+        if "/" in pattern:
+            ipaddress.ip_network(pattern, strict=False)
+            return pattern
+        return str(ipaddress.ip_address(pattern))
+    except ValueError:
+        raise ValueError(f"{pattern!r} is not an IP address, CIDR, mac:... or host:... pattern") from None
+
+
+def normalize_client_patterns(raw: list[str]) -> list[str]:
+    seen: list[str] = []
+    for item in raw:
+        normalized = normalize_client_pattern(item)
+        if normalized not in seen:
+            seen.append(normalized)
+    return seen

@@ -20,7 +20,7 @@ import yaml
 from dnslib import DNSRecord
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.anomaly import _base_domain
 from app.auth import verify_password
@@ -41,7 +41,7 @@ from app.import_adguard import import_config
 from app.import_pihole import import_config as import_pihole_config
 from app.login_throttle import LoginThrottle
 from app.metrics import render_metrics
-from app.netmatch import ip_matches
+from app.netmatch import ip_matches, normalize_client_pattern, normalize_client_patterns
 from app.passkeys import PendingChallengeStore
 from app import passkeys as passkeys_lib
 from webauthn.helpers import bytes_to_base64url
@@ -255,6 +255,12 @@ class RegexPatternIn(BaseModel):
 class ClientGroupIn(BaseModel):
     name: str
     match: list[str] = []
+
+    @field_validator("match")
+    @classmethod
+    def _validate_match(cls, value: list[str]) -> list[str]:
+        return normalize_client_patterns(value)
+
     enabled: bool = True
     allowlist: list[str] = []
     denylist: list[str] = []
@@ -262,6 +268,14 @@ class ClientGroupIn(BaseModel):
     blocklist_sources: list[dict[str, Any]] = []
     safe_search: bool | None = None
     schedule: dict[str, Any] | None = None
+
+
+class GroupEnabledIn(BaseModel):
+    enabled: bool
+
+
+class GroupMatchIn(BaseModel):
+    patterns: list[str] = Field(min_length=1, max_length=200)
 
 
 class GroupSafeSearchIn(BaseModel):
@@ -1634,6 +1648,19 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
+    @app.put("/api/client-groups/{index}/enabled")
+    def set_client_group_enabled(
+        index: int, body: GroupEnabledIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
+            groups = data.setdefault("client_groups", [])
+            if not 0 <= index < len(groups):
+                raise HTTPException(status_code=404, detail="No such client group")
+            groups[index]["enabled"] = body.enabled
+            return groups
+
+        return config_store.mutate(_mutate)
+
     def _group_mutate(index: int, fn) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             groups = data.setdefault("client_groups", [])
@@ -1663,6 +1690,44 @@ def create_app(
             items = group.setdefault(list_name, [])
             if domain in items:
                 items.remove(domain)
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.post("/api/client-groups/{index}/match")
+    def add_group_match(index: int, body: GroupMatchIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        try:
+            patterns = normalize_client_patterns(body.patterns)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            items = group.setdefault("match", [])
+            for pattern in patterns:
+                if pattern not in items:
+                    items.append(pattern)
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.delete("/api/client-groups/{index}/match")
+    def remove_group_match(index: int, pattern: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            items = group.setdefault("match", [])
+            target = pattern if pattern in items else None
+            if target is None:
+                try:
+                    normalized = normalize_client_pattern(pattern)
+                except ValueError:
+                    normalized = None
+                target = normalized if normalized in items else None
+            if target is None:
+                raise HTTPException(status_code=404, detail="No such pattern in this group")
+            if len(items) <= 1:
+                raise HTTPException(
+                    status_code=400, detail="A group needs at least one pattern - delete the group instead"
+                )
+            items.remove(target)
             return group
 
         return _group_mutate(index, _fn)
