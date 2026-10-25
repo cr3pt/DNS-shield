@@ -169,6 +169,7 @@
   "clients.filter_this_group": "このグループのフィルタリングを有効にする(オフにするとフィルタなしで通過)",
   "clients.add_group": "グループを追加",
   "groups.delete_group": "グループを削除",
+  "groups.rename": "名前を変更",
   "groups.filtering_switch": "このグループのフィルタリング",
   "groups.state_on": "オン",
   "groups.state_off": "オフ(パススルー)",

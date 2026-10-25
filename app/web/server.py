@@ -252,9 +252,28 @@ class RegexPatternIn(BaseModel):
     pattern: str
 
 
+_GROUP_NAME_MAX_LENGTH = 64
+
+
+def _clean_group_name(value: str) -> str:
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value or ""):
+        raise ValueError("Group name can't contain control characters")
+    name = " ".join((value or "").split())
+    if not name:
+        raise ValueError("Group name can't be empty")
+    if len(name) > _GROUP_NAME_MAX_LENGTH:
+        raise ValueError(f"Group name can be at most {_GROUP_NAME_MAX_LENGTH} characters")
+    return name
+
+
 class ClientGroupIn(BaseModel):
     name: str
     match: list[str] = []
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return _clean_group_name(value)
 
     @field_validator("match")
     @classmethod
@@ -268,6 +287,15 @@ class ClientGroupIn(BaseModel):
     blocklist_sources: list[dict[str, Any]] = []
     safe_search: bool | None = None
     schedule: dict[str, Any] | None = None
+
+
+class GroupNameIn(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return _clean_group_name(value)
 
 
 class GroupEnabledIn(BaseModel):
@@ -1621,6 +1649,8 @@ def create_app(
     def add_client_group(group: ClientGroupIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
+            if any(str(g.get("name", "")).casefold() == group.name.casefold() for g in groups):
+                raise HTTPException(status_code=409, detail=f'A client group named "{group.name}" already exists')
             groups.append(group.model_dump())
             return groups
 
@@ -1647,6 +1677,38 @@ def create_app(
             return groups
 
         return config_store.mutate(_mutate)
+
+    @app.put("/api/client-groups/{index}/name")
+    def rename_client_group(
+        index: int, body: GroupNameIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        def _mutate(data: dict[str, Any]) -> tuple[dict[str, Any], str]:
+            groups = data.setdefault("client_groups", [])
+            if not 0 <= index < len(groups):
+                raise HTTPException(status_code=404, detail="No such client group")
+            old_name = str(groups[index].get("name", ""))
+            for position, other in enumerate(groups):
+                if position != index and str(other.get("name", "")).casefold() == body.name.casefold():
+                    raise HTTPException(status_code=409, detail=f'A client group named "{body.name}" already exists')
+            if old_name == body.name:
+                return groups[index], old_name
+            groups[index]["name"] = body.name
+            for user in data.get("users", []) or []:
+                permissions = user.get("permissions")
+                allowed = permissions.get("allowed_groups") if isinstance(permissions, dict) else None
+                if allowed and old_name in allowed:
+                    renamed: list[str] = []
+                    for entry in allowed:
+                        entry = body.name if entry == old_name else entry
+                        if entry not in renamed:
+                            renamed.append(entry)
+                    permissions["allowed_groups"] = renamed
+            return groups[index], old_name
+
+        group, old_name = config_store.mutate(_mutate)
+        if old_name != body.name:
+            blocklist.rename_group(old_name, body.name)
+        return group
 
     @app.put("/api/client-groups/{index}/enabled")
     def set_client_group_enabled(

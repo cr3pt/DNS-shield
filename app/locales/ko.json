@@ -169,6 +169,7 @@
   "clients.filter_this_group": "이 그룹의 필터링 사용(해제하면 필터링 없이 통과)",
   "clients.add_group": "그룹 추가",
   "groups.delete_group": "그룹 삭제",
+  "groups.rename": "이름 변경",
   "groups.filtering_switch": "이 그룹의 필터링",
   "groups.state_on": "켜짐",
   "groups.state_off": "꺼짐(통과)",

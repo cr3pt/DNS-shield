@@ -169,6 +169,7 @@
   "clients.filter_this_group": "تفعيل الترشيح لهذه المجموعة (ألغِ التحديد للتمرير دون ترشيح)",
   "clients.add_group": "إضافة مجموعة",
   "groups.delete_group": "حذف المجموعة",
+  "groups.rename": "إعادة التسمية",
   "groups.filtering_switch": "الترشيح لهذه المجموعة",
   "groups.state_on": "مفعّل",
   "groups.state_off": "معطّل (تمرير)",

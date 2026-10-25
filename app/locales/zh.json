@@ -169,6 +169,7 @@
   "clients.filter_this_group": "为此分组启用过滤(取消勾选则直接放行)",
   "clients.add_group": "添加分组",
   "groups.delete_group": "删除分组",
+  "groups.rename": "重命名",
   "groups.filtering_switch": "此分组的过滤",
   "groups.state_on": "开启",
   "groups.state_off": "关闭(直接放行)",

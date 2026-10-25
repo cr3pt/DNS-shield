@@ -169,6 +169,7 @@
   "clients.filter_this_group": "Filtrowanie włączone dla tej grupy (odznacz, by przepuszczać bez filtrowania)",
   "clients.add_group": "Dodaj grupę",
   "groups.delete_group": "Usuń grupę",
+  "groups.rename": "Zmień nazwę",
   "groups.filtering_switch": "Filtrowanie dla tej grupy",
   "groups.state_on": "Włączone",
   "groups.state_off": "Wyłączone (bez filtrowania)",

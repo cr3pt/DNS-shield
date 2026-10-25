@@ -4109,6 +4109,48 @@ function buildRuleEditor(title, items, onAdd, onRemove) {
   return wrap;
 }
 
+function buildGroupHeader(index, group, deleteButton) {
+  const title = el("h3", { text: group.name });
+  const renameBtn = el("button", { type: "button", class: "secondary", text: t("groups.rename", "Rename") });
+  const left = el("div", { class: "inline", style: "margin:0;" }, [title, renameBtn]);
+  const row = el("div", { class: "row" }, [left, deleteButton]);
+  renameBtn.onclick = () => {
+    const input = el("input", { type: "text", value: group.name, maxlength: "64", "aria-label": t("groups.rename", "Rename"), style: "min-width:220px;" });
+    const form = document.createElement("form");
+    form.className = "inline";
+    form.style.margin = "0";
+    const error = el("span", { class: "group-error", style: "display:none;margin:0;" });
+    const cancel = el("button", { type: "button", class: "secondary", text: t("common.cancel", "Cancel") });
+    form.append(input, el("button", { type: "submit", text: t("common.save", "Save") }), cancel, error);
+    cancel.onclick = () => left.replaceChildren(title, renameBtn);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") cancel.onclick();
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name || name === group.name) {
+        cancel.onclick();
+        return;
+      }
+      error.style.display = "none";
+      try {
+        await withDelayedSpinner(e.submitter, async () => {
+          await api(`/api/client-groups/${index}/name`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+        });
+        refreshAll();
+      } catch (err) {
+        error.textContent = err && err.message ? err.message : String(err);
+        error.style.display = "";
+      }
+    });
+    left.replaceChildren(form);
+    input.focus();
+    input.select();
+  };
+  return row;
+}
+
 function buildGroupFilterSwitch(index, group) {
   const on = group.enabled !== false;
   const input = el("input", { type: "checkbox" });
@@ -4309,7 +4351,7 @@ async function loadClientGroups() {
   groups.forEach((g, i) => {
     const delBtn = ruleDeleteButton(t("groups.delete_group", "Delete group"), `/api/client-groups/${i}`);
 
-    const header = el("div", { class: "row" }, [el("h3", { text: g.name }), delBtn]);
+    const header = buildGroupHeader(i, g, delBtn);
     const filterSwitch = buildGroupFilterSwitch(i, g);
     const matchEditor = buildGroupMatchEditor(i, g.match || []);
 

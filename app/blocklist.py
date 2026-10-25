@@ -489,6 +489,17 @@ class BlocklistManager:
         with self._lock:
             return dict(self._group_source_counts.get(group_name, {}))
 
+    def rename_group(self, old_name: str, new_name: str) -> None:
+        with self._lock:
+            for table in (
+                self._group_blocked,
+                self._group_domain_source,
+                self._group_source_counts,
+                self._group_source_formats,
+            ):
+                if old_name in table:
+                    table[new_name] = table.pop(old_name)
+
     def group_source_formats(self, group_name: str) -> dict[str, str]:
         with self._lock:
             return dict(self._group_source_formats.get(group_name, {}))

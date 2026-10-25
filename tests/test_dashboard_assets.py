@@ -43,3 +43,10 @@ def test_client_group_editor_manages_match_patterns_and_filtering_with_explicit_
     assert "/api/client-groups/${index}/match" in source
     assert "/api/client-groups/${index}/enabled" in source
     assert "/api/client-groups/${i}/toggle" not in source
+
+
+def test_client_group_editor_can_rename_a_group():
+    source = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "/api/client-groups/${index}/name" in source
+    assert 'method: "PUT"' in source

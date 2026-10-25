@@ -166,3 +166,131 @@ def test_filtering_can_be_set_explicitly_and_repeatedly(config_store, tmp_path):
 
     assert client.put("/api/client-groups/5/enabled", json={"enabled": True}).status_code == 404
     assert client.put("/api/client-groups/0/enabled", json={}).status_code == 422
+
+
+def _users_with_group_access(config_store, *groups):
+    config_store.mutate(
+        lambda d: d.setdefault("users", []).append(
+            {
+                "username": "parent",
+                "password_hash": "x",
+                "role": "user",
+                "permissions": {"allowed_groups": list(groups), "allowed_clients": ["10.0.0.9"]},
+            }
+        )
+    )
+
+
+def test_a_group_can_be_renamed(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+
+    response = client.put("/api/client-groups/0/name", json={"name": "  Kids   Tablets "})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Kids Tablets"
+    assert response.json()["match"] == ["192.168.1.50"]
+    assert [g["name"] for g in client.get("/api/client-groups").json()] == ["Kids Tablets"]
+
+
+def test_renaming_keeps_users_access_to_the_group(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+    _create(client, name="Guests", match=("10.1.0.0/24",))
+    _users_with_group_access(config_store, "Kids", "Guests")
+
+    client.put("/api/client-groups/0/name", json={"name": "Children"})
+
+    user = next(u for u in config_store.get("users") if u["username"] == "parent")
+    assert user["permissions"]["allowed_groups"] == ["Children", "Guests"]
+    assert user["permissions"]["allowed_clients"] == ["10.0.0.9"]
+
+
+def test_renaming_leaves_other_users_alone(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+    _users_with_group_access(config_store, "Guests")
+
+    client.put("/api/client-groups/0/name", json={"name": "Children"})
+
+    user = next(u for u in config_store.get("users") if u["username"] == "parent")
+    assert user["permissions"]["allowed_groups"] == ["Guests"]
+
+
+def test_renaming_to_the_same_name_is_a_noop(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+
+    response = client.put("/api/client-groups/0/name", json={"name": "Kids"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Kids"
+
+
+def test_changing_only_the_letter_case_is_allowed(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+
+    assert client.put("/api/client-groups/0/name", json={"name": "KIDS"}).json()["name"] == "KIDS"
+
+
+def test_a_name_used_by_another_group_is_refused_ignoring_case(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+    _create(client, name="Guests", match=("10.1.0.0/24",))
+
+    response = client.put("/api/client-groups/1/name", json={"name": "kids"})
+
+    assert response.status_code == 409
+    assert [g["name"] for g in config_store.get("client_groups")] == ["Kids", "Guests"]
+
+
+def test_creating_a_group_with_a_taken_name_is_refused(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+
+    response = client.post("/api/client-groups", json={"name": "KIDS", "match": ["10.0.0.1"]})
+
+    assert response.status_code == 409
+    assert len(config_store.get("client_groups")) == 1
+
+
+@pytest.mark.parametrize("name", ["", "   ", "x" * 65, "bad\nname", "tab\tname"])
+def test_unusable_group_names_are_rejected(config_store, tmp_path, name):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+
+    assert client.put("/api/client-groups/0/name", json={"name": name}).status_code == 422
+    assert client.post("/api/client-groups", json={"name": name, "match": ["10.0.0.1"]}).status_code == 422
+    assert config_store.get("client_groups")[0]["name"] == "Kids"
+
+
+def test_renaming_a_missing_group_is_a_404(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+
+    assert client.put("/api/client-groups/2/name", json={"name": "Anything"}).status_code == 404
+
+
+def test_rename_is_admin_only(config_store, tmp_path):
+    client = _admin_client(config_store, tmp_path)
+    _create(client)
+
+    assert TestClient(client.app).put("/api/client-groups/0/name", json={"name": "Hacked"}).status_code in (401, 403)
+    assert config_store.get("client_groups")[0]["name"] == "Kids"
+
+
+def test_extra_blocklist_data_follows_a_renamed_group(config_store, tmp_path):
+    manager = BlocklistManager(config_store, tmp_path / "cache")
+    manager._group_blocked["Kids"] = frozenset({"bad.example"})
+    manager._group_domain_source["Kids"] = {"bad.example": "list"}
+    manager._group_source_counts["Kids"] = {"list": 1}
+    manager._group_source_formats["Kids"] = {"list": "hosts"}
+
+    manager.rename_group("Kids", "Children")
+
+    assert manager.group_source_counts("Children") == {"list": 1}
+    assert manager.group_source_formats("Children") == {"list": "hosts"}
+    assert manager.group_source_counts("Kids") == {}
+    assert "Kids" not in manager._group_blocked
+    assert manager._group_blocked["Children"] == frozenset({"bad.example"})
+    manager.rename_group("Missing", "Whatever")

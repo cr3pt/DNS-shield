@@ -169,6 +169,7 @@
   "clients.filter_this_group": "Filtering on for this group (untick for pass-through)",
   "clients.add_group": "Add group",
   "groups.delete_group": "Delete group",
+  "groups.rename": "Rename",
   "groups.filtering_switch": "Filtering for this group",
   "groups.state_on": "On",
   "groups.state_off": "Off (pass-through)",
