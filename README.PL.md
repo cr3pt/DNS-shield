@@ -6,12 +6,10 @@
 > rozbieżności rozstrzyga wersja angielska.
 
 Mały, samodzielnie hostowany bloker reklam i trackerów DNS, działający w
-całej sieci, uruchamiany w Dockerze. Robi to samo co
-[AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) - pełni funkcję
-resolwera DNS Twojej sieci i odrzuca zapytania kierowane do domen
-reklamowych i śledzących - ale ma dużo mniejszy, łatwiejszy do
-zweryfikowania kod i **nie ma żadnych wbudowanych połączeń z usługami
-chmurowymi firm trzecich**.
+całej sieci, uruchamiany w Dockerze. Pełni funkcję resolwera DNS Twojej
+sieci i odrzuca zapytania kierowane do domen reklamowych i śledzących,
+ma mały, łatwy do zweryfikowania kod i **nie ma żadnych wbudowanych
+połączeń z usługami chmurowymi firm trzecich**.
 
 Pełny, skategoryzowany spis wszystkich funkcji projektu znajdziesz w pliku
 [`docs/features.html`](docs/features.html) (otwórz go w przeglądarce po
@@ -39,59 +37,10 @@ sklonowaniu repozytorium albo pobierz bezpośrednio z GitHub).
 | --- | --- |
 | ![Ustawienia powiadomień wraz z sekcją URL ping](docs/screenshots/settings-notifications.png) | ![Wynik wzbogacenia z historią wyszukiwań i przyciskiem blokowania hosta](docs/screenshots/enrich-popup.png) |
 
-## Dlaczego nie użyć po prostu AdGuard Home?
+## Prywatność z założenia
 
-### Czym właściwie jest AdGuard Home i jak działa
-
-AdGuard Home to sinkhole DNS (rodzaj filtrującego proxy DNS) z interfejsem
-webowym. W skrócie działa tak:
-
-1. Router lub urządzenia wskazują go jako swój serwer DNS.
-2. Przy każdym zapytaniu sprawdza domenę względem list filtrów (w formacie
-   hosts i AdBlock, odświeżanych z adresów URL podanych przez Ciebie lub
-   przez samego AdGuarda) oraz reguł zezwoleń i blokad ustawionych dla
-   poszczególnych użytkowników.
-3. Trafienia są obsługiwane lokalnie (odpowiedź NXDOMAIN albo `0.0.0.0`);
-   wszystko inne trafia dalej, do serwerów nadrzędnych, opcjonalnie przez
-   DNS-over-HTTPS, DNS-over-TLS lub QUIC.
-4. Ten sam program dostarcza też DHCP, kontrolę rodzicielską, "bezpieczne
-   przeglądanie" oraz statystyki i logi zapytań - wszystko za jednym
-   panelem webowym.
-
-### Skąd bierze się obawa o "wyciek danych"
-
-Do samego, podstawowego blokowania reklam żadna z tych funkcji nie musi
-łączyć się z serwerami producenta - ale kilka innych funkcji AdGuard Home
-domyślnie komunikuje się z infrastrukturą samego AdGuarda, i to właśnie
-ludzie mają na myśli, mówiąc o "wycieku":
-
-- **Safe Browsing i kontrola rodzicielska** wysyłają zapytanie (zahaszowane
-  i przycięte do prefiksu) o *każdą odwiedzaną domenę* do własnego API
-  chmurowego AdGuarda (`family.adguard-dns.com` albo endpoint bezpiecznego
-  przeglądania AdGuarda), gdy tylko te funkcje są włączone - czyli kopia
-  metadanych Twojego przeglądania opuszcza sieć i trafia do firmy trzeciej.
-- **Sprawdzanie aktualizacji** cyklicznie odpytuje serwery AdGuarda w
-  poszukiwaniu nowych wydań.
-- **Domyślne listy filtrów i domyślny nadrzędny resolwer DNS-over-HTTPS**
-  (własny serwer DoH AdGuarda, `dns.adguard-dns.com`) kierują Twój ruch DNS
-  i odświeżanie list przez infrastrukturę AdGuarda, o ile sam ich nie
-  zmienisz.
-- To obszar bliski telemetrii, nawet jeśli nikt go tak nie nazywa: nawet
-  funkcje typu opt-in bywają w niektórych wydaniach domyślnie włączone, a
-  narzędzie samodzielnie hostowane, którego zadaniem jest "widzieć każdą
-  domenę odwiedzaną przez Twoją sieć", jest dokładnie tego rodzaju
-  oprogramowaniem, w którym każde połączenie wychodzące do firmy trzeciej
-  zasługuje na szczególną uwagę.
-
-Nic z tego nie czyni AdGuard Home złośliwym oprogramowaniem - producent
-opisuje te funkcje w dokumentacji - ale dla narzędzia, które widzi
-dosłownie każdą domenę odwiedzaną przez każde urządzenie w Twojej sieci,
-domyślne zaufanie do chmury producenta to coś, czego warto unikać.
-
-### Co DNS-shield robi inaczej
-
-DNS-shield realizuje ten sam podstawowy mechanizm (sinkhole DNS + listy
-filtrów + interfejs webowy), ale z założenia działa **wyłącznie lokalnie**:
+DNS-shield to sinkhole DNS z listami filtrów i interfejsem webowym, a z
+założenia działa **wyłącznie lokalnie**:
 
 - Jedyne połączenia wychodzące, jakie kiedykolwiek wykonuje, to: (a)
   żądania do adresów URL list blokad, które sam konfigurujesz, (b)
@@ -106,7 +55,7 @@ filtrów + interfejs webowy), ale z założenia działa **wyłącznie lokalnie**
   wyłączony, wysyłany tylko wtedy, gdy
   [wykrywanie anomalii](#lokalne-wykrywanie-anomalii) jest włączone i coś
   wykryje (zobacz [Powiadomienia](#powiadomienia) poniżej). Nie ma żadnego
-  domyślnego adresu należącego do AdGuarda i nic nie łączy się samo z
+  domyślnego adresu należącego do jakiegokolwiek producenta i nic nie łączy się samo z
   siebie.
 - Żadnych zapytań chmurowych do funkcji Safe Browsing ani kontroli rodzicielskiej,
   żadnych pingów sprawdzających aktualizacje, żadnej analityki, żadnej
@@ -127,12 +76,11 @@ filtrów + interfejs webowy), ale z założenia działa **wyłącznie lokalnie**
   dokładny opis tego, co robi każdy plik, znajdziesz w rozdziale
   [Architektura](#architektura) poniżej.
 
-DNS-shield celowo **nie** próbuje w pełni zastąpić AdGuard Home - nie ma tu
-serwera DHCP, nie ma DoQ, nie ma kontroli na poziomie pojedynczej aplikacji.
-To podzbiór funkcji ograniczony do hasła "blokuj reklamy i trackery w
+DNS-shield celowo pozostaje mały - nie ma DoQ ani kontroli na poziomie
+pojedynczej aplikacji. Zajmuje się hasłem "blokuj reklamy i trackery w
 całej sieci z kontenera Docker, nie wypuszczając niczego, o co nie
-prosiłem", uzupełniony o te elementy kontroli rodzicielskiej na poziomie
-DNS, które pasują do tego podzbioru: wymuszone SafeSearch / tryb
+prosiłem", uzupełnionym o te elementy kontroli rodzicielskiej na poziomie
+DNS, które do tego pasują: wymuszone SafeSearch / tryb
 ograniczony oraz listy blokad określonych kategorii, przypisane do grupy
 klientów (zobacz
 [Kontrola rodzicielska / SafeSearch](#kontrola-rodzicielska--safesearch)).
@@ -174,7 +122,7 @@ według typu zapytania oraz zestawienie "blocked by" (która lista blokad
 albo reguła odpowiada za najwięcej blokad); wreszcie **Settings** -
 wszystko inne (ustawienia DNS i webowe, konta użytkowników, serwery
 nadrzędne, listy blokad, listy dozwolonych i zablokowanych, grupy
-klientów, importer z AdGuard Home oraz "Delete all logged queries" w
+klientów, importer konfiguracji oraz "Delete all logged queries" w
 sekcji Logging & blocklist refresh). Pasek wstrzymania blokowania na
 górze widzą wyłącznie konta administratora - zobacz **Konta
 wieloużytkownikowe, role i widok publiczny** poniżej.
@@ -241,7 +189,7 @@ podzielone na podzakładki tematyczne: **General** (interfejs webowy, kopia
 zapasowa konfiguracji), **DNS** (podstawowy resolwer, serwery nadrzędne,
 routing według domeny, rekordy niestandardowe), **Logging** (retencja,
 wykluczone domeny i adresy klientów), **Threat intelligence**, **Import**
-(AdGuard Home / Pi-hole), **Blocklists** (źródła, sugerowane listy, źródła
+(istniejąca konfiguracja), **Blocklists** (źródła, sugerowane listy, źródła
 listy dozwolonych, harmonogram odświeżania), **Own lists** (lista
 dozwolonych, lista zablokowanych, lista zablokowana wg wyrażeń regularnych),
 **Clients** (zablokowani klienci, grupy klientów) oraz **Cleans** (cache
@@ -567,7 +515,7 @@ jest interpretowane ze składni AdBlock i dlaczego.
 
 Sekcja Blocklists ma też tabelę **Suggested lists**: krótką, ustaloną
 listę wbudowaną w sam DNS-shield (żeby ją zbudować, nic nie trzeba
-pobierać) - Unified Hosts StevenBlacka, własny filtr DNS AdGuarda, garść
+pobierać) - Unified Hosts StevenBlacka, garść
 rekomendowanych ("odhaczonych") list [Firebog](https://firebog.net),
 aktywnie utrzymywane listy Multi PRO, Threat Intelligence Feeds oraz
 Newly Registered Domains od [HaGeZi](https://github.com/hagezi/dns-blocklists)
@@ -704,7 +652,7 @@ odrzucany już przy próbie dodania - najpierw jest sprawdzany na garści
 złośliwych ciągów testowych, i wzorzec, który na którymkolwiek z nich
 trwa zbyt długo, nigdy nie trafia do `denylist_regex`. Dotyczy to wzorca
 dodanego z panelu, przez API, jak i wzorców regex-deny wciąganych przy
-imporcie z Pi-hole. Samo dopasowywanie też ma ograniczony czas na
+imporcie. Samo dopasowywanie też ma ograniczony czas na
 zapytanie (silnik `regex` zamiast wbudowanego w Pythona `re`, który nie
 ma jak ograniczyć czasu dopasowania) - wzorzec, który mimo to okaże się
 zbyt wolny dla jednego konkretnego zapytania, po prostu "przepuszcza" to
@@ -894,8 +842,7 @@ inspekcjonuje treści strony - to kontrola na poziomie DNS (która nazwa
 hosta rozwiązuje się do czego), a nie filtr treści czy produkt do
 nadzorowanego przeglądania. Technicznie sprawny nastolatek, który zmieni
 serwer DNS swojego urządzenia albo użyje VPN, obejdzie to wszystko, tak
-samo jak każdą kontrolę rodzicielską opartą na DNS (włącznie z AdGuard
-Home i Pi-hole) - jeśli to ma faktycznie zadziałać, połącz to z
+samo jak każdą kontrolę rodzicielską opartą na DNS - jeśli to ma faktycznie zadziałać, połącz to z
 zablokowaniem na routerze wychodzącego DNS-over-HTTPS/TLS do firm
 trzecich i wymuszeniem, żeby cały DNS w sieci LAN szedł przez DNS-shield.
 
@@ -1193,13 +1140,8 @@ wiersze klientów dodatkowo przycisk **Block host**.
 Zakładka **Graph** pokazuje, którzy klienci pytają o które domeny, jako
 graf skierowany typu force-directed - klienci po jednej stronie, domeny
 po drugiej, a krawędź dla każdej pary klient/domena, jaka kiedykolwiek
-wystąpiła w zapytaniach. Pomysł jest luźno inspirowany narzędziem
-JPCERT [LogonTracer](https://github.com/JPCERTCC/LogonTracer), które w
-podobny sposób rysuje graf host-konto dla zdarzeń logowania w Windows,
-żeby wykryć ruch lateralny; to, co jest tutaj, to dużo prostszy kuzyn
-tego pomysłu zastosowany do wzorców zapytań DNS, a nie jego
-reimplementacja - nie ma tu ani PageRank, ani HITS, ani bazy grafowej w
-tle, tylko zwykła tabela ważonych krawędzi i heurystyka oparta o stopień
+wystąpiła w zapytaniach. To celowo prosty mechanizm - nie ma tu ani
+PageRank, ani HITS, ani bazy grafowej w tle, tylko zwykła tabela ważonych krawędzi i heurystyka oparta o stopień
 węzła (patrz niżej).
 
 Domeny są grupowane wg **domeny rejestrowalnej**, a nie naiwnie wg
@@ -1238,8 +1180,8 @@ albo domeny odpytywanej przez zauważalnie więcej różnych klientów niż
 reszta. Oba progi konfiguruje się z poziomu panelu (to ustawienia
 wyłącznie dla administratora, `PATCH /api/settings/graph`) i są one
 celowo proste: to heurystyka stopień/z-score, a nie analiza grafowa
-oparta o centralność (PageRank, HITS), jaką potrafi zrobić np. baza Neo4j stojąca za
-LogonTracerem - wystarczająco dobra, żeby wskazać "ten węzeł wygląda nietypowo", ale nie zastępuje
+oparta o centralność (PageRank, HITS), jaką potrafi zrobić dedykowana baza grafowa
+- wystarczająco dobra, żeby wskazać "ten węzeł wygląda nietypowo", ale nie zastępuje
 faktycznego sprawdzenia, o co dany węzeł właściwie pytał.
 
 Przełącznik **View** zmienia układ tych samych danych na jeden z trzech:
@@ -1325,9 +1267,9 @@ poziomu działają bez problemu) *oraz* przełącznika **"Enable public
 lookups"** w Settings, który jest **domyślnie wyłączony**. To celowo
 drugi, niezależny warunek obok samego klucza - te trzy usługi to jedyna
 kategoria połączeń wychodzących w tym projekcie, które opuszczają Twoją
-własną sieć, a DNS-shield powstał właśnie dlatego, że inny bloker DNS
-wykonywał tego rodzaju połączenia bez pytania (zobacz
-[Dlaczego nie użyć po prostu AdGuard Home?](#dlaczego-nie-użyć-po-prostu-adguard-home)
+własną sieć, a DNS-shield jest zbudowany tak, żeby nic nie opuszczało Twojej sieci
+bez Twojej prośby (zobacz
+[Prywatność z założenia](#prywatność-z-założenia)
 wyżej) - więc samo zapisanie klucza nigdy niczego nigdzie nie wysyła; trzeba
 jeszcze przełączyć ten drugi przełącznik. Skonfigurowanie klucza przy
 wyłączonym przełączniku nie idzie jednak na marne: okno wyników nadal
@@ -2544,7 +2486,7 @@ najpierw prosi o potwierdzenie.
 
 Ustawienia -> DHCP zawierają wbudowany serwer DHCPv4 - całkowicie
 opcjonalny, domyślnie wyłączony i zaimplementowany natywnie (bez
-dołączonego procesu `dnsmasq`/`Kea`), dzięki czemu korzysta z dokładnie
+dołączonego osobnego demona DHCP), dzięki czemu korzysta z dokładnie
 tej samej bazy `config.db` co reszta aplikacji i pojawia się w dokładnie
 tym samym panelu.
 
@@ -2736,79 +2678,34 @@ będą walczyć o ten port - przenieś jedno z nich (`block_page_port` dla
 pierwszego, albo nie kieruj reguł żadnej domeny na port 80 dla drugiego),
 zanim włączysz oba naraz.
 
-## Import z AdGuard Home lub Pi-hole
+## Import istniejącej konfiguracji
 
-Oba importery są dostępne w zakładce panelu **Settings -> Import** (albo
-jako jednorazowy skrypt uruchamiany z linii poleceń) i oba działają tak
-samo: czytają jeden plik z Twojej istniejącej konfiguracji, scalają to,
-co jest obsługiwane, z konfiguracją DNS-shield, i wypisują podsumowanie
-tego, co dokładnie zostało przeniesione, a co nie.
+Importer jest dostępny w zakładce panelu **Settings -> Import**. Wgrywasz
+jeden plik wyeksportowany z Twojej dotychczasowej konfiguracji filtrowania
+DNS, a DNS-shield scala to, co obsługuje, ze swoją konfiguracją i pokazuje
+podsumowanie tego, co dokładnie zostało przeniesione, a co nie; zmiana
+działa od razu, a listy blokad są natychmiast odświeżane.
 
-### AdGuard Home
-
-Konwertuje plik `AdGuardHome.yaml`: subskrypcje filtrów oraz filtrów list
-dozwolonych, `user_rules` (zarówno reguły blokujące, jak i wyjątki `@@`),
-serwery nadrzędne (`tls://`/`https://` konwertowane na `dot://`/`doh://`),
-tryb blokowania oraz każdy wpis `clients.persistent[].ids` (adresy IP,
-zakresy CIDR i adresy MAC, konwertowane na wzorzec `mac:` - własne
-identyfikatory klientów AdGuarda to pojęcie, którego DNS-shield nie ma,
-więc takie wpisy są pomijane z ostrzeżeniem) jako wpis w
-`client_groups`. Adres i port nasłuchu AdGuarda są celowo *nie*
-importowane - zmiana ich tutaj mogłaby przestać odpowiadać mapowaniu
-portów w Twoim docker-compose, więc DNS-shield zawsze zachowuje swoje
-własne.
-
-**Z panelu**: prześlij plik, a zostanie on od razu scalony z działającą
-konfiguracją i wejdzie w życie natychmiast - listy blokad odświeżają się
-od razu. To **zastępuje** Twoje aktualne listy blokad, grupy klientów,
-tryb blokowania i serwery nadrzędne tymi z AdGuarda, ale zachowuje
-wszystko inne - Twój adres i port nasłuchu, dane do logowania w panelu,
-i wszystko inne niewymienione powyżej.
-
-**Z linii poleceń** - przy świeżej instalacji, albo żeby najpierw
-wygenerować plik do przejrzenia, zanim go zastosujesz:
-
-```bash
-docker compose exec dns-shield python -m app.import_adguard /ścieżka/do/AdGuardHome.yaml
-```
-
-Nieimportowane: adres i port nasłuchu (zobacz wyżej), kontrola
-rodzicielska i bezpieczne przeglądanie, DHCP, terminowanie TLS oraz
-hasło do panelu webowego - AdGuard przechowuje hash bcrypt, którego nie
-da się odwrócić z powrotem do czystego tekstu, więc to hasło musisz
-ustawić sam, z poziomu panelu.
-
-### Pi-hole
-
-Konwertuje plik `gravity.db` - własną bazę SQLite Pi-hole, dołączaną do
-kopii zapasowej "Teleporter" albo kopiowalną bezpośrednio z
-`/etc/pihole/gravity.db` na hoście Pi-hole: tabelę `adlist` (listę blokad,
-a w nowszych wersjach schematu również listę dozwolonych - adresy URL
-subskrypcji wraz z zachowanym stanem włączenia), włączone dokładne wpisy
-dozwolone i zablokowane z `domainlist`, włączone wpisy typu regex-deny z
-`domainlist` (mapowane na
+Co jest konwertowane: subskrypcje list blokad i list dozwolonych (z
+zachowaniem stanu włączenia), ręczne wpisy dozwolone/zablokowane, serwery
+nadrzędne, jeśli źródło je zawiera (`tls://`/`https://` stają się
+`dot://`/`doh://`), tryb blokowania oraz wpisy per klient (adresy IP, CIDR
+i adresy MAC, te ostatnie jako wzorce `mac:`) jako `client_groups`. Reguły
+regex-deny są mapowane na własną
 [eksperymentalną listę zablokowaną wg wyrażeń regularnych](#lista-zablokowana-wg-wyrażeń-regularnych-eksperymentalne)
-DNS-shield, która przy okazji zostaje dla Ciebie włączona), a także adresy
-IP z tabeli `client` jako wpisy w `client_groups`.
+DNS-shield, którą włączamy za Ciebie. Wpisy bez odpowiednika w DNS-shield
+(reguły regex allow, identyfikatory klientów specyficzne dla producenta,
+przypisania list do grup) są pomijane z ostrzeżeniem.
 
-**Z panelu**: prześlij `gravity.db` - to samo zachowanie: scalenie i
-natychmiastowe zastosowanie, tak jak przy imporcie AdGuard Home powyżej.
+Import pliku zawierającego listy blokad, grupy klientów, tryb blokowania i
+serwery nadrzędne **zastępuje** Twoje bieżące tymi zaimportowanymi;
+wszystko inne zostaje, w tym adres/port nasłuchu i login do panelu.
 
-**Z linii poleceń**:
-
-```bash
-docker compose exec dns-shield python -m app.import_pihole /ścieżka/do/gravity.db
-```
-
-Nieimportowane: serwery DNS nadrzędne, adres i port nasłuchu oraz tryb
-blokowania (znajdują się w konfiguracji Pi-hole
-`setupVars.conf`/`pihole.toml`/dnsmasq - innym pliku, którego ten importer
-nigdy nie czyta), wpisy typu regex ALLOW (DNS-shield nie ma listy
-dozwolonej opartej na wyrażeniach regularnych, tylko listę zablokowaną),
-przypisania list per klient i per grupa (tabele przynależności do grup w
-`gravity.db` różnią się między wersjami Pi-hole, więc zaimportowany klient
-dostaje domyślną, globalną politykę DNS-shield, a nie tę grupę Pi-hole, do
-której należał), oraz hasło do panelu webowego.
+Nigdy nie jest importowane: adres/port nasłuchu źródła (zmiana mogłaby
+przestać pasować do mapowania portów w docker-compose, więc DNS-shield
+zawsze zachowuje własne), kontrola rodzicielska/bezpieczne przeglądanie,
+DHCP, terminacja TLS oraz hasło do panelu - zapisanego hasha hasła nie da się
+zamienić z powrotem na tekst jawny, więc ustaw je samodzielnie w panelu.
 
 ## Architektura
 
@@ -2865,10 +2762,8 @@ app/
   stats.py             przechowywanie logu zapytań: baza SQLite (data/stats.db),
                        zapisy asynchroniczne, przycinanie danych co godzinę,
                        przeszukiwalne dla przeglądarki logu zapytań
-  import_adguard.py    jednorazowy konwerter AdGuard Home -> konfiguracja DNS-shield
+  import_*.py          jednorazowe konwertery konfiguracji stojące za zakładką Import
                        (zobacz wyżej)
-  import_pihole.py      jednorazowy konwerter Pi-hole gravity.db -> konfiguracja
-                        DNS-shield (zobacz wyżej)
   enrichment.py         zapytania o reputację do VirusTotal/AbuseIPDB/OTX/GreyNoise/
                         Shodan/URLhaus/RDAP/crt.sh - wywoływane albo z punktu końcowego
                         przycisku "Enrich", albo z auto_enrich.py niżej (zobacz wyżej)
@@ -3048,8 +2943,7 @@ pytest
   najczęściej blokowane domeny, nic więcej związanego z konkretnym
   klientem czy domeną.
 - Port 53 wymaga w kontenerze uprawnień roota albo `CAP_NET_BIND_SERVICE`
-  - dostarczony obraz domyślnie z tego powodu działa jako root (to samo
-  podejście, co w oficjalnych obrazach AdGuard Home i Pi-hole). Dla w pełni
+  - dostarczony obraz domyślnie z tego powodu działa jako root. Dla w pełni
   bezrootowej konfiguracji obraz ma już wbudowanego dedykowanego
   użytkownika `dnsshield` oraz entrypoint, który - gdy o to poproszony -
   robi `chown` na zamontowanych wolumenach, a potem przechodzi z roota na
@@ -3141,7 +3035,7 @@ pytest
   zobacz [Formaty list blokad i sugerowane
   listy](#formaty-list-blokad-i-sugerowane-listy) wyżej. Wzorzec dodany do
   listy zablokowanej wg wyrażeń regularnych (z panelu, przez API, czy przy
-  imporcie z Pi-hole), który wykazuje cechy katastrofalnego backtrackingu,
+  imporcie), który wykazuje cechy katastrofalnego backtrackingu,
   jest odrzucany jeszcze przed zapisaniem, a dopasowywanie do żywych
   zapytań ma i tak ograniczony czas - zobacz [Lista zablokowana wg wyrażeń
   regularnych](#lista-zablokowana-wg-wyrażeń-regularnych-eksperymentalne)
@@ -3205,8 +3099,7 @@ pytest
   żądania, jak `$third-party`, `$domain=` czy `$script`, wymagają znajomości
   strony odsyłającej i typu zasobu - a żadnej z tych informacji nie niesie
   zapytanie DNS. Reguła domenowa z jednym z takich modyfikatorów jest więc
-  nadal egzekwowana jako bezwarunkowa blokada - to ten sam kompromis, jaki
-  przyjmują Pi-hole i AdGuard Home. Osobna, eksperymentalna lista
+  nadal egzekwowana jako bezwarunkowa blokada - Osobna, eksperymentalna lista
   zablokowana wg wyrażeń regularnych istnieje jako mechanizm blokowania
   opartego na wzorcach (zobacz wyżej), ale to płaska lista Twoich własnych
   wzorców, a nie interpreter reguł AdBlock.
