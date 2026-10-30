@@ -5,9 +5,8 @@
 *Czytasz to po polsku? Zobacz [`README.PL.md`](README.PL.md).*
 
 A small, self-hosted, network-wide DNS ad/tracker blocker you run in Docker.
-It does the same core job as [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) -
-sit as your network's DNS resolver and drop queries to ad/tracker domains -
-but with a much smaller, auditable footprint and **no built-in calls to any
+It sits as your network's DNS resolver and drops queries to ad/tracker
+domains, with a small, auditable footprint and **no built-in calls to any
 third-party cloud service**.
 
 See [`docs/features.html`](docs/features.html) for a categorized map of
@@ -36,52 +35,10 @@ download it directly from GitHub).
 | --- | --- |
 | ![Notification settings including the URL ping section](docs/screenshots/settings-notifications.png) | ![Enrichment result popup with lookup history and a block-host button](docs/screenshots/enrich-popup.png) |
 
-## Why not just use AdGuard Home?
+## Privacy by design
 
-### What AdGuard Home actually is and how it works
-
-AdGuard Home is a DNS sinkhole / filtering DNS proxy with a web UI, roughly:
-
-1. You point your router or devices at it as their DNS server.
-2. For every query it checks the domain against filter lists (hosts-file
-   and AdBlock-syntax lists, refreshed from URLs you or AdGuard provide)
-   and per-user allow/block rules.
-3. Matches are answered locally (NXDOMAIN or `0.0.0.0`); everything else
-   is forwarded to upstream resolvers, optionally over DNS-over-HTTPS/TLS/QUIC.
-4. It also ships DHCP, parental control, "safe browsing", and query
-   statistics/logging in the same binary, behind a web dashboard.
-
-### Where the "data leak" concern comes from
-
-None of this requires phoning home for the *core* ad-blocking function, but
-several AdGuard Home features do talk to AdGuard's own infrastructure by
-default, and that's the "leak" people mean:
-
-- **Safe Browsing / Parental Control** send a (hashed, prefix-truncated)
-  lookup for *every visited domain* to AdGuard's own cloud API
-  (`family.adguard-dns.com` / AdGuard's safe-browsing endpoint) when those
-  features are enabled - i.e. a copy of your browsing metadata leaves your
-  network to a third party.
-- **Update checks** ping AdGuard's servers on a schedule to check for new
-  releases.
-- The **default filter lists and default upstream DNS-over-HTTPS resolver**
-  (AdGuard's own DoH server, `dns.adguard-dns.com`) route your DNS traffic
-  and list refreshes through AdGuard-operated infrastructure unless you
-  explicitly change them.
-- It's closed telemetry-adjacent surface: even opt-in features are on by
-  default in some builds, and a self-hosted tool whose job is "see every
-  domain your network visits" is exactly the kind of software where any
-  outbound call to a third party deserves scrutiny.
-
-None of that makes AdGuard Home malicious - the vendor documents these
-features - but for a tool that sees literally every domain every device on
-your network resolves, "trust the vendor's cloud, by default" is a
-reasonable thing to want to avoid.
-
-### What DNS-shield does differently
-
-DNS-shield implements the same core mechanism (DNS sinkhole + filter lists +
-web UI) but keeps it **local-only by construction**:
+DNS-shield is a DNS sinkhole with filter lists and a web UI, and it is
+**local-only by construction**:
 
 - The only outbound network calls it ever makes are (a) to the blocklist
   URLs *you* configure, (b) to the upstream resolvers *you* configure,
@@ -94,7 +51,7 @@ web UI) but keeps it **local-only by construction**:
   run yourself instead - and (d) an email to the SMTP server *you*
   configure, off by default, only when [anomaly detection](#local-anomaly-detection)
   is on and finds something; see [Notifications](#notifications) below.
-  There is no default AdGuard-operated endpoint, and nothing calls out on
+  There is no default vendor-operated endpoint, and nothing calls out on
   its own.
 - No safe-browsing/parental-control cloud lookups, no update-check
   pings, no analytics, no telemetry of any kind.
@@ -111,12 +68,11 @@ web UI) but keeps it **local-only by construction**:
 - Small enough to actually read end to end; see [Architecture](#architecture)
   below for exactly what each file does.
 
-This intentionally does **not** try to be a full AdGuard Home replacement -
-no DHCP server, no DoQ, no per-app controls. It's the "block ads/trackers
-network-wide from a Docker container, with nothing leaving my network
-that I didn't ask for" subset, plus the DNS-level pieces of parental
-control that fit that subset cleanly: forced SafeSearch/Restricted Mode
-and category blocklists scoped to a client group (see
+It intentionally stays small: no DoQ and no per-app controls. It's the
+"block ads/trackers network-wide from a Docker container, with nothing
+leaving my network that I didn't ask for" job, plus the DNS-level pieces
+of parental control that fit it cleanly: forced SafeSearch/Restricted
+Mode and category blocklists scoped to a client group (see
 [Parental control / SafeSearch](#parental-control--safesearch)).
 
 ## Quick start
@@ -151,7 +107,7 @@ summary cards, top blocked domains, top queried domains overall, top
 querying clients, a query-type breakdown, and a "blocked by" breakdown
 (which blocklist/rule is responsible for the most blocks); and
 **Settings** - everything else (DNS/web settings, user accounts,
-upstreams, blocklists, allow/deny lists, client groups, the AdGuard Home
+upstreams, blocklists, allow/deny lists, client groups, the configuration
 importer, and "Delete all logged queries" under Logging & blocklist
 refresh). The pause-blocking bar at the top is visible to Administrator
 accounts only - see **Multi-user accounts, roles, and the public view**
@@ -215,8 +171,8 @@ Every setting is editable from the dashboard's **Settings** section - no
 file editing needed for day-to-day use. Settings is split into its own
 sub-tabs by topic: **General** (web UI, config backup), **DNS** (core resolver, upstream
 servers, per-domain routing, custom records), **Logging** (retention,
-excluded domains/clients), **Threat intelligence**, **Import** (AdGuard
-Home / Pi-hole), **Blocklists** (sources, suggested lists, allow-list
+excluded domains/clients), **Threat intelligence**, **Import** (existing
+configuration), **Blocklists** (sources, suggested lists, allow-list
 sources, refresh schedule), **Own lists** (allowlist, denylist, regex
 denylist), **Clients** (blocked clients, client groups), and **Cleans**
 (DNS answer cache, delete all logged queries).
@@ -511,7 +467,7 @@ interpreted from the AdBlock grammar, and why.
 
 The Blocklists section also has a **Suggested lists** table: a short,
 fixed list baked into DNS-shield itself (nothing fetched to build it) -
-StevenBlack's Unified Hosts, AdGuard's own DNS filter, a handful of
+StevenBlack's Unified Hosts, a handful of
 [Firebog](https://firebog.net)'s recommended ("ticked") lists,
 [HaGeZi's](https://github.com/hagezi/dns-blocklists) actively maintained
 Multi PRO, Threat Intelligence Feeds, and Newly Registered Domains lists
@@ -636,8 +592,8 @@ backtracking](https://en.wikipedia.org/wiki/ReDoS) (e.g. `(a+)+$`) is
 rejected outright when you try to add it - a handful of adversarial probe
 strings are matched against it first, and a pattern that takes too long
 against any of them never makes it into `denylist_regex` at all. This
-applies whether the pattern comes from the dashboard, the API, or a
-Pi-hole import's own regex-deny rules. Matching itself is also
+applies whether the pattern comes from the dashboard, the API, or an
+imported regex-deny rule. Matching itself is also
 time-boxed per query (using the third-party `regex` engine instead of
 Python's built-in `re`, which has no way to bound match time) - a pattern
 that somehow still runs too long against one specific query name just
@@ -810,8 +766,7 @@ Neither mechanism can see inside HTTPS traffic or inspect page content -
 this is DNS-level control (which hostname resolves to what), not a content
 filter or a supervised-browsing product. A technically capable teenager
 who changes their device's DNS server or uses a VPN bypasses all of it,
-same as with any DNS-based parental control (AdGuard Home and Pi-hole
-included) - pair it with your router blocking outbound DNS-over-HTTPS/TLS
+same as with any DNS-based parental control - pair it with your router blocking outbound DNS-over-HTTPS/TLS
 to third parties and forcing all LAN DNS through DNS-shield if you need
 that to actually hold.
 
@@ -1082,11 +1037,7 @@ button.
 The **Graph** tab visualizes which clients query which domains as a
 force-directed node graph - clients on one side, domains on the other,
 an edge for every client/domain pair that's ever been queried. It's
-loosely inspired by JPCERT's [LogonTracer](https://github.com/JPCERTCC/LogonTracer),
-which does the same kind of host-account graphing for Windows logon
-events to spot lateral movement; this is a much simpler cousin of that
-idea applied to DNS query patterns instead, not a reimplementation - there's
-no PageRank, no HITS, and no graph database behind it, just a plain
+a deliberately simple design: no PageRank, no HITS, and no graph database behind it, just a plain
 weighted-edge table and a degree-based heuristic (below).
 
 Domains are grouped by **registrable domain**, not naively by the last
@@ -1122,7 +1073,7 @@ than everyone else, is what this is meant to surface. Both thresholds
 are configurable from the dashboard (they're admin-only settings,
 `PATCH /api/settings/graph`) and are intentionally simple: this is a
 degree/z-score heuristic, not the graph-theoretic centrality analysis
-(PageRank, HITS) that a tool like LogonTracer's Neo4j backend can do -
+(PageRank, HITS) that a dedicated graph database could do -
 good enough to point at "this node looks
 unusual," not a substitute for actually looking at what it queried.
 
@@ -1199,9 +1150,8 @@ Enrich will call any of them: an API key (free-tier keys work fine), *and*
 the **"Enable public lookups"** switch in Settings, which is **off by
 default**. This is a deliberate second gate on top of the key - these
 three are the one category of outbound call in this project that leaves
-your own network, and DNS-shield exists specifically because another DNS
-blocker made exactly that kind of call without asking (see
-[Why not just use AdGuard Home?](#why-not-just-use-adguard-home) above) -
+your own network, and DNS-shield is built so that nothing leaves your network
+without you asking (see [Privacy by design](#privacy-by-design) above) -
 so saving a key alone never starts sending anything anywhere; you have to
 flip the switch too. Configuring a key while the switch is off isn't
 wasted, though: the popup still shows that source as "disabled" rather
@@ -2297,7 +2247,7 @@ you're about to overwrite - the dashboard asks for confirmation first.
 ## DHCP server (optional)
 
 Settings -> DHCP has a built-in DHCPv4 server - entirely optional, off by
-default, and implemented natively (no `dnsmasq`/`Kea` process bundled
+default, and implemented natively (no separate DHCP daemon bundled
 in) so it's driven by the exact same `config.db` as everything else and
 shows up in the exact same dashboard.
 
@@ -2480,69 +2430,33 @@ reverse proxy on the same host, they'll fight over that port - move one
 of them (`block_page_port` for the former, or don't map a domain's rules
 to port 80 for the latter) before turning both on.
 
-## Importing from AdGuard Home or Pi-hole
+## Importing an existing configuration
 
-Both importers live in the dashboard's **Settings -> Import** tab (or as a
-one-off command-line script), and both work the same way: read one file
-from your existing setup, merge what's supported into DNS-shield's config,
-and print a summary of exactly what was and wasn't carried over.
+The importer lives in the dashboard's **Settings -> Import** tab. Upload one
+file exported from your existing DNS filtering setup and DNS-shield merges
+what it supports into its own config and shows a summary of exactly what
+was and wasn't carried over; it takes effect immediately and blocklists
+refresh right away.
 
-### AdGuard Home
+What gets converted: blocklist and allow-list subscriptions (enabled state
+preserved), manual allow/deny entries, upstream resolvers where the source
+has them (`tls://`/`https://` become `dot://`/`doh://`), blocking mode, and
+per-client entries (IPs, CIDRs and MAC addresses, the latter as `mac:`
+patterns) as `client_groups`. Regex deny rules are mapped to DNS-shield's own
+[experimental regex denylist](#regex-denylist-experimental), which gets
+turned on for you. Entries with no DNS-shield equivalent (regex allow rules,
+vendor-specific client identifiers, per-group list assignments) are skipped
+with a warning.
 
-Converts `AdGuardHome.yaml`: filter and whitelist-filter subscriptions,
-`user_rules` (both block rules and `@@` exceptions), upstream resolvers
-(`tls://`/`https://` converted to `dot://`/`doh://`), blocking mode, and
-each `clients.persistent[].ids` entry (IPs, CIDRs, and MAC addresses,
-converted to a `mac:` pattern - AdGuard's own client-ID strings aren't a
-concept DNS-shield has, those are skipped with a warning) as a
-`client_groups` entry. AdGuard's listen address/port are deliberately
-*not* imported - changing those here could stop matching your
-docker-compose port mapping, so DNS-shield always keeps its own.
+Importing a file that carries blocklists, client groups, blocking mode and
+upstreams **replaces** your current ones with the imported ones; everything
+else is kept, including your listen address/port and web login.
 
-**From the dashboard**: upload the file, it's merged directly into the
-running config and takes effect immediately - blocklists refresh right
-away. This **replaces** your current blocklists, client groups, blocking
-mode, and upstreams with AdGuard's, but keeps everything else - your
-listen address/port, your web login, and anything else not listed above.
-
-**From the command line**, for a fresh setup or to produce a file to review
-before applying:
-
-```bash
-docker compose exec dns-shield python -m app.import_adguard /path/to/AdGuardHome.yaml
-```
-
-Not imported: listen address/port (see above), parental control/safe
-browsing, DHCP, TLS termination, and your web UI password - AdGuard
-stores a bcrypt hash that can't be turned back into plaintext, so set
-that yourself from the dashboard.
-
-### Pi-hole
-
-Converts `gravity.db` - Pi-hole's own SQLite database, included in a
-"Teleporter" backup or copyable directly from `/etc/pihole/gravity.db` on
-the Pi-hole host: `adlist` (blocklist, and on newer schemas allow-list,
-subscription URLs, enabled state preserved), enabled `domainlist` exact
-allow/deny entries, enabled `domainlist` regex-deny entries (mapped to
-DNS-shield's own [experimental regex denylist](#regex-denylist-experimental),
-which gets turned on for you), and `client` IPs as `client_groups`.
-
-**From the dashboard**: upload `gravity.db`, same merge-and-apply-immediately
-behavior as the AdGuard Home import above.
-
-**From the command line**:
-
-```bash
-docker compose exec dns-shield python -m app.import_pihole /path/to/gravity.db
-```
-
-Not imported: upstream DNS servers, listen address/port, and blocking mode
-(these live in Pi-hole's `setupVars.conf`/`pihole.toml`/dnsmasq config, a
-different file this importer never reads), regex ALLOW entries (DNS-shield
-has no regex allowlist, only a regex denylist), per-client/per-group list
-assignments (gravity.db's group-membership tables vary across Pi-hole
-versions, so an imported client gets DNS-shield's default global policy,
-not whichever Pi-hole group it belonged to), and your web UI password.
+Never imported: the source's listen address/port (changing those here could
+stop matching your docker-compose port mapping, so DNS-shield always keeps
+its own), parental control/safe browsing, DHCP, TLS termination, and the web
+UI password - a stored password hash can't be turned back into plaintext, so
+set it yourself from the dashboard.
 
 ## Architecture
 
@@ -2587,8 +2501,7 @@ app/
   client_names.py      background reverse-DNS (PTR) resolver for dashboard display only
   stats.py             query log storage: SQLite database (data/stats.db), async writes,
                        hourly pruning, filterable search for the query-log browser
-  import_adguard.py    one-off AdGuard Home -> DNS-shield config converter (see above)
-  import_pihole.py      one-off Pi-hole gravity.db -> DNS-shield config converter (see above)
+  import_*.py          one-off configuration converters behind the Import tab (see above)
   enrichment.py         VirusTotal/AbuseIPDB/OTX/GreyNoise/Shodan/URLhaus/RDAP/crt.sh reputation
                         lookups, called either from the "Enrich" button's endpoint or from
                         auto_enrich.py below (see above)
@@ -2743,8 +2656,7 @@ pytest
   query trend and top blocked domains, nothing client- or domain-specific
   beyond that.
 - Port 53 needs root or `CAP_NET_BIND_SERVICE` in the container - the
-  provided image runs as root by default for this (same approach as the
-  official AdGuard Home / Pi-hole images). For a fully rootless setup
+  provided image runs as root by default for this. For a fully rootless setup
   instead, the image already ships a dedicated `dnsshield` user and an
   entrypoint that, once told to, `chown`s the mounted volumes and then
   drops from root to that user via `gosu` before starting the app - opt
@@ -2825,7 +2737,7 @@ pytest
   that changes between the two can't slip a private address past the
   check - see [Blocklist formats and suggested
   lists](#blocklist-formats-and-suggested-lists) above. A pattern added
-  to the regex denylist (dashboard, API, or Pi-hole import) that shows
+  to the regex denylist (dashboard, API, or an import) that shows
   signs of catastrophic backtracking is rejected before it's saved, and
   matching against live queries is time-boxed regardless - see [Regex
   denylist](#regex-denylist-experimental) above.
@@ -2882,7 +2794,7 @@ pytest
   modifiers like `$third-party`, `$domain=`, or `$script` need the
   referring page and resource type, neither of which a DNS query carries -
   a domain rule with one of those modifiers is still enforced as an
-  unconditional block, the same tradeoff Pi-hole and AdGuard Home make. A
+  unconditional block. A
   separate, experimental regex denylist exists for pattern-based blocking
   (see above), but it's a flat list of your own patterns, not an
   AdBlock-rule interpreter.
