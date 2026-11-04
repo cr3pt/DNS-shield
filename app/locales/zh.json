@@ -732,5 +732,9 @@
   "users.summary.graph": "关系图",
   "toast.deleted": "已删除",
   "toast.https_migrated": "HTTPS 已启用 - 重启容器后生效",
-  "toast.key_cleared": "密钥已清除"
+  "toast.key_cleared": "密钥已清除",
+  "col.updated": "最后更新",
+  "sources.never_updated": "从未",
+  "sources.update_failed": "上次下载失败 {when}",
+  "sources.last_checked": "上次检查：{when}"
 }

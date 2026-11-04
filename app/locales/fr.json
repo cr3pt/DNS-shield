@@ -732,5 +732,9 @@
   "users.summary.graph": "graphe",
   "toast.deleted": "Supprimé",
   "toast.https_migrated": "HTTPS activé - redémarrez le conteneur pour que cela prenne effet",
-  "toast.key_cleared": "Clé effacée"
+  "toast.key_cleared": "Clé effacée",
+  "col.updated": "Dernière mise à jour",
+  "sources.never_updated": "jamais",
+  "sources.update_failed": "Échec du dernier téléchargement {when}",
+  "sources.last_checked": "Dernière vérification : {when}"
 }

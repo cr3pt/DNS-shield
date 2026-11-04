@@ -1639,7 +1639,7 @@
         <button type="submit" data-i18n="alertrules.add_list">Add list</button>
       </form>
       <table>
-        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="dns.domains">Domains</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="dns.domains">Domains</th><th data-i18n="col.updated">Last updated</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="alert-source-rows"></tbody>
       </table>
 
@@ -1829,7 +1829,7 @@
         <button type="button" class="secondary" id="refresh-blocklists" data-i18n="blocklists.refresh_now">Refresh now</button>
       </form>
       <table>
-        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="col.domains">Domains</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="col.domains">Domains</th><th data-i18n="col.updated">Last updated</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="blocklist-rows"></tbody>
       </table>
 
@@ -1857,7 +1857,7 @@
         <button type="submit" data-i18n="common.add">Add</button>
       </form>
       <table>
-        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="col.domains">Domains</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="col.domains">Domains</th><th data-i18n="col.updated">Last updated</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="allow-source-rows"></tbody>
       </table>
     </section>
@@ -1936,7 +1936,7 @@
         <button type="submit" data-i18n="ownlists.add_list">Add list</button>
       </form>
       <table>
-        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="ownlists.entries">Entries</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="col.name">Name</th><th data-i18n="col.url">URL</th><th data-i18n="ownlists.entries">Entries</th><th data-i18n="col.updated">Last updated</th><th data-i18n="col.status">Status</th><th></th></tr></thead>
         <tbody id="answer-ip-source-rows"></tbody>
       </table>
     </section>
@@ -2306,6 +2306,27 @@ const fmtTime = (ts) =>
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
+
+// Table cell showing when a blocklist/allowlist source was last downloaded
+// into the system, plus a warning when the most recent attempt failed.
+function sourceUpdatedCell(info) {
+  const cell = el("td", {});
+  const updatedAt = info && info.updated_at;
+  cell.appendChild(document.createTextNode(updatedAt ? fmtTime(updatedAt) : t("sources.never_updated", "never")));
+  if (info && info.error) {
+    const when = info.checked_at ? fmtTime(info.checked_at) : "";
+    const warn = el("div", {
+      class: "muted",
+      style: "font-size:0.72rem;margin-top:0.1rem;color:var(--danger, #c0392b);",
+      text: t("sources.update_failed", "Last download failed {when}").replace("{when}", when).trim(),
+    });
+    warn.title = info.error;
+    cell.appendChild(warn);
+  } else if (info && info.checked_at && info.checked_at !== updatedAt) {
+    cell.title = t("sources.last_checked", "Last checked: {when}").replace("{when}", fmtTime(info.checked_at));
+  }
+  return cell;
+}
 
 function intField(id) {
   const raw = document.getElementById(id).value.trim();
@@ -3989,6 +4010,7 @@ async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
   const status = await api("/api/status");
   const counts = status[countsKey] || {};
   const formats = status[formatsKey] || {};
+  const updates = status.source_updates || {};
   const rows = document.getElementById(rowsElId);
   rows.innerHTML = "";
   sources.forEach((s, i) => {
@@ -4010,6 +4032,7 @@ async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
       el("td", { text: s.name }),
       el("td", { text: s.url, class: "url-cell" }),
       domainsCell,
+      sourceUpdatedCell(updates[s.name]),
       el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? "enabled" : "disabled" })]),
       el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
     ]));
@@ -4285,7 +4308,7 @@ function buildGroupMatchEditor(index, patterns) {
   return wrap;
 }
 
-function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDomains, catalog) {
+function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDomains, catalog, updates = {}) {
   const wrap = el("div", { class: "rule-editor" });
   wrap.appendChild(el("div", { class: "title", text: t("groups.extra_blocklist_title", "Extra blocklist sources for this group (adds to the global blocklist)") }));
   wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: t("groups.extra_domains_count", "{n} extra domain(s) blocked for this group beyond the global blocklist.").replace("{n}", totalDomains) }));
@@ -4293,7 +4316,7 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
   if (sources.length) {
     const table = el("table", {});
     const thead = el("thead", {}, [el("tr", {}, [
-      el("th", { text: t("col.name", "Name") }), el("th", { text: t("col.url", "URL") }), el("th", { text: t("col.domains", "Domains") }), el("th", { text: t("col.status", "Status") }), el("th", {}),
+      el("th", { text: t("col.name", "Name") }), el("th", { text: t("col.url", "URL") }), el("th", { text: t("col.domains", "Domains") }), el("th", { text: t("col.updated", "Last updated") }), el("th", { text: t("col.status", "Status") }), el("th", {}),
     ])]);
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
@@ -4316,6 +4339,7 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
         el("td", { text: s.name }),
         el("td", { text: s.url, class: "url-cell" }),
         domainsCell,
+        sourceUpdatedCell(updates[s.name]),
         el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? t("tag.enabled", "enabled") : t("tag.disabled", "disabled") })]),
         el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
       ]));
@@ -4435,7 +4459,8 @@ async function loadClientGroups() {
       (status.group_blocklist_sources || {})[g.name] || {},
       (status.group_blocklist_source_formats || {})[g.name] || {},
       (status.group_blocklist_domains || {})[g.name] || 0,
-      catalog
+      catalog,
+      status.source_updates || {}
     );
 
     const safeSearchForm = document.createElement("form");

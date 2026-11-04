@@ -732,5 +732,9 @@
   "users.summary.graph": "الرسم البياني",
   "toast.deleted": "تم الحذف",
   "toast.https_migrated": "تم تفعيل HTTPS - أعد تشغيل الحاوية ليصبح ذلك ساري المفعول",
-  "toast.key_cleared": "تم مسح المفتاح"
+  "toast.key_cleared": "تم مسح المفتاح",
+  "col.updated": "آخر تحديث",
+  "sources.never_updated": "أبدًا",
+  "sources.update_failed": "فشل آخر تنزيل {when}",
+  "sources.last_checked": "آخر فحص: {when}"
 }
