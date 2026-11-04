@@ -733,5 +733,9 @@
   "users.summary.graph": "graf",
   "toast.deleted": "Usunięto",
   "toast.https_migrated": "HTTPS włączone - zrestartuj kontener, żeby zaczęło działać",
-  "toast.key_cleared": "Klucz wyczyszczony"
+  "toast.key_cleared": "Klucz wyczyszczony",
+  "col.updated": "Ostatnia aktualizacja",
+  "sources.never_updated": "nigdy",
+  "sources.update_failed": "Ostatnie pobieranie nieudane {when}",
+  "sources.last_checked": "Ostatnie sprawdzenie: {when}"
 }

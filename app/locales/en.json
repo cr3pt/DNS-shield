@@ -733,5 +733,9 @@
   "users.summary.graph": "graph",
   "toast.deleted": "Deleted",
   "toast.https_migrated": "HTTPS enabled - restart the container for it to take effect",
-  "toast.key_cleared": "Key cleared"
+  "toast.key_cleared": "Key cleared",
+  "col.updated": "Last updated",
+  "sources.never_updated": "never",
+  "sources.update_failed": "Last download failed {when}",
+  "sources.last_checked": "Last checked: {when}"
 }

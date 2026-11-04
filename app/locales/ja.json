@@ -732,5 +732,9 @@
   "users.summary.graph": "グラフ",
   "toast.deleted": "削除しました",
   "toast.https_migrated": "HTTPSが有効になりました - 反映させるにはコンテナを再起動してください",
-  "toast.key_cleared": "キーを消去しました"
+  "toast.key_cleared": "キーを消去しました",
+  "col.updated": "最終更新",
+  "sources.never_updated": "なし",
+  "sources.update_failed": "最後のダウンロードに失敗 {when}",
+  "sources.last_checked": "最終確認: {when}"
 }

@@ -1161,6 +1161,7 @@ def create_app(
             "blocklist_sources": blocklist.source_counts(),
             "blocklist_source_formats": blocklist.source_formats(),
             "blocklist_last_refresh": blocklist.last_refresh(),
+            "source_updates": blocklist.source_update_info(),
             "allowlist_domains": blocklist.allowed_count(),
             "allowlist_sources": blocklist.allow_source_counts(),
             "allowlist_source_formats": blocklist.allow_source_formats(),

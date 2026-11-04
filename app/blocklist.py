@@ -219,6 +219,11 @@ class BlocklistManager:
 
         self._fetch_cache: dict[tuple[str, Any], tuple[float, set[str], dict[str, int], set[str]]] = {}
         self._fetch_cache_lock = threading.Lock()
+        # Per-source download bookkeeping, keyed by source name (the same key
+        # the cache file is derived from): when the list was last downloaded
+        # successfully, when a download was last attempted, and the error of
+        # the last attempt if it failed.
+        self._source_status: dict[str, dict[str, Any]] = {}
 
         self._regex_lock = threading.Lock()
         self._regex_cache_key: tuple[str, ...] | None = None
@@ -528,6 +533,32 @@ class BlocklistManager:
     def last_refresh(self) -> float | None:
         return self._last_refresh
 
+    def source_update_info(self) -> dict[str, dict[str, Any]]:
+        """Download status for every source seen so far, keyed by source name.
+
+        Each entry has ``updated_at`` (unix time of the last successful
+        download into the local cache, ``None`` if never downloaded),
+        ``checked_at`` (last download attempt this process made, ``None`` if
+        only the disk cache was read) and ``error`` (message from the last
+        attempt if it failed, otherwise ``None``).
+        """
+        with self._fetch_cache_lock:
+            return {name: dict(info) for name, info in self._source_status.items()}
+
+    def _record_status(self, name: str, *, checked: float | None, error: str | None) -> None:
+        cache_path = self._cache_path(name)
+        try:
+            updated = cache_path.stat().st_mtime if cache_path.exists() else None
+        except OSError:
+            updated = None
+        with self._fetch_cache_lock:
+            previous = self._source_status.get(name, {})
+            self._source_status[name] = {
+                "updated_at": updated,
+                "checked_at": checked if checked is not None else previous.get("checked_at"),
+                "error": error,
+            }
+
     def _cache_path(self, name: str) -> Path:
         safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
         return self._cache_dir / f"{safe}.cache"
@@ -538,6 +569,7 @@ class BlocklistManager:
         cache_path = self._cache_path(name)
 
         if not network:
+            self._record_status(name, checked=None, error=None)
             if cache_path.exists():
                 return parser(cache_path.read_text(encoding="utf-8"))
             return (set(), {}, set())
@@ -556,8 +588,10 @@ class BlocklistManager:
             resp.raise_for_status()
             text = resp.text
             cache_path.write_text(text, encoding="utf-8")
+            self._record_status(name, checked=now, error=None)
         except Exception as exc:
             logger.warning("failed to fetch blocklist %r (%s): %s", name, url, exc)
+            self._record_status(name, checked=now, error=str(exc) or exc.__class__.__name__)
             if cache_path.exists():
                 text = cache_path.read_text(encoding="utf-8")
             else:

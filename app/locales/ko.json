@@ -732,5 +732,9 @@
   "users.summary.graph": "그래프",
   "toast.deleted": "삭제되었습니다",
   "toast.https_migrated": "HTTPS가 활성화되었습니다 - 적용하려면 컨테이너를 재시작하세요",
-  "toast.key_cleared": "키가 지워졌습니다"
+  "toast.key_cleared": "키가 지워졌습니다",
+  "col.updated": "마지막 업데이트",
+  "sources.never_updated": "없음",
+  "sources.update_failed": "마지막 다운로드 실패 {when}",
+  "sources.last_checked": "마지막 확인: {when}"
 }
