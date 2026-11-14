@@ -273,3 +273,30 @@ def test_changing_typosquat_max_distance_clears_the_match_cache(config_store, tm
 
     assert response.status_code == 200
     assert blocklist._typosquat_cache == {}
+
+
+def test_dashboard_assets_are_served_and_scripts_are_not_inline(config_store, tmp_path):
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    from app.blocklist import BlocklistManager
+    from app.stats import Stats
+    from app.web.server import create_app
+
+    app = create_app(
+        config_store, BlocklistManager(config_store, tmp_path / "bl"), Stats(tmp_path / "s.db", config_store), 0.0, data_dir=tmp_path
+    )
+    client = TestClient(app)
+    for name, kind in (("app.js", "javascript"), ("app.css", "css"), ("login.js", "javascript"), ("login.css", "css")):
+        response = client.get(f"/static/{name}")
+        assert response.status_code == 200 and kind in response.headers["content-type"]
+        assert response.headers["cache-control"] == "no-cache"
+    assert client.get("/static/index.html").status_code == 404
+    assert client.get("/static/../server.py").status_code == 404
+    csp = client.get("/login").headers["content-security-policy"]
+    assert "script-src 'self';" in csp
+    static = Path(__file__).resolve().parent.parent / "app" / "web" / "static"
+    for page in ("index.html", "login.html"):
+        assert "<script>" not in (static / page).read_text(encoding="utf-8")
+    assert "<script>" not in (static / "app.js").read_text(encoding="utf-8")

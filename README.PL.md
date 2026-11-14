@@ -2802,9 +2802,10 @@ app/
   web/routes/          REST API panelu, po jednym module na obszar (auth, groups,
                        dhcp, settings, ...), każdy z funkcją register(app, ctx)
   web/models.py        modele żądań (pydantic) przyjmowane przez API
-  web/static/          samodzielna, pojedyncza strona panelu, plus osobna strona
-                       logowania (bez zewnętrznych zasobów czy CDN - nawet favicon i
-                       logo to wbudowany SVG, a nie pobierany plik)
+  web/static/          strona panelu (index.html + app.js + app.css) i strona
+                       logowania (login.html + login.js + login.css), serwowane
+                       przez samą aplikację (bez zewnętrznych zasobów czy CDN -
+                       nawet favicon i logo to wbudowany SVG, a nie pobierany plik)
   main.py              spina wszystko powyższe w całość i uruchamia usługę
 ```
 
@@ -2919,12 +2920,12 @@ pytest
   `Cross-Origin-Resource-Policy` oraz `Content-Security-Policy`
   ograniczającą źródła skryptów/stylów/obrazów/ramek/obiektów do
   własnego pochodzenia panelu) plus `Strict-Transport-Security`, gdy
-  tylko żądanie faktycznie przyjdzie przez HTTPS. CSP nadal dopuszcza
-  wbudowane `<script>`/`<style>` - panel to samodzielna, pojedyncza
-  strona bez żadnych zasobów zewnętrznych - więc sama w sobie nie jest
-  pełną ochroną przed XSS, ale blokuje sporą klasę ataków polegających na
-  eksfiltracji danych czy clickjackingu, które wymagają załadowania
-  czegoś spoza własnego pochodzenia strony.
+  tylko żądanie faktycznie przyjdzie przez HTTPS. Skrypty mogą pochodzić
+  wyłącznie z plików samego panelu (bez wbudowanych `<script>` i bez
+  `eval`), więc wstrzyknięty znacznik skryptu czy handler zdarzenia się
+  nie wykona; wbudowane style są nadal dozwolone. CSP blokuje też sporą
+  klasę ataków polegających na eksfiltracji danych czy clickjackingu,
+  które wymagają załadowania czegoś spoza własnego pochodzenia strony.
 - Punkt końcowy logowania ma limit prób liczony osobno dla każdego adresu
   IP źródłowego (`web.login_max_attempts`, domyślnie 5 błędnych prób,
   zanim nastąpi blokada trwająca `web.login_lockout_minutes`, domyślnie

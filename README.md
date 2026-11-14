@@ -2535,9 +2535,10 @@ app/
   web/routes/          the REST API behind the dashboard, one module per area
                        (auth, groups, dhcp, settings, ...), each with register(app, ctx)
   web/models.py        request bodies (pydantic) the API accepts
-  web/static/          single self-contained dashboard page, plus a separate login
-                       page (no external assets/CDN - even the favicon/logo is an
-                       inlined SVG, not a fetched file)
+  web/static/          the dashboard page (index.html + app.js + app.css) and the
+                       login page (login.html + login.js + login.css), all served
+                       by the app itself (no external assets/CDN - even the
+                       favicon/logo is an inlined SVG, not a fetched file)
   main.py              wires the above together and starts everything
 ```
 
@@ -2637,11 +2638,12 @@ pytest
   `Cross-Origin-Resource-Policy`, and a `Content-Security-Policy` that
   restricts script/style/image/frame/object sources to the dashboard's
   own origin) plus `Strict-Transport-Security` once a request actually
-  arrives over HTTPS. The CSP still allows inline `<script>`/`<style>` -
-  the dashboard is a single self-contained page with no external
-  resources - so it isn't a full defense against XSS by itself, but it
-  does block a large class of exfiltration/clickjacking payloads that
-  rely on loading something from outside the page's own origin.
+  arrives over HTTPS. Scripts may only come from the
+  dashboard's own files (no inline `<script>`, no `eval`), so an
+  injected script tag or event handler doesn't run; inline styles are
+  still allowed. It also blocks a large class of exfiltration/clickjacking
+  payloads that rely on loading something from outside the page's own
+  origin.
 - The login endpoint is rate-limited per source IP (`web.login_max_attempts`,
   default 5 failures before a `web.login_lockout_minutes`-long, default
   15, lockout - a correct password doesn't bypass an active lockout).

@@ -1,0 +1,57 @@
+/* SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause - see the LICENSE file in the project root for full license terms. */
+:root {
+  color-scheme: dark;
+  --bg: #0a1128;
+  --panel: #121b3a;
+  --panel-border: #26355f;
+  --text: #e8ecfb;
+  --muted: #8b96c4;
+  --accent: #4d9fff;
+  --accent-text: #051029;
+  --danger: #ff5d75;
+  --danger-text: #33040f;
+  --input-bg: #0b1430;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  padding: 1.5rem;
+}
+.login-card {
+  width: 100%; max-width: 380px;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px;
+  padding: 2.5rem 2rem; text-align: center;
+}
+.brand-icon { width: 88px; height: 88px; }
+h1 { font-size: 1.5rem; margin: 1rem 0 0.25rem; }
+.tagline { color: var(--muted); font-size: 0.9rem; margin: 0 0 2rem; }
+form { display: flex; flex-direction: column; gap: 0.9rem; text-align: left; }
+label { font-size: 0.85rem; color: var(--muted); }
+input {
+  width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.3rem;
+  background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 8px;
+  color: var(--text); font-size: 1rem;
+}
+input:focus { outline: none; border-color: var(--accent); }
+button {
+  margin-top: 0.5rem; padding: 0.7rem; border: none; border-radius: 8px;
+  background: var(--accent); color: var(--accent-text); font-size: 1rem; font-weight: 600;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.6; cursor: default; }
+#error {
+  display: none; background: var(--danger-text); color: var(--danger);
+  border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.88rem; margin-top: -0.3rem;
+}
+.public-link { display: block; margin-top: 1.5rem; color: var(--muted); font-size: 0.85rem; text-decoration: none; }
+.public-link:hover { color: var(--accent); }
+.sso-divider { display: flex; align-items: center; gap: 0.75rem; margin: 1.1rem 0; color: var(--muted); font-size: 0.8rem; }
+.sso-divider::before, .sso-divider::after { content: ""; flex: 1; height: 1px; background: var(--panel-border); }
+#sso-btn {
+  display: none; margin-top: 0; padding: 0.7rem; border: 1px solid var(--panel-border); border-radius: 8px;
+  background: transparent; color: var(--text); font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%;
+  text-decoration: none; text-align: center;
+}
+#sso-btn:hover { border-color: var(--accent); color: var(--accent); }
