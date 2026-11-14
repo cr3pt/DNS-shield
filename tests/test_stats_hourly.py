@@ -89,4 +89,31 @@ def test_existing_query_log_is_backfilled_once(tmp_path, config_store):
     assert stats.total_count() == 3 and stats.blocked_count() == 1
     assert stats.snapshot()["top_domains"][0] == ["a.com", 2]
     # a second start (or another DNS worker process) doesn't count them again
-    assert Stats(db, config_store, flush_interval=0.05).total_count() == 3
+    again = Stats(db, config_store, flush_interval=0.05)
+    assert again.total_count() == 3
+    assert again.distinct_clients() == ["10.0.0.1"]
+
+
+def test_known_clients_come_from_their_own_table(tmp_path, config_store):
+    stats = _stats(tmp_path, config_store)
+    _log(stats, _ROWS)
+    assert sorted(stats.distinct_clients()) == ["10.0.0.1", "10.0.0.2"]
+    with sqlite3.connect(tmp_path / "stats.db") as conn:
+        conn.execute("UPDATE query_clients SET last_seen = 0 WHERE client = '10.0.0.1'")
+    stats._prune()  # 30-day retention: only the long-silent client goes
+    assert stats.distinct_clients() == ["10.0.0.2"]
+    stats.clear()
+    assert stats.distinct_clients() == []
+
+
+def test_query_log_has_a_client_time_index(tmp_path, config_store):
+    _stats(tmp_path, config_store)
+    with sqlite3.connect(tmp_path / "stats.db") as conn:
+        plan = " ".join(
+            row[3]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT DISTINCT domain FROM queries WHERE client = ? AND ts >= ? AND ts < ?",
+                ("10.0.0.1", 0, 1),
+            )
+        )
+    assert "idx_queries_client_ts" in plan

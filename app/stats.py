@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS queries (
 CREATE INDEX IF NOT EXISTS idx_queries_ts ON queries(ts);
 CREATE INDEX IF NOT EXISTS idx_queries_domain ON queries(domain);
 CREATE INDEX IF NOT EXISTS idx_queries_blocked ON queries(blocked);
+CREATE INDEX IF NOT EXISTS idx_queries_client_ts ON queries(client, ts);
 CREATE TABLE IF NOT EXISTS query_hourly (
     hour INTEGER NOT NULL,
     client TEXT NOT NULL,
@@ -49,11 +50,18 @@ CREATE TABLE IF NOT EXISTS query_hourly (
     count INTEGER NOT NULL,
     PRIMARY KEY (hour, client, domain, qtype, blocked, reason)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS query_clients (
+    client TEXT PRIMARY KEY,
+    first_seen REAL NOT NULL,
+    last_seen REAL NOT NULL
+) WITHOUT ROWID;
 """
 
 # query_hourly holds the same rows as queries, counted per hour: the dashboard's
 # totals, top lists and charts read it instead of scanning every logged query.
-_HOURLY_SCHEMA_VERSION = 1
+# query_clients lists every client still in the query log, so "which clients
+# are there" (asked on most dashboard requests) doesn't scan the log.
+_AGGREGATES_VERSION = 2
 
 
 class Stats:
@@ -101,27 +109,35 @@ class Stats:
             if "local_tld_match" not in columns:
                 conn.execute("ALTER TABLE queries ADD COLUMN local_tld_match TEXT")
             conn.commit()
-            self._backfill_hourly(conn)
+            self._backfill_aggregates(conn)
         finally:
             conn.close()
 
     @staticmethod
-    def _backfill_hourly(conn: sqlite3.Connection) -> None:
-        """Fill query_hourly from an existing query log once (upgrade from a
-        version without it). BEGIN IMMEDIATE makes it run in one DNS worker
+    def _backfill_aggregates(conn: sqlite3.Connection) -> None:
+        """Fill query_hourly / query_clients from an existing query log once
+        (upgrade from a version without them). BEGIN IMMEDIATE makes it run in one DNS worker
         process only; the others then see the new user_version."""
-        if conn.execute("PRAGMA user_version").fetchone()[0] >= _HOURLY_SCHEMA_VERSION:
+        if conn.execute("PRAGMA user_version").fetchone()[0] >= _AGGREGATES_VERSION:
             return
         conn.execute("BEGIN IMMEDIATE")
         try:
-            if conn.execute("PRAGMA user_version").fetchone()[0] < _HOURLY_SCHEMA_VERSION:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if version < 1:
                 conn.execute("DELETE FROM query_hourly")
                 conn.execute(
                     "INSERT INTO query_hourly (hour, client, domain, qtype, blocked, reason, count) "
                     "SELECT CAST(ts / 3600 AS INTEGER), client, domain, qtype, blocked, COALESCE(reason, ''), COUNT(*) "
                     "FROM queries GROUP BY 1, 2, 3, 4, 5, 6"
                 )
-                conn.execute(f"PRAGMA user_version = {_HOURLY_SCHEMA_VERSION}")
+            if version < 2:
+                conn.execute("DELETE FROM query_clients")
+                conn.execute(
+                    "INSERT INTO query_clients (client, first_seen, last_seen) "
+                    "SELECT client, MIN(ts), MAX(ts) FROM queries GROUP BY client"
+                )
+            if version < _AGGREGATES_VERSION:
+                conn.execute(f"PRAGMA user_version = {_AGGREGATES_VERSION}")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -187,6 +203,19 @@ class Stats:
         "ON CONFLICT (hour, client, domain, qtype, blocked, reason) DO UPDATE SET count = count + excluded.count"
     )
 
+    _CLIENTS_SQL = (
+        "INSERT INTO query_clients (client, first_seen, last_seen) VALUES (?, ?, ?) "
+        "ON CONFLICT (client) DO UPDATE SET last_seen = MAX(last_seen, excluded.last_seen)"
+    )
+
+    @staticmethod
+    def _client_spans(rows: list[tuple]) -> list[tuple]:
+        spans: dict[str, tuple[float, float]] = {}
+        for ts, _domain, _qtype, client, *_ in rows:
+            first, last = spans.get(client, (ts, ts))
+            spans[client] = (min(first, ts), max(last, ts))
+        return [(client, first, last) for client, (first, last) in spans.items()]
+
     @staticmethod
     def _hourly_counts(rows: list[tuple]) -> list[tuple]:
         counts: dict[tuple, int] = {}
@@ -220,6 +249,7 @@ class Stats:
                     conn = self._connect()
                 conn.executemany(self._INSERT_SQL, pending)
                 conn.executemany(self._HOURLY_SQL, self._hourly_counts(pending))
+                conn.executemany(self._CLIENTS_SQL, self._client_spans(pending))
                 conn.commit()
                 pending = []
                 backoff = self._flush_interval
@@ -248,6 +278,7 @@ class Stats:
         try:
             conn.execute("DELETE FROM queries")
             conn.execute("DELETE FROM query_hourly")
+            conn.execute("DELETE FROM query_clients")
             conn.commit()
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
@@ -264,6 +295,7 @@ class Stats:
         try:
             conn.execute("DELETE FROM queries WHERE ts < ?", (cutoff,))
             conn.execute("DELETE FROM query_hourly WHERE hour < ?", (int(cutoff // 3600),))
+            conn.execute("DELETE FROM query_clients WHERE last_seen < ?", (cutoff,))
             conn.commit()
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
@@ -272,7 +304,7 @@ class Stats:
     def distinct_clients(self) -> list[str]:
         conn = self._connect()
         try:
-            rows = conn.execute("SELECT DISTINCT client FROM queries").fetchall()
+            rows = conn.execute("SELECT client FROM query_clients").fetchall()
         finally:
             conn.close()
         return [row[0] for row in rows]
