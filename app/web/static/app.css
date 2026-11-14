@@ -483,3 +483,5 @@ button.danger { background: var(--danger); color: var(--danger-text); }
 .service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0.3rem 0.8rem; }
 .service-toggle { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; }
 details.rule-editor > summary { cursor: pointer; }
+
+.config-diff { max-height: 24rem; overflow: auto; font-size: 0.78rem; white-space: pre; margin: 0; }

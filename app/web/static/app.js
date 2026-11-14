@@ -4786,6 +4786,59 @@ updateBrowserNotifStatus();
 pollBrowserAnomalyNotifications();
 setInterval(pollBrowserAnomalyNotifications, 30000);
 
+async function loadConfigHistory() {
+  const rows = document.getElementById("config-history-rows");
+  if (!rows) return;
+  let versions;
+  try {
+    versions = await api("/api/config-history?limit=50");
+  } catch (err) {
+    return;
+  }
+  rows.innerHTML = "";
+  for (const version of versions) {
+    const when = new Date(version.ts * 1000).toLocaleString();
+    const sections = (version.changed || []).join(", ") || "-";
+    const diffRow = el("tr", { style: "display:none;" });
+    const diffCell = el("td", { colspan: "4" });
+    diffRow.appendChild(diffCell);
+    const showBtn = el("button", { type: "button", class: "secondary", text: t("history.show", "Changes") });
+    showBtn.onclick = async () => {
+      if (diffRow.style.display === "") {
+        diffRow.style.display = "none";
+        return;
+      }
+      const detail = await api(`/api/config-history/${version.id}`);
+      diffCell.innerHTML = "";
+      diffCell.appendChild(el("pre", { class: "config-diff", text: detail.diff || t("history.no_diff", "(first saved version)") }));
+      diffRow.style.display = "";
+    };
+    const actions = [showBtn];
+    if (version.current) {
+      actions.push(el("span", { class: "tag allowed", text: t("history.current", "current") }));
+    } else {
+      const restoreBtn = el("button", { type: "button", text: t("history.restore", "Restore") });
+      restoreBtn.onclick = async () => {
+        if (!confirm(t("history.confirm", "Restore the settings as they were at") + " " + when + "?")) return;
+        try {
+          await withSpinner(restoreBtn, () => api(`/api/config-history/${version.id}/restore`, { method: "POST" }), t("common.saving", "Saving..."));
+          refreshAll();
+        } catch (err) {
+          alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        }
+      };
+      actions.push(restoreBtn);
+    }
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: when }),
+      el("td", { text: version.actor || "" }),
+      el("td", { text: sections }),
+      el("td", {}, [el("div", { class: "btn-row" }, actions)]),
+    ]));
+    rows.appendChild(diffRow);
+  }
+}
+
 async function refreshAll() {
   if (!currentUser) return;
   await loadStatusAndStats();
@@ -4823,6 +4876,7 @@ async function refreshAll() {
   await loadPasskeys();
   await loadTokens();
   await loadAuditLog(true);
+  await loadConfigHistory();
 }
 
 document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
