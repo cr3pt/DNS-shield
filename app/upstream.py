@@ -8,6 +8,7 @@ import secrets
 import socket
 import ssl
 import struct
+import threading
 import time
 import weakref
 from collections.abc import Set as AbstractSet
@@ -126,15 +127,83 @@ def _forward_tcp(data: bytes, host: str, port: int, timeout: float) -> bytes:
         return _recv_exact(sock, length)
 
 
+# DNS-over-TLS connections are kept open and reused (RFC 7858 s3.4): a new
+# TCP + TLS handshake per query costs several round trips. Servers close idle
+# connections after a while, so one idle longer than this isn't reused.
+_DOT_IDLE_SECONDS = 15.0
+_DOT_MAX_IDLE_PER_UPSTREAM = 4
+_dot_context: ssl.SSLContext | None = None
+_dot_idle: dict[tuple[str, int], list[tuple[float, ssl.SSLSocket]]] = {}
+_dot_lock = threading.Lock()
+
+
+def _dot_ssl_context() -> ssl.SSLContext:
+    # Loading the CA store is slow; one context serves every connection.
+    global _dot_context
+    if _dot_context is None:
+        _dot_context = ssl.create_default_context()
+    return _dot_context
+
+
+def _dot_take(key: tuple[str, int]) -> ssl.SSLSocket | None:
+    now = time.monotonic()
+    with _dot_lock:
+        idle = _dot_idle.get(key, [])
+        while idle:
+            since, sock = idle.pop()
+            if now - since < _DOT_IDLE_SECONDS:
+                return sock
+            sock.close()
+    return None
+
+
+def _dot_give_back(key: tuple[str, int], sock: ssl.SSLSocket) -> None:
+    with _dot_lock:
+        idle = _dot_idle.setdefault(key, [])
+        if len(idle) < _DOT_MAX_IDLE_PER_UPSTREAM:
+            idle.append((time.monotonic(), sock))
+            return
+    sock.close()
+
+
+def _dot_exchange(sock: ssl.SSLSocket, data: bytes, timeout: float) -> bytes:
+    sock.settimeout(timeout)
+    sock.sendall(struct.pack("!H", len(data)) + data)
+    length = struct.unpack("!H", _recv_exact(sock, 2))[0]
+    resp = _recv_exact(sock, length)
+    if resp[:2] != data[:2]:
+        raise ConnectionError("DoT response for a different query")
+    return resp
+
+
 def _forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
     host, port = _split_host_port(hostport, 853)
+    key = (host, port)
 
-    context = ssl.create_default_context()
-    with socket.create_connection((host, port), timeout=timeout) as raw_sock:
-        with context.wrap_socket(raw_sock, server_hostname=host) as sock:
-            sock.sendall(struct.pack("!H", len(data)) + data)
-            length = struct.unpack("!H", _recv_exact(sock, 2))[0]
-            return _recv_exact(sock, length)
+    sock = _dot_take(key)
+    if sock is not None:
+        try:
+            resp = _dot_exchange(sock, data, timeout)
+        except (OSError, ConnectionError, struct.error):
+            # The server closed the idle connection - expected; retry on a fresh one.
+            sock.close()
+        else:
+            _dot_give_back(key, sock)
+            return resp
+
+    raw_sock = socket.create_connection((host, port), timeout=timeout)
+    try:
+        sock = _dot_ssl_context().wrap_socket(raw_sock, server_hostname=host)
+    except BaseException:
+        raw_sock.close()
+        raise
+    try:
+        resp = _dot_exchange(sock, data, timeout)
+    except BaseException:
+        sock.close()
+        raise
+    _dot_give_back(key, sock)
+    return resp
 
 
 def _forward_doh(data: bytes, url: str, timeout: float) -> bytes:
