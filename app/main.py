@@ -35,6 +35,7 @@ from app.proxy.manager import ProxyManager
 from app.sessions import SessionStore
 from app.startup_page import start_startup_page_server, stop_startup_page_server
 from app.stats import Stats
+from app.sync import SyncClient
 from app.tls import ensure_self_signed_cert
 from app.upstream_stats import UpstreamStats
 from app.url_ping import UrlPingTask
@@ -261,6 +262,9 @@ def main() -> None:
         except OSError as exc:
             logger.warning("could not start block page server on %s:%d: %s", bp_address, bp_port, exc)
 
+    sync_client = SyncClient(config_store, blocklist)
+    sync_client.start()
+
     app = create_app(
         config_store,
         blocklist,
@@ -281,6 +285,7 @@ def main() -> None:
         rogue_dhcp_detector=rogue_dhcp_detector,
         proxy_manager=proxy_manager,
         client_domain_graph=client_domain_graph,
+        sync_client=sync_client,
         data_dir=DATA_DIR,
     )
 

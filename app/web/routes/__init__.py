@@ -19,6 +19,7 @@ from app.web.routes import (
     settings,
     stats,
     status,
+    sync,
 )
 
 MODULES = (
@@ -36,4 +37,5 @@ MODULES = (
     anomalies,
     enrichment,
     account,
+    sync,
 )
