@@ -1632,6 +1632,19 @@ a remote monitoring host) rather than turning the whole thing off; the
 toggle exists for anyone who explicitly wants an open resolver, but that
 should be a deliberate choice, not the default.
 
+### Per-client rate limit
+
+`dns.rate_limit_qps` (0 = off, the default) caps how many queries a second
+each client IP may send. Every client gets a token bucket that saves up to
+`dns.rate_limit_burst` queries (0 = twice the rate, at least 20). Past that
+it gets `REFUSED` straight away, before any blocklist, cache or upstream
+work, until it slows down. This keeps one looping app or infected device
+from slowing DNS for everyone or using up an upstream's quota. Loopback and
+`dns.rate_limit_exempt` (IPs/CIDRs) are never limited. A client that hits
+the limit is logged once a minute. With several DNS worker processes, each
+one counts on its own. A home device rarely sends more than 5 queries a
+second, so 20-50 is a safe limit.
+
 ### DNS rebinding protection
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) is an attack

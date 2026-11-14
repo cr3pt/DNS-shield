@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
 from urllib.parse import urlparse
 
@@ -315,6 +316,25 @@ class DnsSettingsIn(BaseModel):
     local_tld_cooldown_minutes: float | None = None
     query_acl_enabled: bool | None = None
     query_acl_extra_networks: list[str] | None = None
+    rate_limit_qps: float | None = Field(default=None, ge=0, le=100000)
+    rate_limit_burst: float | None = Field(default=None, ge=0, le=1000000)
+    rate_limit_exempt: list[str] | None = None
+
+    @field_validator("rate_limit_exempt")
+    @classmethod
+    def _validate_rate_limit_exempt(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = []
+        for item in value:
+            text = str(item).strip()
+            if not text:
+                continue
+            try:
+                cleaned.append(str(ipaddress.ip_network(text, strict=False)) if "/" in text else str(ipaddress.ip_address(text)))
+            except ValueError:
+                raise ValueError(f'"{text}" is not an IP address or CIDR range') from None
+        return cleaned
 
 
 class UpstreamsIn(BaseModel):

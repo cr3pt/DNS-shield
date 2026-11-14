@@ -2982,6 +2982,9 @@ async function loadSettings() {
   document.getElementById("s-dns-upstream-timeout").value = s.dns.upstream_timeout_seconds ?? "";
   document.getElementById("s-dns-query-acl-enabled").checked = s.dns.query_acl_enabled !== false;
   document.getElementById("s-dns-query-acl-extra").value = (s.dns.query_acl_extra_networks || []).join(", ");
+  document.getElementById("s-dns-rate-limit-qps").value = s.dns.rate_limit_qps ?? 0;
+  document.getElementById("s-dns-rate-limit-burst").value = s.dns.rate_limit_burst ?? 0;
+  document.getElementById("s-dns-rate-limit-exempt").value = (s.dns.rate_limit_exempt || []).join(", ");
   document.getElementById("s-dns-block-mode").value = s.dns.block_mode ?? "nxdomain";
   document.getElementById("s-dns-blocked-ipv4").value = s.dns.blocked_ipv4 ?? "";
   document.getElementById("s-dns-blocked-ipv6").value = s.dns.blocked_ipv6 ?? "";
@@ -4828,6 +4831,9 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
         upstream_timeout_seconds: floatField("s-dns-upstream-timeout"),
         query_acl_enabled: document.getElementById("s-dns-query-acl-enabled").checked,
         query_acl_extra_networks: document.getElementById("s-dns-query-acl-extra").value.split(",").map((s) => s.trim()).filter(Boolean),
+        rate_limit_qps: floatField("s-dns-rate-limit-qps"),
+        rate_limit_burst: floatField("s-dns-rate-limit-burst"),
+        rate_limit_exempt: document.getElementById("s-dns-rate-limit-exempt").value.split(",").map((s) => s.trim()).filter(Boolean),
         block_mode: document.getElementById("s-dns-block-mode").value,
         blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
         blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),

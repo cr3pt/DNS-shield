@@ -21,6 +21,7 @@ from dnslib.server import UDPServer as _DNSLibUDPServer
 from app import upstream as upstream_transport
 from app.dns_rewrites import find_rewrite
 from app.netmatch import ip_matches
+from app.rate_limit import ClientRateLimiter
 from app.safe_search import find_safe_search_target
 
 logger = logging.getLogger("dnsshield.dns")
@@ -60,6 +61,7 @@ class FilteringResolver:
         self._client_names = client_names
         self._upstream_stats = upstream_stats
         self._dnssec_cache = dnssec_cache
+        self._rate_limiter = ClientRateLimiter(config_store)
 
     def resolve(self, request, handler):
         qname = str(request.q.qname).rstrip(".").lower()
@@ -68,6 +70,11 @@ class FilteringResolver:
         client_ip = handler.client_address[0] if handler is not None else "?"
 
         if not self._query_allowed(client_ip):
+            reply = request.reply(aa=0)
+            reply.header.rcode = RCODE.REFUSED
+            return reply
+
+        if not self._rate_limiter.allow(client_ip):
             reply = request.reply(aa=0)
             reply.header.rcode = RCODE.REFUSED
             return reply
