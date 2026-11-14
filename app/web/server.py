@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 import yaml
 from dnslib import DNSRecord
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
@@ -618,7 +618,7 @@ class BlocklistSettingsIn(BaseModel):
 
 
 class PauseIn(BaseModel):
-    seconds: float | None = None
+    seconds: float | None = Field(None, ge=0, le=31 * 86400)
 
 
 class EnrichmentSettingsIn(BaseModel):
@@ -652,8 +652,8 @@ class EnrichIn(BaseModel):
 
 class AnomalySettingsIn(BaseModel):
     enabled: bool | None = None
-    check_interval_minutes: float | None = None
-    window_minutes: float | None = None
+    check_interval_minutes: float | None = Field(None, gt=0)
+    window_minutes: float | None = Field(None, gt=0)
     min_queries: int | None = None
     blocked_ratio_threshold: float | None = None
     domain_burst_threshold: int | None = None
@@ -670,11 +670,11 @@ class AnomalySettingsIn(BaseModel):
 
 
 class ReanalyzeIn(BaseModel):
-    hours: float
+    hours: float = Field(gt=0, le=24 * 90)
 
 
 class AlertRulesSettingsIn(BaseModel):
-    check_interval_seconds: float | None = None
+    check_interval_seconds: float | None = Field(None, gt=0)
     cooldown_minutes: float | None = None
 
 
@@ -1249,7 +1249,7 @@ def create_app(
 
     @app.get("/api/stats")
     def get_stats(
-        top_n: int = 25, log_n: int = 200, user: dict[str, Any] = Depends(require_auth)
+        top_n: int = Query(25, ge=1, le=500), log_n: int = Query(200, ge=0, le=5000), user: dict[str, Any] = Depends(require_auth)
     ) -> dict[str, Any]:
         snapshot = stats.snapshot(top_n=top_n, log_n=log_n, client_ips=_allowed_client_ips(user))
         snapshot["client_names"] = client_names.snapshot() if client_names is not None else {}
@@ -1265,8 +1265,8 @@ def create_app(
 
     @app.get("/api/graph")
     def get_graph(
-        min_count: int = 1,
-        limit_nodes: int = 150,
+        min_count: int = Query(1, ge=1, le=1_000_000),
+        limit_nodes: int = Query(150, ge=1, le=2000),
         view: str = "bipartite",
         group: str | None = None,
         no_group: bool = False,
@@ -1376,8 +1376,8 @@ def create_app(
         blocked: str | None = None,
         since: float | None = None,
         until: float | None = None,
-        limit: int = 100,
-        offset: int = 0,
+        limit: int = Query(100, ge=1, le=5000),
+        offset: int = Query(0, ge=0),
         group: str | None = None,
         no_group: bool = False,
         user: dict[str, Any] = Depends(require_auth),
@@ -3043,7 +3043,7 @@ To restore into an EXISTING instance (data/config.db already exists):
     @app.get("/api/anomalies")
     def list_anomalies(
         include_acknowledged: bool = True,
-        limit: int = 200,
+        limit: int = Query(200, ge=1, le=5000),
         user: dict[str, Any] = Depends(require_permission("view_anomalies")),
     ) -> list[dict[str, Any]]:
         if anomaly is None:
@@ -3073,7 +3073,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.get("/api/anomalies/subdomain-analysis")
     def subdomain_analysis(
-        hours: float = 24, limit: int = 20, _: dict[str, Any] = Depends(require_admin)
+        hours: float = Query(24, gt=0, le=24 * 90), limit: int = Query(20, ge=1, le=1000), _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         if anomaly is None:
             return []
@@ -3361,7 +3361,7 @@ To restore into an EXISTING instance (data/config.db already exists):
         return result
 
     @app.get("/api/enrich/history")
-    def enrichment_history(limit: int = 100, target: str | None = None, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> list[dict[str, Any]]:
+    def enrichment_history(limit: int = Query(100, ge=1, le=1000), target: str | None = None, _: dict[str, Any] = Depends(require_permission("view_threat_intel"))) -> list[dict[str, Any]]:
         if enrichment_store is None:
             return []
         limit = max(1, min(limit, 500))
