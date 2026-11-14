@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app.netmatch import ip_matches
-from app.upstream import protected_hostnames
+from app.upstream import matches_domain_or_parent, protected_hostnames
 
 logger = logging.getLogger("dnsshield.stats")
 
@@ -188,8 +188,7 @@ class Stats:
         ignored_clients = self._config.get("logging", "ignored_clients", default=[]) or []
         if any(ip_matches(client_ip, pattern) for pattern in ignored_clients):
             return True
-        protected = protected_hostnames(self._config)
-        return any(qname == h or qname.endswith("." + h) for h in protected)
+        return matches_domain_or_parent(qname, protected_hostnames(self._config))
 
     _INSERT_SQL = (
         "INSERT INTO queries "

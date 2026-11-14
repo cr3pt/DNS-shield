@@ -22,7 +22,7 @@ import requests
 from app.netmatch import best_matching_group, client_matches
 from app.schedule import is_schedule_blocked
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
-from app.upstream import protected_hostnames
+from app.upstream import matches_domain_or_parent, protected_hostnames
 from app.url_safety import check_public_url, public_dns_guard
 
 logger = logging.getLogger("dnsshield.blocklist")
@@ -43,6 +43,10 @@ _SIGNATURE_CHECK_SECONDS = 10.0
 _REDIRECT_CODES = (301, 302, 303, 307, 308)
 _DEFAULT_MAX_DOWNLOAD_MB = 512
 _REGEX_MATCH_TIMEOUT_SECONDS = 0.2
+# A query asks for its client's group several times (blocking, SafeSearch,
+# upstreams); the answer is reused for this long, or until the config changes.
+_GROUP_CACHE_SECONDS = 5.0
+_GROUP_CACHE_MAX = 4096
 _REDOS_PROBE_TIMEOUT_SECONDS = 0.5
 _REDOS_PROBE_STRINGS = tuple(f"{'a' * n}!" for n in (8, 16, 32, 48, 63)) + tuple("a" * n for n in (32, 63))
 
@@ -228,6 +232,7 @@ class BlocklistManager:
     def __init__(self, config_store, cache_dir: Path, mac_resolver=None, client_names=None):
         self._config = config_store
         self._cache_dir = cache_dir
+        self._group_cache: dict[str, tuple[int | None, float, dict[str, Any] | None]] = {}
         self._mac_resolver = mac_resolver
         self._client_names = client_names
         self._cache_dir.mkdir(parents=True, exist_ok=True)
@@ -293,7 +298,7 @@ class BlocklistManager:
         def matches(domains: Iterable[str] | None) -> bool:
             return any(qname == d or qname.endswith("." + d) for d in (domains or []))
 
-        if matches(protected_hostnames(self._config)):
+        if matches_domain_or_parent(qname, protected_hostnames(self._config)):
             return None
         # Blocking a whole client and a group's bedtime schedule are access
         # controls, not filtering: pausing filtering ("let me reach this site
@@ -500,12 +505,22 @@ class BlocklistManager:
     def _find_group(self, client_ip: str | None) -> dict[str, Any] | None:
         if not client_ip:
             return None
-        return best_matching_group(
+        version = getattr(self._config, "version", None)
+        now = time.monotonic()
+        hit = self._group_cache.get(client_ip)
+        if hit is not None and hit[0] == version and hit[1] > now:
+            return hit[2]
+        group = best_matching_group(
             self._config.get("client_groups", default=[]) or [],
             client_ip,
             mac=self.mac_for(client_ip),
             hostname=self._client_hostname(client_ip),
         )
+        if version is not None:
+            if len(self._group_cache) >= _GROUP_CACHE_MAX:
+                self._group_cache.clear()
+            self._group_cache[client_ip] = (version, now + _GROUP_CACHE_SECONDS, group)
+        return group
 
     def safe_search_enabled_for(self, client_ip: str | None) -> bool:
         group = self._find_group(client_ip)

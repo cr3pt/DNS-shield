@@ -9,6 +9,8 @@ import socket
 import ssl
 import struct
 import time
+import weakref
+from collections.abc import Set as AbstractSet
 from urllib.parse import urlparse
 
 import requests
@@ -184,7 +186,43 @@ def hostname_of(upstream: str) -> str | None:
         return host
 
 
-def protected_hostnames(config_store) -> set[str]:
+_PROTECTED_CACHE: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def matches_domain_or_parent(qname: str, names: AbstractSet[str]) -> bool:
+    """True if qname or any parent domain of it is in names: a few set
+    lookups (one per label) instead of a suffix test against every name."""
+    while True:
+        if qname in names:
+            return True
+        dot = qname.find(".")
+        if dot < 0:
+            return False
+        qname = qname[dot + 1 :]
+
+
+def protected_hostnames(config_store) -> frozenset[str]:
+    """Hostnames DNS-shield itself must always be able to resolve (upstreams,
+    blocklist hosts, threat-intel services). Asked on every query, so it's
+    worked out once per config version."""
+    version = getattr(config_store, "version", None)
+    if version is not None:
+        try:
+            cached = _PROTECTED_CACHE.get(config_store)
+        except TypeError:
+            cached = None
+        if cached is not None and cached[0] == version:
+            return cached[1]
+    result = frozenset(_collect_protected_hostnames(config_store))
+    if version is not None:
+        try:
+            _PROTECTED_CACHE[config_store] = (version, result)
+        except TypeError:
+            pass
+    return result
+
+
+def _collect_protected_hostnames(config_store) -> set[str]:
     hostnames: set[str] = set()
 
     if config_store.get("enrichment", "public_enabled", default=False):
