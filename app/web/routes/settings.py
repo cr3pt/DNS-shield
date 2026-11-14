@@ -351,7 +351,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return domains
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     def _remove_alert_domain(domain: str) -> list[str]:
@@ -364,7 +364,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return domains
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.get("/api/alert-rules/domains")
@@ -396,7 +396,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.delete("/api/alert-rules/sources/{index}")
@@ -408,7 +408,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.post("/api/alert-rules/sources/{index}/toggle")
@@ -420,5 +420,5 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result

@@ -283,6 +283,9 @@ class BlocklistManager:
         self._last_refresh: float | None = None
         self._loaded_signature: str | None = None
         self._refresh_lock = threading.Lock()
+        self._refresh_request_lock = threading.Lock()
+        self._refresh_requested = False
+        self._refresh_worker: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -928,6 +931,45 @@ class BlocklistManager:
                 len(merged), len(counts), len(allow_merged), len(allow_counts), len(group_blocked),
                 len(alert_merged), len(answer_ip_exact) + len(answer_ip_nets), len(answer_ip_counts),
             )
+
+    def request_refresh(self) -> None:
+        """Reload the lists soon, on a background thread. For changes made in
+        the web UI: the request returns at once instead of waiting for every
+        list to download. Requests made while a refresh runs are folded into
+        one more refresh after it, so the newest config always gets loaded."""
+        with self._refresh_request_lock:
+            self._refresh_requested = True
+            if self._refresh_worker is not None:
+                return
+            self._refresh_worker = threading.Thread(
+                target=self._run_requested_refreshes, name="blocklist-refresh-request", daemon=True
+            )
+            self._refresh_worker.start()
+
+    def _run_requested_refreshes(self) -> None:
+        while True:
+            with self._refresh_request_lock:
+                if not self._refresh_requested:
+                    self._refresh_worker = None
+                    return
+                self._refresh_requested = False
+            try:
+                self.refresh()
+            except Exception:
+                logger.exception("blocklist refresh after a settings change failed")
+
+    def refresh_pending(self) -> bool:
+        with self._refresh_request_lock:
+            return self._refresh_worker is not None
+
+    def wait_for_refresh(self, timeout: float = 30.0) -> bool:
+        """Block until requested refreshes are done (tests, shutdown)."""
+        deadline = time.monotonic() + timeout
+        while self.refresh_pending():
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+        return True
 
     def start(self) -> None:
         try:

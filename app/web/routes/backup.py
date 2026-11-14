@@ -45,7 +45,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             data.update(result)
 
         config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
 
         return {"ok": True, "warnings": warnings}
 
@@ -65,7 +65,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             data.update(result)
 
         config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
 
         return {"ok": True, "warnings": warnings}
 
@@ -133,7 +133,7 @@ To restore into an EXISTING instance (data/config.db already exists):
             data.update(result)
 
         config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         users.ensure_default_admin()
 
         return {"ok": True}

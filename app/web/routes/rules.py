@@ -59,7 +59,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     def _delete_source(field: str, index: str) -> list[dict[str, Any]]:
@@ -70,7 +70,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     def _toggle_source(field: str, index: str) -> list[dict[str, Any]]:
@@ -81,7 +81,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.get("/api/blocklists")
@@ -123,7 +123,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
 
     @app.post("/api/blocklists/refresh")
     def refresh_blocklists(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
-        blocklist.refresh()
+        blocklist.refresh()  # explicit "refresh now": the caller waits for the new counts
         return {"ok": True, "domains": blocklist.total_count(), "allowed": blocklist.allowed_count()}
 
     @app.get("/api/rules")
@@ -268,13 +268,13 @@ def register(app: FastAPI, ctx: AppContext) -> None:
     @app.post("/api/rules/deny-answer-ip")
     def add_deny_answer_ip(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         result = _add_rule("blocked_answer_ips", _ip_or_cidr(body.value), label="IP")
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.delete("/api/rules/deny-answer-ip/{value:path}")
     def remove_deny_answer_ip(value: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         result = _remove_rule("blocked_answer_ips", value)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.get("/api/answer-ip-sources")
@@ -296,7 +296,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.delete("/api/answer-ip-sources/{index}")
@@ -310,7 +310,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.post("/api/answer-ip-sources/{index}/toggle")
@@ -324,7 +324,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return sources
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     def _add_nested_rule(section: str, list_name: str, value: str) -> list[str]:
