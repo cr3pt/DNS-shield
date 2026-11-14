@@ -739,5 +739,16 @@
   "col.updated": "Ostatnia aktualizacja",
   "sources.never_updated": "nigdy",
   "sources.update_failed": "Ostatnie pobieranie nieudane {when}",
-  "sources.last_checked": "Ostatnie sprawdzenie: {when}"
+  "sources.last_checked": "Ostatnie sprawdzenie: {when}",
+  "forced_pw.title": "Zmień domyślne hasło",
+  "forced_pw.intro": "To konto nadal używa domyślnego hasła. Każdy w Twojej sieci mógłby się nim zalogować, więc przed kontynuowaniem ustaw nowe (co najmniej 8 znaków).",
+  "forced_pw.current": "Obecne hasło",
+  "forced_pw.new": "Nowe hasło",
+  "forced_pw.repeat": "Powtórz nowe hasło",
+  "forced_pw.submit": "Zmień hasło",
+  "forced_pw.mismatch": "Nowe hasła nie są takie same.",
+  "general.public_view": "Pokazuj niezalogowanym publiczne podsumowanie (trend zapytań i najczęściej blokowane domeny)",
+  "general.hint.public_view": "Domyślnie wyłączone: najczęściej blokowane domeny mogą zdradzić, co osoby w Twojej sieci próbują odwiedzać. Gdy wyłączone, odwiedzający trafiają od razu na stronę logowania.",
+  "general.public_url": "Adres panelu (opcjonalnie)",
+  "general.hint.public_url": "Adres, pod którym otwierasz panel. Gdy jest ustawiony, klucze dostępu (passkeys) są wiązane dokładnie z tym adresem, a nie z adresem przesłanym przez przeglądarkę."
 }

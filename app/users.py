@@ -20,6 +20,21 @@ from app.two_factor import (
 )
 
 _TOKEN_TOUCH_MIN_INTERVAL = 60.0
+
+DEFAULT_PASSWORD = "changeme"
+MIN_PASSWORD_LENGTH = 8
+# When True, an account still using the shipped default password is flagged
+# must_change_password and the API refuses everything but a password change
+# until it's changed. Tests that exercise other features switch it off.
+FORCE_DEFAULT_PASSWORD_CHANGE = True
+
+
+def check_new_password(password: str | None) -> None:
+    """Raise ValueError if `password` is too weak to be set as a new password."""
+    if not password or len(password) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
+    if password == DEFAULT_PASSWORD:
+        raise ValueError("Choose a password other than the default one")
 _DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 SUPPORTED_LANGUAGES = ("en", "pl", "de", "fr", "ar", "zh", "ja", "ko")
@@ -71,6 +86,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "has_passkeys": bool(user.get("webauthn_credentials")),
         "language": user.get("language") or "",
         "sso": bool(user.get("sso", False)),
+        "must_change_password": bool(user.get("must_change_password", False)),
     }
 
 
@@ -104,18 +120,49 @@ class UserStore:
                 return
             web_cfg = data.get("web", {}) or {}
             username = str(web_cfg.get("username") or "admin")
-            existing_password = str(web_cfg.get("password") or "changeme")
-            data["users"] = [
-                {
-                    "username": username,
-                    "password_hash": hash_password(existing_password),
-                    "role": "admin",
-                    "permissions": dict(DEFAULT_PERMISSIONS),
-                }
-            ]
+            existing_password = str(web_cfg.get("password") or DEFAULT_PASSWORD)
+            admin = {
+                "username": username,
+                "password_hash": hash_password(existing_password),
+                "role": "admin",
+                "permissions": dict(DEFAULT_PERMISSIONS),
+                "default_password_checked": True,
+            }
+            if FORCE_DEFAULT_PASSWORD_CHANGE and existing_password == DEFAULT_PASSWORD:
+                admin["must_change_password"] = True
+            data["users"] = [admin]
             web_cfg.pop("password", None)
             web_cfg.pop("username", None)
             data["web"] = web_cfg
+
+        self._config.mutate(_mutate)
+        self._flag_default_passwords()
+
+    def _flag_default_passwords(self) -> None:
+        """One-off check for installs created before must_change_password
+        existed: any password-login account still on the default password
+        gets flagged. Each account is checked once (bcrypt is slow)."""
+        if not FORCE_DEFAULT_PASSWORD_CHANGE:
+            return
+        pending = [
+            u.get("username")
+            for u in self.list()
+            if not u.get("default_password_checked") and u.get("password_hash")
+        ]
+        if not pending:
+            return
+        on_default = {
+            u.get("username")
+            for u in self.list()
+            if u.get("username") in pending and verify_password(DEFAULT_PASSWORD, u.get("password_hash", ""))
+        }
+
+        def _mutate(data: dict[str, Any]) -> None:
+            for user in data.get("users", []):
+                if user.get("username") in pending:
+                    user["default_password_checked"] = True
+                    if user.get("username") in on_default:
+                        user["must_change_password"] = True
 
         self._config.mutate(_mutate)
 
@@ -159,6 +206,7 @@ class UserStore:
                 "password_hash": hash_password(password),
                 "role": role,
                 "permissions": _normalized_permissions(permissions),
+                "default_password_checked": True,
             }
             users.append(user)
             return user
@@ -204,6 +252,8 @@ class UserStore:
                 if user.get("username") == username:
                     if password:
                         user["password_hash"] = hash_password(password)
+                        user["default_password_checked"] = True
+                        user.pop("must_change_password", None)
                     if role is not None:
                         if role != "admin" and _admin_count(users) <= 1 and user.get("role") == "admin":
                             raise ValueError("Can't demote the last remaining administrator")

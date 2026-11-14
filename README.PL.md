@@ -105,9 +105,9 @@ to ostrzeżenie raz (zobacz [HTTPS dla panelu](#https-dla-panelu) niżej,
 gdzie jest opisane faktycznie poprawne rozwiązanie, a także jak wrócić
 do zwykłego HTTP, jeśli wolisz nie zajmować się tym ostrzeżeniem przy
 wdrożeniu ograniczonym do samej sieci LAN). Zaloguj się domyślnymi
-danymi `admin` / `changeme`, **od razu zmień hasło** (Settings ->
-General -> "Your account") i skieruj DNS jakiegoś urządzenia na
-`<host>:53`, żeby to przetestować.
+danymi `admin` / `changeme` - panel od razu poprosi o nowe hasło (co
+najmniej 8 znaków) i do tego czasu odmówi każdej innej akcji - i skieruj
+DNS jakiegoś urządzenia na `<host>:53`, żeby to przetestować.
 
 Żeby używać tego w całej sieci, ustaw ten adres jako serwer DNS w
 ustawieniach DHCP routera (albo osobno na każdym urządzeniu).
@@ -2010,14 +2010,16 @@ kontenera wylogowuje wszystkich; zmiana hasła użytkownika (własnego, albo
 cudzego zmienianego przez administratora) też natychmiast wylogowuje
 każdą sesję tego konta.
 
-**Po wylogowaniu** `/` pokazuje minimalny widok publiczny: sam wykres
-trendu zapytań i listę najczęściej blokowanych domen (domena i liczba,
-nic ponadto) - bez adresów IP klientów, bez logu zapytań, bez przycisków
-Copy czy Enrich, bez zakładek, bez paska wstrzymania. Ten widok ma być na
-tyle bezpieczny, by można go było zostawić otwartym na współdzielonym
-ekranie albo pokazać domownikowi bez dawania mu logowania. Serwuje go
-osobny punkt końcowy, `GET /api/public/summary`, który nie wymaga
-ciasteczka sesji.
+**Po wylogowaniu** `/` przenosi na stronę logowania. Opcjonalnie
+(Settings -> General -> "Show a public summary...",
+`web.public_view_enabled`, domyślnie wyłączone) może zamiast tego pokazać
+minimalny widok publiczny: sam wykres trendu zapytań i listę najczęściej
+blokowanych domen (domena i liczba, nic ponadto) - bez adresów IP
+klientów, bez logu zapytań, bez zakładek, bez paska wstrzymania. Domyślnie
+jest wyłączony, bo najczęściej blokowane domeny potrafią zdradzić, co
+domownicy próbują odwiedzać. Serwuje go osobny punkt końcowy,
+`GET /api/public/summary`, który nie wymaga ciasteczka sesji i zwraca 404,
+gdy widok jest wyłączony.
 
 **Hasła** są zawsze haszowane bcryptem (`app/auth.py`) - nigdy nie są
 przechowywane ani zwracane jawnym tekstem. Aktualizacja z wersji, która
@@ -2378,7 +2380,9 @@ wznowienia) - przydatne, gdy chcesz szybko sprawdzić, czy to DNS-shield
 jest przyczyną jakiejś awarii, bez odnajdywania i tymczasowego usuwania
 konkretnego wpisu na liście zablokowanych czy konkretnej listy blokad. Gdy
 blokowanie jest wstrzymane, każde zapytanie rozwiązuje się tak, jakby nie
-istniała żadna lista blokad, lista zablokowanych ani grupa klientów;
+istniała żadna lista blokad ani lista zablokowanych - z wyjątkiem
+całkowicie zablokowanych klientów i harmonogramów grup (np. blokady na
+noc), które działają dalej, bo to kontrola dostępu, a nie filtrowanie;
 wstrzymanie samo wygasa dokładnie o wybranej godzinie (bez żadnego
 odpytywania czy sprzątania - znacznik czasu jest po prostu porównywany z
 bieżącym czasem), albo możesz wcześniej kliknąć "Resume blocking". Ten
@@ -2939,9 +2943,11 @@ pytest
   ważny - traktuj go więc jak hasło i unieważnij w chwili, gdy podejrzewasz,
   że wyciekł.
 - Publiczny widok bez logowania (`/` oraz `GET /api/public/summary`) jest
-  celowo dostępny bez logowania - zwraca wyłącznie trend zapytań i
-  najczęściej blokowane domeny, nic więcej związanego z konkretnym
-  klientem czy domeną.
+  domyślnie wyłączony; po włączeniu jest dostępny bez logowania i zwraca
+  wyłącznie trend zapytań i najczęściej blokowane domeny.
+- Ustaw `web.public_url` (Settings -> General -> "Dashboard address") na
+  adres, pod którym otwierasz panel: klucze dostępu (passkeys) są wtedy
+  wiązane dokładnie z tym adresem, a nie z adresem z żądania.
 - Port 53 wymaga w kontenerze uprawnień roota albo `CAP_NET_BIND_SERVICE`
   - dostarczony obraz domyślnie z tego powodu działa jako root. Dla w pełni
   bezrootowej konfiguracji obraz ma już wbudowanego dedykowanego

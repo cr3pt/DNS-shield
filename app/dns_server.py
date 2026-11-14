@@ -98,19 +98,15 @@ class FilteringResolver:
             elif typosquat_can_redirect and typosquat_action == "redirect_custom" and redirect_ip:
                 response = self._rewrite_reply(request, qtype, redirect_ip)
             else:
-                response = self._cache.get(request) if self._cache is not None else None
+                safe_search, group_upstreams = self._client_profile(client_ip)
+                variant = self._cache_variant(safe_search, group_upstreams)
+                response = self._cache.get(request, variant) if self._cache is not None else None
                 if response is None:
-                    redirect_target = None
-                    if typosquat_can_redirect and typosquat_action == "redirect_real":
-                        redirect_target = typosquat[0]
-                    elif qname and qtype_name in ("A", "AAAA") and self._blocklist.safe_search_enabled_for(client_ip):
-                        redirect_target = find_safe_search_target(qname)
-                    if redirect_target is not None:
-                        response = self._redirect_to_hostname(request, redirect_target, client_ip)
-                    else:
-                        response = self._forward(request, qname, client_ip)
+                    response = self._resolve_upstream(
+                        request, qname, client_ip, safe_search, group_upstreams, variant, typosquat=typosquat
+                    )
                     if self._cache is not None:
-                        self._cache.put(request, response)
+                        self._cache.put(request, response, variant)
 
                 for cname in self._answer_cnames(response):
                     cname_reason = self._blocklist.block_reason(cname, client_ip)
@@ -215,10 +211,19 @@ class FilteringResolver:
             reply.header.rcode = RCODE.NXDOMAIN
         return reply
 
-    def _redirect_to_hostname(self, request: DNSRecord, target_hostname: str, client_ip: str) -> DNSRecord:
+    def _redirect_to_hostname(
+        self,
+        request: DNSRecord,
+        target_hostname: str,
+        client_ip: str,
+        group_upstreams: list[str] | None = None,
+        variant: str = "",
+    ) -> DNSRecord:
         qtype_name = QTYPE.get(request.q.qtype, "A")
         sub_request = DNSRecord.question(target_hostname, qtype=qtype_name)
-        resolved = self._forward(sub_request, target_hostname, client_ip)
+        resolved = self._forward(
+            sub_request, target_hostname, client_ip, group_upstreams=group_upstreams, variant=variant
+        )
         reply = request.reply(aa=0)
         for rr in resolved.rr:
             if rr.rtype in (QTYPE.A, QTYPE.AAAA):
@@ -247,7 +252,69 @@ class FilteringResolver:
             reply.add_answer(RR(request.q.qname, QTYPE.TXT, rdata=TXT(value), ttl=ttl))
         return reply
 
-    def _select_upstreams(self, qname: str, client_ip: str) -> list[str]:
+    def _group_upstreams(self, client_ip: str) -> list[str] | None:
+        if not client_ip:
+            return None
+        group = self._blocklist.group_for(client_ip)
+        if group is None:
+            return None
+        upstreams = [u for u in (group.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
+        return upstreams or None
+
+    def _client_profile(self, client_ip: str) -> tuple[bool, list[str] | None]:
+        """The per-client parts of how a query is answered: whether SafeSearch
+        rewriting applies, and the client group's own upstreams (if any)."""
+        safe_search = bool(self._blocklist.safe_search_enabled_for(client_ip))
+        return safe_search, self._group_upstreams(client_ip)
+
+    @staticmethod
+    def _cache_variant(safe_search: bool, group_upstreams: list[str] | None) -> str:
+        parts = []
+        if safe_search:
+            parts.append("ss")
+        if group_upstreams:
+            parts.append("up=" + ",".join(group_upstreams))
+        return "|".join(parts)
+
+    @staticmethod
+    def _parse_cache_variant(variant: str) -> tuple[bool, list[str] | None]:
+        safe_search = False
+        group_upstreams: list[str] | None = None
+        for part in (variant or "").split("|"):
+            if part == "ss":
+                safe_search = True
+            elif part.startswith("up="):
+                group_upstreams = [u for u in part[3:].split(",") if u] or None
+        return safe_search, group_upstreams
+
+    def _resolve_upstream(
+        self,
+        request: DNSRecord,
+        qname: str,
+        client_ip: str,
+        safe_search: bool,
+        group_upstreams: list[str] | None,
+        variant: str,
+        typosquat=None,
+    ) -> DNSRecord:
+        qtype_name = QTYPE.get(request.q.qtype, str(request.q.qtype))
+        redirect_target = None
+        if (
+            typosquat
+            and qname
+            and qtype_name in ("A", "AAAA")
+            and self._config.get("dns", "typosquat_action", default="alert") == "redirect_real"
+        ):
+            redirect_target = typosquat[0]
+        elif qname and qtype_name in ("A", "AAAA") and safe_search:
+            redirect_target = find_safe_search_target(qname)
+        if redirect_target is not None:
+            return self._redirect_to_hostname(request, redirect_target, client_ip, group_upstreams, variant)
+        return self._forward(request, qname, client_ip, group_upstreams=group_upstreams, variant=variant)
+
+    _UNSET = object()
+
+    def _select_upstreams(self, qname: str, client_ip: str, group_upstreams=_UNSET) -> list[str]:
         for rule in self._config.get("domain_upstreams", default=[]) or []:
             domains = rule.get("domains") or []
             if any(qname == d or qname.endswith("." + d) for d in domains):
@@ -255,12 +322,10 @@ class FilteringResolver:
                 if upstreams:
                     return upstreams
 
-        if client_ip:
-            group = self._blocklist.group_for(client_ip)
-            if group is not None:
-                upstreams = [u for u in (group.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
-                if upstreams:
-                    return upstreams
+        if group_upstreams is self._UNSET:
+            group_upstreams = self._group_upstreams(client_ip)
+        if group_upstreams:
+            return list(group_upstreams)
 
         upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
         return [u for u in upstreams if not upstream_transport.is_disabled(u)]
@@ -322,14 +387,16 @@ class FilteringResolver:
         response.auth = [rr for rr in response.auth if rr.rtype not in _DNSSEC_RTYPES]
         response.ar = [rr for rr in response.ar if rr.rtype != QTYPE.OPT and rr.rtype not in _DNSSEC_RTYPES]
 
-    def _forward(self, request: DNSRecord, qname: str, client_ip: str) -> DNSRecord:
+    def _forward(
+        self, request: DNSRecord, qname: str, client_ip: str, group_upstreams=_UNSET, variant: str = ""
+    ) -> DNSRecord:
         data = self._prepare_upstream_data(request)
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
-        upstreams = self._select_upstreams(qname, client_ip)
+        upstreams = self._select_upstreams(qname, client_ip, group_upstreams)
         strategy = self._config.get("dns", "upstream_strategy", default="in_order")
 
         if strategy == "race" and len(upstreams) > 1:
-            return self._forward_race(request, data, upstreams, timeout, qname)
+            return self._forward_race(request, data, upstreams, timeout, qname, variant)
 
         if strategy == "random":
             upstreams = list(upstreams)
@@ -354,7 +421,7 @@ class FilteringResolver:
                 logger.warning("upstream %s failed: %s", upstream, exc)
                 continue
 
-        stale = self._stale_fallback(request)
+        stale = self._stale_fallback(request, variant)
         if stale is not None:
             logger.info("serving stale cache entry for %s after upstream failure", qname)
             return stale
@@ -363,16 +430,22 @@ class FilteringResolver:
         reply.header.rcode = RCODE.SERVFAIL
         return reply
 
-    def _stale_fallback(self, request: DNSRecord) -> DNSRecord | None:
+    def _stale_fallback(self, request: DNSRecord, variant: str = "") -> DNSRecord | None:
         if self._cache is None:
             return None
         if not bool(self._config.get("dns", "cache_serve_stale_enabled", default=True)):
             return None
         grace = float(self._config.get("dns", "cache_stale_grace_seconds", default=3600))
-        return self._cache.get_stale(request, grace)
+        return self._cache.get_stale(request, grace, variant)
 
     def _forward_race(
-        self, request: DNSRecord, data: bytes, upstreams: list[str], timeout: float, qname: str = ""
+        self,
+        request: DNSRecord,
+        data: bytes,
+        upstreams: list[str],
+        timeout: float,
+        qname: str = "",
+        variant: str = "",
     ) -> DNSRecord:
         results: queue.Queue[tuple[str, bytes | None, Exception | None]] = queue.Queue()
 
@@ -401,7 +474,7 @@ class FilteringResolver:
                 return parsed
             logger.warning("upstream %s failed (race mode): %s", upstream, exc)
 
-        stale = self._stale_fallback(request)
+        stale = self._stale_fallback(request, variant)
         if stale is not None:
             logger.info("serving stale cache entry for %s after upstream failure (race mode)", qname)
             return stale
@@ -428,13 +501,23 @@ class FilteringResolver:
             self._cache.mark_prefetching(key)
             threading.Thread(target=self._prefetch_one, args=(key,), daemon=True).start()
 
-    def _prefetch_one(self, key: tuple[str, int, int]) -> None:
-        qname, qtype, _qclass = key
+    def _prefetch_one(self, key: tuple[str, int, int, str]) -> None:
+        qname, qtype, _qclass, variant = key
         try:
             sub_request = DNSRecord.question(qname, qtype=QTYPE.get(qtype, "A"))
-            response = self._forward(sub_request, qname, "")
+            plain_qname = qname.rstrip(".").lower()
+            safe_search, group_upstreams = self._parse_cache_variant(variant)
+            response = self._resolve_upstream(
+                sub_request,
+                plain_qname,
+                "",
+                safe_search,
+                group_upstreams,
+                variant,
+                typosquat=self._blocklist.typosquat_match(plain_qname),
+            )
             if response.header.rcode == RCODE.NOERROR:
-                self._cache.put(sub_request, response)
+                self._cache.put(sub_request, response, variant)
         except Exception as exc:
             logger.debug("prefetch of %s failed: %s", qname, exc)
         finally:

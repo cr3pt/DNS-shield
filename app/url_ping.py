@@ -37,7 +37,7 @@ class UrlPingTask:
         try:
             check_public_url(url)
             with public_dns_guard(url):
-                resp = requests.get(url, timeout=_TIMEOUT)
+                resp = requests.get(url, timeout=_TIMEOUT, allow_redirects=False)
             logger.info("url ping to %s completed with status %d", url, resp.status_code)
         except (requests.RequestException, ValueError) as exc:
             logger.warning("url ping to %s failed: %s", url, exc)

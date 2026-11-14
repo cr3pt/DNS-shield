@@ -93,9 +93,9 @@ vouches for a self-signed certificate; click through it once (see
 [HTTPS for the dashboard](#https-for-the-dashboard) below for the
 actually-correct fix, and for how to opt back into plain HTTP if you'd
 rather not deal with that warning on a LAN-only deployment). Log in with
-the default `admin` / `changeme` credentials, **change the password**
-(Settings -> General -> "Your account"), and point a device's DNS at
-`<host>:53` to test it.
+the default `admin` / `changeme` credentials - the dashboard then asks you
+to choose a new password (at least 8 characters) and refuses every other
+action until you do - and point a device's DNS at `<host>:53` to test it.
 
 To use it network-wide, set it as the DNS server in your router's DHCP
 settings (or on individual devices).
@@ -1816,12 +1816,15 @@ container restart signs everyone out; changing a user's password (their
 own, or an admin changing someone else's) also signs out every session
 for that account immediately.
 
-**Signed out**, `/` shows a minimal public view: just the query trend
+**Signed out**, `/` sends you to the sign-in page. Optionally (Settings ->
+General -> "Show a public summary...", `web.public_view_enabled`, off by
+default) it can instead show a minimal public view: just the query trend
 chart and the top blocked domains list (domain + count, nothing else) -
 no client IPs, no query log, no Copy or Enrich buttons, no tabs, no pause
-bar. This is meant to be safe to leave open on a shared screen or point a
-household member at without giving them a login. It's served by its own
-endpoint, `GET /api/public/summary`, which needs no session cookie.
+bar. It's off by default because the top blocked domains can reveal what
+people on the network try to visit. It's served by its own endpoint,
+`GET /api/public/summary`, which needs no session cookie and answers 404
+while the view is off.
 
 **Passwords** are always bcrypt-hashed (`app/auth.py`), never stored or
 returned in plain text. Upgrading from a version that only had a single
@@ -2150,8 +2153,10 @@ for a chosen duration (10/30/60/120 seconds, 5/10/30/60 minutes, or until
 you manually resume it) - useful for quickly checking whether DNS-shield
 is the cause of something breaking, without having to hunt down and
 temporarily remove a specific denylist entry or blocklist. While paused,
-every query resolves as if no blocklist, denylist, or client group
-existed; it self-expires exactly at the chosen time (no polling/cleanup
+every query resolves as if no blocklist or denylist existed - except that
+fully blocked clients and client-group schedules (e.g. a bedtime block)
+stay in force, since those are access controls rather than filtering; it
+self-expires exactly at the chosen time (no polling/cleanup
 needed - the timestamp is just checked against the current time) or you
 can hit "Resume blocking" early. Only Administrator accounts can see or
 use this bar - see **Multi-user accounts, roles, and the public view**
@@ -2652,10 +2657,12 @@ pytest
   it can use it, indistinguishably from the account that created it, for
   as long as it stays valid - treat it like a password, and revoke it the
   moment you suspect it leaked.
-- The public, signed-out view (`/` and `GET /api/public/summary`) is
-  intentionally reachable without a login - it only ever returns the
-  query trend and top blocked domains, nothing client- or domain-specific
-  beyond that.
+- The public, signed-out view (`/` and `GET /api/public/summary`) is off
+  by default; when turned on it is reachable without a login and only ever
+  returns the query trend and top blocked domains.
+- Set `web.public_url` (Settings -> General -> "Dashboard address") to the
+  address you open the dashboard at: passkeys are then bound to exactly
+  that origin instead of the address the request was made to.
 - Port 53 needs root or `CAP_NET_BIND_SERVICE` in the container - the
   provided image runs as root by default for this. For a fully rootless setup
   instead, the image already ships a dedicated `dnsshield` user and an

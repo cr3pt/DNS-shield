@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import ipaddress
+import secrets
 import socket
 import ssl
 import struct
+import time
 from urllib.parse import urlparse
 
 import requests
+from dnslib import DNSRecord
 from requests.adapters import HTTPAdapter
 
 from app.enrichment import THREAT_INTEL_HOSTNAMES
@@ -48,18 +51,70 @@ def forward(data: bytes, upstream: str, timeout: float) -> bytes:
     return _forward_plain(data, upstream, timeout)
 
 
+def _question_of(packet: bytes) -> tuple[str, int, int] | None:
+    """(qname exactly as written - case preserved, qtype, qclass) of the
+    first question in a DNS message, or None if it can't be parsed."""
+    try:
+        record = DNSRecord.parse(packet)
+    except Exception:
+        return None
+    if not record.questions:
+        return None
+    q = record.questions[0]
+    return str(q.qname), q.qtype, q.qclass
+
+
+def _check_response(query: bytes, resp: bytes) -> str:
+    """Return "ok", "case" (same question but different letter case - the
+    upstream doesn't preserve 0x20 randomization) or "mismatch"."""
+    if len(resp) < 12 or resp[:2] != query[:2]:
+        return "mismatch"
+    if not resp[2] & 0x80:  # QR bit: must be a response
+        return "mismatch"
+    sent = _question_of(query)
+    got = _question_of(resp)
+    if sent is None or got is None:
+        return "mismatch"
+    if sent == got:
+        return "ok"
+    if (sent[0].lower(), sent[1], sent[2]) == (got[0].lower(), got[1], got[2]):
+        return "case"
+    return "mismatch"
+
+
 def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
     host, port = _split_host_port(upstream, 53)
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
 
+    # A fresh random transaction ID per upstream query, independent of the
+    # client's ID, so an off-path attacker has to guess both it and the
+    # source port. The client's ID is put back on the way out.
+    original_id = data[:2]
+    query = secrets.token_bytes(2) + data[2:]
+    deadline = time.monotonic() + timeout
+
     with socket.socket(family, socket.SOCK_DGRAM) as sock:
-        sock.settimeout(timeout)
-        sock.sendto(data, (host, port))
-        resp, _ = sock.recvfrom(65535)
+        # connect() makes the kernel drop datagrams from any other address/port.
+        sock.connect((host, port))
+        sock.send(query)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise socket.timeout(f"no matching response from {upstream}")
+            sock.settimeout(remaining)
+            resp = sock.recv(65535)
+            verdict = _check_response(query, resp)
+            if verdict == "ok":
+                break
+            if verdict == "case":
+                # The upstream doesn't echo the randomized case - fall back to
+                # TCP, which isn't open to blind spoofing anyway.
+                return _forward_tcp(data, host, port, max(0.1, deadline - time.monotonic()))
+            # Spoofed, stale or malformed packet: ignore it and keep waiting.
 
     if len(resp) >= 3 and resp[2] & 0x02:
         return _forward_tcp(data, host, port, timeout)
-    return resp
+    return original_id + resp[2:]
 
 
 def _forward_tcp(data: bytes, host: str, port: int, timeout: float) -> bytes:

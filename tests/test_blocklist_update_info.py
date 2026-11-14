@@ -14,10 +14,18 @@ def _configure(config_store):
 
 
 class _Resp:
-    def __init__(self, text):
+    def __init__(self, text, status_code=200, headers=None):
         self.text = text
+        self.status_code = status_code
+        self.headers = headers or {}
 
     def raise_for_status(self):
+        return None
+
+    def iter_content(self, chunk_size=1):
+        yield self.text.encode("utf-8")
+
+    def close(self):
         return None
 
 
@@ -52,7 +60,7 @@ def test_never_downloaded_source_has_no_update_time(config_store, tmp_path):
 def test_successful_download_sets_update_time(config_store, tmp_path, monkeypatch):
     _configure(config_store)
     _no_guard(monkeypatch)
-    monkeypatch.setattr(blocklist_mod.requests, "get", lambda url, timeout: _Resp("ads.example.com\n"))
+    monkeypatch.setattr(blocklist_mod.requests, "get", lambda url, timeout, **kw: _Resp("ads.example.com\n"))
 
     blocklist = BlocklistManager(config_store, tmp_path / "cache")
     blocklist.refresh()
@@ -73,7 +81,7 @@ def test_failed_download_keeps_previous_update_time_and_reports_error(config_sto
     _configure(config_store)
     _no_guard(monkeypatch)
 
-    def boom(url, timeout):
+    def boom(url, timeout, **kw):
         raise ConnectionError("network down")
 
     monkeypatch.setattr(blocklist_mod.requests, "get", boom)
@@ -86,3 +94,40 @@ def test_failed_download_keeps_previous_update_time_and_reports_error(config_sto
     assert info["checked_at"] is not None
     assert info["error"] == "network down"
     assert blocklist.is_blocked("ads.example.com")
+
+
+def test_redirects_are_checked_hop_by_hop(config_store, tmp_path, monkeypatch):
+    _configure(config_store)
+    checked = []
+
+    def check(url):
+        checked.append(url)
+        if "192.168." in url:
+            raise ValueError("private address")
+
+    monkeypatch.setattr(blocklist_mod, "check_public_url", check)
+    monkeypatch.setattr(blocklist_mod, "public_dns_guard", lambda url: contextlib.nullcontext())
+    monkeypatch.setattr(
+        blocklist_mod.requests,
+        "get",
+        lambda url, timeout, **kw: _Resp("", status_code=302, headers={"Location": "http://192.168.1.1/admin"}),
+    )
+
+    blocklist = BlocklistManager(config_store, tmp_path / "cache")
+    blocklist.refresh()
+
+    assert checked == ["https://a.example/list.txt", "http://192.168.1.1/admin"]
+    assert "private address" in blocklist.source_update_info()["ListA"]["error"]
+    assert not blocklist.is_blocked("ads.example.com")
+
+
+def test_download_size_is_capped(config_store, tmp_path, monkeypatch):
+    _configure(config_store)
+    config_store.mutate(lambda d: d["blocklists"].update({"max_download_mb": 0.000001}))
+    _no_guard(monkeypatch)
+    monkeypatch.setattr(blocklist_mod.requests, "get", lambda url, timeout, **kw: _Resp("ads.example.com\n" * 10))
+
+    blocklist = BlocklistManager(config_store, tmp_path / "cache")
+    blocklist.refresh()
+
+    assert "limit" in blocklist.source_update_info()["ListA"]["error"]

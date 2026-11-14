@@ -738,5 +738,16 @@
   "col.updated": "最后更新",
   "sources.never_updated": "从未",
   "sources.update_failed": "上次下载失败 {when}",
-  "sources.last_checked": "上次检查：{when}"
+  "sources.last_checked": "上次检查：{when}",
+  "forced_pw.title": "Change the default password",
+  "forced_pw.intro": "This account still uses the default password. Anyone on your network could sign in with it, so choose a new one (at least 8 characters) before continuing.",
+  "forced_pw.current": "Current password",
+  "forced_pw.new": "New password",
+  "forced_pw.repeat": "Repeat new password",
+  "forced_pw.submit": "Change password",
+  "forced_pw.mismatch": "The new passwords don't match.",
+  "general.public_view": "Show a public summary (query trend and top blocked domains) to visitors who aren't signed in",
+  "general.hint.public_view": "Off by default: the top blocked domains can reveal what people on your network try to visit. When off, visitors are sent straight to the sign-in page.",
+  "general.public_url": "Dashboard address (optional)",
+  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request."
 }

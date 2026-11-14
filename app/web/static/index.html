@@ -737,6 +737,13 @@
           <div class="field"><label data-i18n="general.max_failed_logins">Max failed logins before lockout</label><input type="number" id="s-web-login-max-attempts" min="1" step="1"></div>
           <div class="field"><label data-i18n="general.lockout_duration">Lockout duration (minutes)</label><input type="number" id="s-web-login-lockout" min="1" step="1"></div>
         </div>
+        <div class="field"><label for="s-web-public-url" data-i18n="general.public_url">Dashboard address (optional)</label><input type="text" id="s-web-public-url" placeholder="https://dns.home.lan:3000"></div>
+        <p class="hint" data-i18n="general.hint.public_url">The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request.</p>
+        <div class="field checkbox">
+          <input type="checkbox" id="s-web-public-view-enabled">
+          <label for="s-web-public-view-enabled" data-i18n="general.public_view">Show a public summary (query trend and top blocked domains) to visitors who aren't signed in</label>
+        </div>
+        <p class="hint" data-i18n="general.hint.public_view">Off by default: the top blocked domains can reveal what people on your network try to visit. When off, visitors are sent straight to the sign-in page.</p>
         <p class="hint" data-i18n="general.hint.lockout">Locks out further login attempts from an IP after this many failures in a row, for this many minutes - takes effect immediately, no restart needed.</p>
         <p class="hint" data-i18n="general.hint.listen_restart">Listen address/port changes require restarting the container.</p>
         <button type="submit" data-i18n="general.save_web_settings">Save web settings</button>
@@ -2513,6 +2520,46 @@ function el(tag, attrs = {}, children = []) {
   }
   for (const c of children) node.appendChild(c);
   return node;
+}
+
+// Shown instead of the dashboard while the account still uses the default
+// password - the API refuses everything else until it's changed.
+function showForcedPasswordChange() {
+  const overlay = el("div", { class: "forced-pw-overlay" });
+  overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(5,9,25,0.92);display:flex;align-items:center;justify-content:center;padding:16px;";
+  const box = el("form", { class: "card" });
+  box.style.cssText = "max-width:420px;width:100%;padding:1.5rem;background:var(--panel, #111a3a);border-radius:12px;";
+  const title = el("h2", { text: t("forced_pw.title", "Change the default password") });
+  const intro = el("p", { class: "muted", text: t("forced_pw.intro", "This account still uses the default password. Anyone on your network could sign in with it, so choose a new one (at least 8 characters) before continuing.") });
+  const current = el("input", { type: "password", autocomplete: "current-password", placeholder: t("forced_pw.current", "Current password"), required: "required" });
+  const next = el("input", { type: "password", autocomplete: "new-password", placeholder: t("forced_pw.new", "New password"), minlength: "8", required: "required" });
+  const repeat = el("input", { type: "password", autocomplete: "new-password", placeholder: t("forced_pw.repeat", "Repeat new password"), minlength: "8", required: "required" });
+  const error = el("p", { class: "muted" });
+  error.style.color = "var(--danger)";
+  const submit = el("button", { type: "submit", text: t("forced_pw.submit", "Change password") });
+  for (const input of [current, next, repeat]) input.style.cssText = "display:block;width:100%;margin:0.4rem 0;";
+  box.append(title, intro, current, next, repeat, error, submit);
+  box.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.textContent = "";
+    if (next.value !== repeat.value) {
+      error.textContent = t("forced_pw.mismatch", "The new passwords don't match.");
+      return;
+    }
+    try {
+      await api("/api/account/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: current.value, new_password: next.value }),
+      });
+      location.reload();
+    } catch (err) {
+      error.textContent = err && err.message ? err.message : String(err);
+    }
+  });
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  current.focus();
 }
 
 function isIpAddress(value) {
@@ -5148,6 +5195,8 @@ async function loadSettings() {
   document.getElementById("s-web-https-key-path").value = s.web.https_key_path ?? "";
   document.getElementById("s-web-https-migrate-field").style.display = s.web.https_enabled ? "none" : "";
   document.getElementById("s-web-login-max-attempts").value = s.web.login_max_attempts ?? 5;
+  document.getElementById("s-web-public-view-enabled").checked = !!s.web.public_view_enabled;
+  document.getElementById("s-web-public-url").value = s.web.public_url || "";
   document.getElementById("s-web-login-lockout").value = s.web.login_lockout_minutes ?? 15;
   document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
 
@@ -7002,6 +7051,8 @@ document.getElementById("web-settings-form").addEventListener("submit", async (e
     https_key_path: document.getElementById("s-web-https-key-path").value.trim(),
     login_max_attempts: intField("s-web-login-max-attempts"),
     login_lockout_minutes: floatField("s-web-login-lockout"),
+    public_view_enabled: document.getElementById("s-web-public-view-enabled").checked,
+    public_url: document.getElementById("s-web-public-url").value.trim(),
   };
   document.documentElement.setAttribute("data-theme", theme);
   await withDelayedSpinner(e.submitter, async () => {
@@ -7981,7 +8032,13 @@ async function renderPublicView() {
   }
   document.getElementById("tab-stats").classList.add("active");
 
-  const data = await fetch("/api/public/summary").then((r) => r.json());
+  const res = await fetch("/api/public/summary");
+  if (res.status === 404) {
+    // Public view switched off (the default): go straight to sign-in.
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+    return;
+  }
+  const data = await res.json();
   renderTrendLegend();
   renderTrendChart(data.timeseries);
 
@@ -8068,6 +8125,11 @@ async function boot() {
   if (!currentUser) {
     await renderPublicView();
     setInterval(renderPublicView, 30000);
+    return;
+  }
+
+  if (currentUser.must_change_password) {
+    showForcedPasswordChange();
     return;
   }
 

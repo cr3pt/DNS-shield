@@ -32,3 +32,12 @@ class FakeStats:
 @pytest.fixture
 def config_store(tmp_path):
     return ConfigStore(db_path=tmp_path / "config.db", backup_path=tmp_path / "config.backup.yaml")
+
+
+@pytest.fixture(autouse=True)
+def _no_forced_default_password_change(monkeypatch, request):
+    """Most tests log in as admin/changeme and go straight to the feature they
+    test; the forced first-login password change has its own tests, which
+    opt back in with the `force_password_change` marker."""
+    if request.node.get_closest_marker("force_password_change") is None:
+        monkeypatch.setattr("app.users.FORCE_DEFAULT_PASSWORD_CHANGE", False)

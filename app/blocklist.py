@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import re
 import threading
@@ -12,6 +13,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urljoin
 
 import regex
 import requests
@@ -27,11 +29,18 @@ logger = logging.getLogger("dnsshield.blocklist")
 _HOSTS_PREFIXES = ("0.0.0.0 ", "127.0.0.1 ", "::1 ", "0.0.0.0\t", "127.0.0.1\t")
 _ADBLOCK_RE = re.compile(r"^\|\|([a-z0-9.\-_]+)\^")
 _ADBLOCK_EXCEPTION_RE = re.compile(r"^@@\|\|([a-z0-9.\-_]+)\^")
-_DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$")
+# Labels may contain "_" (e.g. _dmarc, some tracker hostnames) - real lists use it.
+_DOMAIN_RE = re.compile(
+    r"^[a-z0-9_]([a-z0-9\-_]{0,61}[a-z0-9_])?(\.[a-z0-9_]([a-z0-9\-_]{0,61}[a-z0-9_])?)+$"
+)
 
 DEFAULT_LOCAL_TLDS = ("local", "lan", "home", "internal", "corp", "home.arpa")
 
 _FETCH_CACHE_TTL_SECONDS = 60.0
+_MAX_REDIRECTS = 5
+_SIGNATURE_CHECK_SECONDS = 10.0
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
+_DEFAULT_MAX_DOWNLOAD_MB = 512
 _REGEX_MATCH_TIMEOUT_SECONDS = 0.2
 _REDOS_PROBE_TIMEOUT_SECONDS = 0.5
 _REDOS_PROBE_STRINGS = tuple(f"{'a' * n}!" for n in (8, 16, 32, 48, 63)) + tuple("a" * n for n in (32, 63))
@@ -79,43 +88,47 @@ _FORMAT_LABELS = {
 }
 
 
-def _parse_line(line: str) -> tuple[str, str] | None:
-    line = line.strip()
+def _parse_line_all(line: str) -> list[tuple[str, str]]:
+    """Every (domain, format) entry on one list line - a hosts-file line can
+    name several domains ("0.0.0.0 a.example b.example")."""
+    line = line.strip().lower()
     if not line or line.startswith(("#", "!", ";")):
-        return None
+        return []
 
     if line.startswith("@@||"):
         m = _ADBLOCK_EXCEPTION_RE.match(line)
-        if m:
-            domain = m.group(1)
-            fmt = "adblock_exception"
-        else:
-            return None
+        if not m:
+            return []
+        candidates, fmt = [m.group(1)], "adblock_exception"
     elif line.startswith("||"):
         m = _ADBLOCK_RE.match(line)
-        if m:
-            domain = m.group(1)
-            fmt = "adblock"
-        else:
-            return None
+        if not m:
+            return []
+        candidates, fmt = [m.group(1)], "adblock"
     elif line.startswith(_HOSTS_PREFIXES):
-        parts = line.split()
+        parts = line.split("#", 1)[0].split()
         if len(parts) < 2:
-            return None
-        domain = parts[1]
-        fmt = "hosts"
+            return []
+        candidates, fmt = parts[1:], "hosts"
     elif line.startswith("@@"):
-        return None
+        return []
     else:
-        domain = line.split()[0] if line.split() else ""
-        fmt = "plain"
+        parts = line.split()
+        candidates, fmt = (parts[:1] if parts else []), "plain"
 
-    domain = domain.strip().rstrip(".").lower()
-    if domain in ("localhost", "local", "broadcasthost"):
-        return None
-    if not _DOMAIN_RE.match(domain):
-        return None
-    return domain, fmt
+    result = []
+    for domain in candidates:
+        domain = domain.strip().rstrip(".")
+        if domain in ("localhost", "local", "broadcasthost", "localhost.localdomain", "ip6-localhost"):
+            continue
+        if _DOMAIN_RE.match(domain):
+            result.append((domain, fmt))
+    return result
+
+
+def _parse_line(line: str) -> tuple[str, str] | None:
+    entries = _parse_line_all(line)
+    return entries[0] if entries else None
 
 
 def parse_list(text: str) -> tuple[set[str], dict[str, int], set[str]]:
@@ -123,9 +136,7 @@ def parse_list(text: str) -> tuple[set[str], dict[str, int], set[str]]:
     exceptions: set[str] = set()
     format_counts: dict[str, int] = {}
     for raw_line in text.splitlines():
-        parsed = _parse_line(raw_line)
-        if parsed:
-            domain, fmt = parsed
+        for domain, fmt in _parse_line_all(raw_line):
             format_counts[fmt] = format_counts.get(fmt, 0) + 1
             if fmt == "adblock_exception":
                 exceptions.add(domain)
@@ -228,6 +239,8 @@ class BlocklistManager:
         self._allow_source_counts: dict[str, int] = {}
         self._allow_source_formats: dict[str, str] = {}
         self._group_blocked: dict[str, frozenset[str]] = {}
+        self._carve_outs: dict[str, frozenset[str]] = {}
+        self._group_carve_outs: dict[str, dict[str, frozenset[str]]] = {}
         self._group_domain_source: dict[str, dict[str, str]] = {}
         self._group_source_counts: dict[str, dict[str, int]] = {}
         self._group_source_formats: dict[str, dict[str, str]] = {}
@@ -236,6 +249,7 @@ class BlocklistManager:
         self._alert_source_counts: dict[str, int] = {}
         self._alert_source_formats: dict[str, str] = {}
         self._last_refresh: float | None = None
+        self._loaded_signature: str | None = None
         self._refresh_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -273,9 +287,6 @@ class BlocklistManager:
     def block_reason(self, qname: str, client_ip: str | None = None) -> str | None:
         qname = qname.rstrip(".").lower()
 
-        if self.is_paused():
-            return None
-
         group = self._find_group(client_ip)
 
         def matches(domains: Iterable[str] | None) -> bool:
@@ -283,10 +294,16 @@ class BlocklistManager:
 
         if matches(protected_hostnames(self._config)):
             return None
+        # Blocking a whole client and a group's bedtime schedule are access
+        # controls, not filtering: pausing filtering ("let me reach this site
+        # for 5 minutes") must not hand a blocked device or a child's group
+        # their internet back.
         if self._is_client_blocked(client_ip):
             return "Client blocked (manually)"
         if group is not None and is_schedule_blocked(group.get("schedule")):
             return f'Scheduled block (client group "{group.get("name", "")}")'
+        if self.is_paused():
+            return None
         if group and matches(group.get("denylist")):
             return f"Denylist (client group \"{group.get('name', '')}\")"
         if matches(self._config.get("denylist", default=[])):
@@ -307,6 +324,7 @@ class BlocklistManager:
 
         with self._lock:
             allowed, blocked, domain_source = self._allowed, self._blocked, self._domain_source
+            carve_outs, group_carve_outs = self._carve_outs, self._group_carve_outs
             group_blocked = self._group_blocked
             group_domain_source = self._group_domain_source
 
@@ -322,14 +340,16 @@ class BlocklistManager:
         if self._config.get("dns", "block_non_latin", default=False) and is_non_latin_domain(qname):
             return "Non-Latin-script domain filter"
 
-        matched = self._find_match(qname, blocked)
+        matched = self._find_block_match(qname, blocked, carve_outs)
         if matched is not None:
             source = domain_source.get(matched)
             return f"Blocklist: {source}" if source else "Blocklist"
 
         if group is not None:
             group_name = group.get("name", "")
-            matched = self._find_match(qname, group_blocked.get(group_name, frozenset()))
+            matched = self._find_block_match(
+                qname, group_blocked.get(group_name, frozenset()), group_carve_outs.get(group_name, {})
+            )
             if matched is not None:
                 source = group_domain_source.get(group_name, {}).get(matched)
                 label = f'Blocklist (client group "{group_name}")'
@@ -445,6 +465,22 @@ class BlocklistManager:
             candidate = ".".join(labels[i:])
             if candidate in domain_set:
                 return candidate
+        return None
+
+    @staticmethod
+    def _find_block_match(qname: str, domain_set: frozenset[str], carve_outs: dict[str, frozenset[str]]) -> str | None:
+        """Like _find_match, but skips a blocked entry whose own list excepts
+        the subdomain being asked for (||example.com^ + @@||sub.example.com^),
+        and keeps looking at less specific entries from other lists."""
+        labels = qname.split(".")
+        for i in range(len(labels)):
+            candidate = ".".join(labels[i:])
+            if candidate not in domain_set:
+                continue
+            excepted = carve_outs.get(candidate)
+            if excepted and any(qname == e or qname.endswith("." + e) for e in excepted):
+                continue
+            return candidate
         return None
 
     def mac_for(self, client_ip: str) -> str | None:
@@ -606,6 +642,35 @@ class BlocklistManager:
         safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
         return self._cache_dir / f"{safe}.cache"
 
+    def _download(self, url: str) -> str:
+        """GET a list over the network. Redirects are followed by hand so every
+        hop gets the same public-address (SSRF) check as the first URL - a
+        public list can't bounce the request to a box on the LAN - and the
+        body is capped so a hostile or broken server can't exhaust memory."""
+        max_mb = float(self._config.get("blocklists", "max_download_mb", default=_DEFAULT_MAX_DOWNLOAD_MB) or 0)
+        max_bytes = int(max_mb * 1024 * 1024) if max_mb > 0 else None
+        for _ in range(_MAX_REDIRECTS + 1):
+            check_public_url(url)
+            with public_dns_guard(url):
+                resp = requests.get(url, timeout=15, allow_redirects=False, stream=True)
+                try:
+                    location = resp.headers.get("Location") if resp.status_code in _REDIRECT_CODES else None
+                    if location:
+                        url = urljoin(url, location)
+                        continue
+                    resp.raise_for_status()
+                    chunks: list[bytes] = []
+                    total = 0
+                    for chunk in resp.iter_content(chunk_size=1 << 16):
+                        total += len(chunk)
+                        if max_bytes is not None and total > max_bytes:
+                            raise ValueError(f"list is larger than the {max_mb:g} MB limit (blocklists.max_download_mb)")
+                        chunks.append(chunk)
+                finally:
+                    resp.close()
+            return b"".join(chunks).decode("utf-8", errors="replace")
+        raise ValueError(f"too many redirects (more than {_MAX_REDIRECTS})")
+
     def _fetch_one(
         self, name: str, url: str, parser=parse_list, network: bool = True
     ) -> tuple[set[str], dict[str, int], set[str]]:
@@ -625,11 +690,7 @@ class BlocklistManager:
                 return cached[1], cached[2], cached[3]
 
         try:
-            check_public_url(url)
-            with public_dns_guard(url):
-                resp = requests.get(url, timeout=15)
-            resp.raise_for_status()
-            text = resp.text
+            text = self._download(url)
             cache_path.write_text(text, encoding="utf-8")
             self._record_status(name, checked=now, error=None)
         except Exception as exc:
@@ -648,7 +709,12 @@ class BlocklistManager:
         return result
 
     def _fetch_sources(
-        self, sources: Iterable[dict], parser=parse_list, describer=describe_format, network: bool = True
+        self,
+        sources: Iterable[dict],
+        parser=parse_list,
+        describer=describe_format,
+        network: bool = True,
+        carve_outs: dict[str, frozenset[str]] | None = None,
     ) -> tuple[set[str], dict[str, int], dict[str, str], dict[str, str], set[str]]:
         merged: set[str] = set()
         counts: dict[str, int] = {}
@@ -672,6 +738,10 @@ class BlocklistManager:
             for future in as_completed(future_to_name):
                 results[future_to_name[future]] = future.result()
 
+        # per_source_carve[name][parent] = exceptions in that source that sit
+        # under a domain the same source blocks (||example.com^ together with
+        # @@||sub.example.com^).
+        per_source_carve: dict[str, dict[str, set[str]]] = {}
         for name, _url in enabled:
             domains, format_counts, source_exceptions = results[name]
             counts[name] = len(domains)
@@ -681,13 +751,37 @@ class BlocklistManager:
             exceptions |= source_exceptions
             for domain in effective:
                 domain_source.setdefault(domain, name)
+            if carve_outs is not None:
+                for exc in source_exceptions:
+                    labels = exc.split(".")
+                    for i in range(1, len(labels) - 1):
+                        parent = ".".join(labels[i:])
+                        if parent in effective:
+                            per_source_carve.setdefault(name, {}).setdefault(parent, set()).add(exc)
+
+        if carve_outs is not None:
+            # A carve-out only holds when every source that blocks the parent
+            # also excepts that subdomain - an exception never cancels another
+            # list's block.
+            parents = {p for carve in per_source_carve.values() for p in carve}
+            for parent in parents:
+                allowed: set[str] | None = None
+                for name, _url in enabled:
+                    if parent not in results[name][0] or parent in results[name][2]:
+                        continue
+                    mine = per_source_carve.get(name, {}).get(parent, set())
+                    allowed = set(mine) if allowed is None else allowed & mine
+                if allowed:
+                    carve_outs[parent] = frozenset(allowed)
         return merged, counts, formats, domain_source, exceptions
 
     def refresh(self, network: bool = True) -> None:
         with self._refresh_lock:
+            signature = self._sources_signature()
             sources = self._config.get("blocklists", "sources", default=[]) or []
+            carve_outs: dict[str, frozenset[str]] = {}
             merged, counts, formats, domain_source, _block_exceptions = self._fetch_sources(
-                sources, network=network
+                sources, network=network, carve_outs=carve_outs
             )
 
             allow_sources = self._config.get("blocklists", "allow_sources", default=[]) or []
@@ -711,14 +805,17 @@ class BlocklistManager:
             group_domain_source: dict[str, dict[str, str]] = {}
             group_source_counts: dict[str, dict[str, int]] = {}
             group_source_formats: dict[str, dict[str, str]] = {}
+            group_carve_outs: dict[str, dict[str, frozenset[str]]] = {}
             for group in self._config.get("client_groups", default=[]) or []:
                 group_sources = group.get("blocklist_sources") or []
                 if not group_sources:
                     continue
                 name = group.get("name", "")
+                g_carve: dict[str, frozenset[str]] = {}
                 g_merged, g_counts, g_formats, g_domain_source, g_exceptions = self._fetch_sources(
-                    group_sources, network=network
+                    group_sources, network=network, carve_outs=g_carve
                 )
+                group_carve_outs[name] = g_carve
                 group_blocked[name] = frozenset(g_merged - g_exceptions)
                 group_domain_source[name] = g_domain_source
                 group_source_counts[name] = g_counts
@@ -747,6 +844,8 @@ class BlocklistManager:
 
             with self._lock:
                 self._blocked = frozenset(merged)
+                self._carve_outs = carve_outs
+                self._group_carve_outs = group_carve_outs
                 self._source_counts = counts
                 self._source_formats = formats
                 self._domain_source = domain_source
@@ -766,6 +865,7 @@ class BlocklistManager:
                 self._answer_ip_source = answer_ip_source
                 self._answer_ip_source_counts = answer_ip_counts
                 self._answer_ip_source_formats = answer_ip_formats
+                self._loaded_signature = signature
                 if network:
                     self._last_refresh = time.time()
             logger.info(
@@ -788,11 +888,34 @@ class BlocklistManager:
     def stop(self) -> None:
         self._stop_event.set()
 
+    def _sources_signature(self) -> str:
+        """Everything in the config that decides which lists get loaded. When
+        it changes in another process (e.g. the web UI added a list while this
+        is an extra DNS worker), this manager reloads on its own."""
+        relevant = {
+            "sources": self._config.get("blocklists", "sources", default=[]),
+            "allow_sources": self._config.get("blocklists", "allow_sources", default=[]),
+            "alert_sources": self._config.get("alert_rules", "sources", default=[]),
+            "alert_domains": self._config.get("alert_rules", "domains", default=[]),
+            "answer_ip_sources": self._config.get("blocked_answer_ip_sources", default=[]),
+            "answer_ips": self._config.get("blocked_answer_ips", default=[]),
+            "groups": [
+                (g.get("name"), g.get("blocklist_sources"))
+                for g in (self._config.get("client_groups", default=[]) or [])
+            ],
+        }
+        return json.dumps(relevant, sort_keys=True, default=str)
+
     def _loop(self) -> None:
         self.refresh()
+        next_refresh = time.monotonic()
         while not self._stop_event.is_set():
             hours = self._config.get("blocklists", "refresh_interval_hours", default=24) or 24
             interval = max(float(hours), 0.25) * 3600
-            if self._stop_event.wait(interval):
+            if self._stop_event.wait(_SIGNATURE_CHECK_SECONDS):
                 return
-            self.refresh()
+            if time.monotonic() - next_refresh >= interval:
+                self.refresh()
+                next_refresh = time.monotonic()
+            elif self._sources_signature() != self._loaded_signature:
+                self.refresh()
