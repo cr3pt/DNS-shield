@@ -39,7 +39,21 @@ CREATE TABLE IF NOT EXISTS queries (
 CREATE INDEX IF NOT EXISTS idx_queries_ts ON queries(ts);
 CREATE INDEX IF NOT EXISTS idx_queries_domain ON queries(domain);
 CREATE INDEX IF NOT EXISTS idx_queries_blocked ON queries(blocked);
+CREATE TABLE IF NOT EXISTS query_hourly (
+    hour INTEGER NOT NULL,
+    client TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    qtype TEXT NOT NULL,
+    blocked INTEGER NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    count INTEGER NOT NULL,
+    PRIMARY KEY (hour, client, domain, qtype, blocked, reason)
+) WITHOUT ROWID;
 """
+
+# query_hourly holds the same rows as queries, counted per hour: the dashboard's
+# totals, top lists and charts read it instead of scanning every logged query.
+_HOURLY_SCHEMA_VERSION = 1
 
 
 class Stats:
@@ -87,8 +101,31 @@ class Stats:
             if "local_tld_match" not in columns:
                 conn.execute("ALTER TABLE queries ADD COLUMN local_tld_match TEXT")
             conn.commit()
+            self._backfill_hourly(conn)
         finally:
             conn.close()
+
+    @staticmethod
+    def _backfill_hourly(conn: sqlite3.Connection) -> None:
+        """Fill query_hourly from an existing query log once (upgrade from a
+        version without it). BEGIN IMMEDIATE makes it run in one DNS worker
+        process only; the others then see the new user_version."""
+        if conn.execute("PRAGMA user_version").fetchone()[0] >= _HOURLY_SCHEMA_VERSION:
+            return
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if conn.execute("PRAGMA user_version").fetchone()[0] < _HOURLY_SCHEMA_VERSION:
+                conn.execute("DELETE FROM query_hourly")
+                conn.execute(
+                    "INSERT INTO query_hourly (hour, client, domain, qtype, blocked, reason, count) "
+                    "SELECT CAST(ts / 3600 AS INTEGER), client, domain, qtype, blocked, COALESCE(reason, ''), COUNT(*) "
+                    "FROM queries GROUP BY 1, 2, 3, 4, 5, 6"
+                )
+                conn.execute(f"PRAGMA user_version = {_HOURLY_SCHEMA_VERSION}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def record(
         self,
@@ -144,6 +181,19 @@ class Stats:
         "rebinding_ip, local_tld_match) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
+    _HOURLY_SQL = (
+        "INSERT INTO query_hourly (hour, client, domain, qtype, blocked, reason, count) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT (hour, client, domain, qtype, blocked, reason) DO UPDATE SET count = count + excluded.count"
+    )
+
+    @staticmethod
+    def _hourly_counts(rows: list[tuple]) -> list[tuple]:
+        counts: dict[tuple, int] = {}
+        for ts, domain, qtype, client, blocked, reason, *_ in rows:
+            key = (int(ts // 3600), client, domain, qtype, blocked, reason or "")
+            counts[key] = counts.get(key, 0) + 1
+        return [key + (count,) for key, count in counts.items()]
 
     def _writer_loop(self) -> None:
         # The writer must never die: if it did, the query log would silently
@@ -169,6 +219,7 @@ class Stats:
                 if conn is None:
                     conn = self._connect()
                 conn.executemany(self._INSERT_SQL, pending)
+                conn.executemany(self._HOURLY_SQL, self._hourly_counts(pending))
                 conn.commit()
                 pending = []
                 backoff = self._flush_interval
@@ -196,6 +247,7 @@ class Stats:
         conn = self._connect()
         try:
             conn.execute("DELETE FROM queries")
+            conn.execute("DELETE FROM query_hourly")
             conn.commit()
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
@@ -211,6 +263,7 @@ class Stats:
         conn = self._connect()
         try:
             conn.execute("DELETE FROM queries WHERE ts < ?", (cutoff,))
+            conn.execute("DELETE FROM query_hourly WHERE hour < ?", (int(cutoff // 3600),))
             conn.commit()
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
@@ -268,29 +321,34 @@ class Stats:
         conn = self._connect()
         try:
             conn.row_factory = sqlite3.Row
-            total = conn.execute(f"SELECT COUNT(*) AS c FROM queries {where_clients}", base_params).fetchone()["c"]
-            blocked = conn.execute(
-                f"SELECT COUNT(*) AS c FROM queries {_and_clients('blocked = 1')}", base_params
-            ).fetchone()["c"]
+            totals = conn.execute(
+                f"SELECT COALESCE(SUM(count), 0) AS c, COALESCE(SUM(count * blocked), 0) AS b "
+                f"FROM query_hourly {where_clients}",
+                base_params,
+            ).fetchone()
+            total, blocked = totals["c"], totals["b"]
             top_domains = conn.execute(
-                f"SELECT domain, COUNT(*) AS c FROM queries {where_clients} GROUP BY domain ORDER BY c DESC LIMIT ?",
+                f"SELECT domain, SUM(count) AS c FROM query_hourly {where_clients} "
+                "GROUP BY domain ORDER BY c DESC LIMIT ?",
                 base_params + [top_n],
             ).fetchall()
             top_blocked_domains = conn.execute(
-                f"SELECT domain, COUNT(*) AS c FROM queries {_and_clients('blocked = 1')} "
+                f"SELECT domain, SUM(count) AS c FROM query_hourly {_and_clients('blocked = 1')} "
                 "GROUP BY domain ORDER BY c DESC LIMIT ?",
                 base_params + [top_n],
             ).fetchall()
             top_clients = conn.execute(
-                f"SELECT client, COUNT(*) AS c FROM queries {where_clients} GROUP BY client ORDER BY c DESC LIMIT ?",
+                f"SELECT client, SUM(count) AS c FROM query_hourly {where_clients} "
+                "GROUP BY client ORDER BY c DESC LIMIT ?",
                 base_params + [top_n],
             ).fetchall()
             qtype_counts = conn.execute(
-                f"SELECT qtype, COUNT(*) AS c FROM queries {where_clients} GROUP BY qtype ORDER BY c DESC",
+                f"SELECT qtype, SUM(count) AS c FROM query_hourly {where_clients} GROUP BY qtype ORDER BY c DESC",
                 base_params,
             ).fetchall()
+            with_reason = _and_clients("blocked = 1 AND reason != ''")
             block_reasons = conn.execute(
-                f"SELECT reason, COUNT(*) AS c FROM queries {_and_clients('blocked = 1 AND reason IS NOT NULL')} "
+                f"SELECT reason, SUM(count) AS c FROM query_hourly {with_reason} "
                 "GROUP BY reason ORDER BY c DESC LIMIT ?",
                 base_params + [top_n],
             ).fetchall()
@@ -480,14 +538,14 @@ class Stats:
     def total_count(self) -> int:
         conn = self._connect()
         try:
-            return conn.execute("SELECT COUNT(*) FROM queries").fetchone()[0]
+            return conn.execute("SELECT COALESCE(SUM(count), 0) FROM query_hourly").fetchone()[0]
         finally:
             conn.close()
 
     def blocked_count(self) -> int:
         conn = self._connect()
         try:
-            return conn.execute("SELECT COUNT(*) FROM queries WHERE blocked = 1").fetchone()[0]
+            return conn.execute("SELECT COALESCE(SUM(count), 0) FROM query_hourly WHERE blocked = 1").fetchone()[0]
         finally:
             conn.close()
 
@@ -615,7 +673,9 @@ class Stats:
 
     def timeseries(self, range_key: str = "24h", client_ips: list[str] | None = None) -> list[dict[str, Any]]:
         window_seconds, bucket_seconds = _TIMESERIES_RANGES.get(range_key, _TIMESERIES_RANGES["24h"])
-        since = time.time() - window_seconds
+        # Buckets line up with whole hours (the aggregate's resolution); the
+        # last one holds the current, still running hour.
+        since = (int(time.time() // 3600) + 1) * 3600 - window_seconds
 
         where_clients = ""
         client_params: list[Any] = []
@@ -630,9 +690,9 @@ class Stats:
         try:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT CAST((ts - ?) / ? AS INTEGER) AS bucket, COUNT(*) AS total, SUM(blocked) AS blocked "
-                f"FROM queries WHERE ts >= ? {where_clients} GROUP BY bucket",
-                [since, bucket_seconds, since] + client_params,
+                "SELECT (hour * 3600 - ?) / ? AS bucket, SUM(count) AS total, SUM(count * blocked) AS blocked "
+                f"FROM query_hourly WHERE hour >= ? {where_clients} GROUP BY bucket",
+                [since, bucket_seconds, since // 3600] + client_params,
             ).fetchall()
         finally:
             conn.close()
