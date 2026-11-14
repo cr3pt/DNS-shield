@@ -689,6 +689,19 @@ włączone). Nazwa z DHCP ma pierwszeństwo przed odpowiedzią PTR. Zapytania
 PTR działają też dla klientów IPv6 (`ip6.arpa`), a resolwer można podać
 jako `[fd00::1]:53`.
 
+### Blokowane usługi
+
+Ustawienia → Własne listy → **Blokowane usługi** blokuje całą aplikację lub
+serwis jednym przełącznikiem: każdą domenę, której potrzebuje (YouTube to
+`youtube.com`, `youtu.be`, `ytimg.com`, `googlevideo.com` i inne). Grupa
+klientów może na swojej karcie zablokować dodatkowe usługi dla swoich
+urządzeń (`client_groups[].blocked_services`), oprócz listy globalnej
+(`blocked_services`). Tak jak denylista, zablokowana usługa wygrywa z
+allowlistami; wstrzymanie filtrowania ją zdejmuje. Import z AdGuard Home
+przenosi też zablokowane usługi.
+
+Dostępne: `youtube`, `tiktok`, `instagram`, `facebook`, `whatsapp`, `snapchat`, `twitter`, `reddit`, `pinterest`, `discord`, `telegram`, `twitch`, `netflix`, `disneyplus`, `primevideo`, `spotify`, `roblox`, `fortnite`, `minecraft`, `steam`, `xbox`, `playstation`, `tinder`, `chatgpt`, `kick`, `9gag`.
+
 ### Polityki dla poszczególnych klientów i grup
 
 `client_groups` pozwala nadpisać globalną politykę dla wybranych klientów -

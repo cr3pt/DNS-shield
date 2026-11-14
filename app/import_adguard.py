@@ -126,6 +126,34 @@ def _looks_like_mac(value: str) -> bool:
     return bool(_MAC_RE.match(value))
 
 
+# AdGuard Home service ids that differ from DNS-shield's.
+_ADGUARD_SERVICE_IDS = {
+    "amazon_video": "primevideo",
+    "epic_games": "fortnite",
+    "xboxlive": "xbox",
+    "disney_plus": "disneyplus",
+    "openai": "chatgpt",
+}
+
+
+def convert_blocked_services(value: Any) -> tuple[list[str], list[str]]:
+    """AdGuard's blocked services ({"ids": [...]} or a plain list in older
+    versions) mapped to DNS-shield's catalogue; returns (ids, unknown ids)."""
+    from app.services import SERVICES
+
+    ids = value.get("ids") if isinstance(value, dict) else value
+    known: list[str] = []
+    unknown: list[str] = []
+    for raw in ids or []:
+        service_id = _ADGUARD_SERVICE_IDS.get(str(raw), str(raw))
+        if service_id in SERVICES:
+            if service_id not in known:
+                known.append(service_id)
+        else:
+            unknown.append(str(raw))
+    return known, unknown
+
+
 def convert_clients(clients_cfg: dict | None) -> tuple[list[dict], list[str]]:
     warnings: list[str] = []
     groups: list[dict] = []
@@ -146,15 +174,20 @@ def convert_clients(clients_cfg: dict | None) -> tuple[list[dict], list[str]]:
             warnings.append(f"client {name!r}: no usable IP/CIDR/MAC ids found, group not imported")
             continue
 
-        groups.append(
-            {
-                "name": name,
-                "match": match,
-                "enabled": bool(client.get("filtering_enabled", True)),
-                "allowlist": [],
-                "denylist": [],
-            }
-        )
+        group = {
+            "name": name,
+            "match": match,
+            "enabled": bool(client.get("filtering_enabled", True)),
+            "allowlist": [],
+            "denylist": [],
+        }
+        if client.get("use_global_blocked_services") is False:
+            services, unknown = convert_blocked_services(client.get("blocked_services"))
+            if services:
+                group["blocked_services"] = services
+            if unknown:
+                warnings.append(f"client {name!r}: blocked services not in DNS-shield's catalogue: {', '.join(unknown)}")
+        groups.append(group)
         if client.get("use_global_settings") is False:
             warnings.append(
                 f"client {name!r}: had custom upstreams/safe-browsing/parental settings in AdGuard Home - "
@@ -233,6 +266,15 @@ def import_config(adguard: dict, base: dict) -> tuple[dict, list[str]]:
             f"{len(skipped_rules)} user_rules line(s) used syntax DNS-shield can't parse "
             f"(regex/cosmetic rules, $options, etc.) and were skipped, e.g.: {sample}"
         )
+
+    blocked = (adguard.get("filtering") or {}).get("blocked_services")
+    if blocked is None:
+        blocked = (adguard.get("dns") or {}).get("blocked_services")
+    services, unknown_services = convert_blocked_services(blocked)
+    if services:
+        result["blocked_services"] = sorted(set(result.get("blocked_services") or []) | set(services))
+    if unknown_services:
+        warnings.append(f"blocked services not in DNS-shield's catalogue, skipped: {', '.join(unknown_services)}")
 
     groups, group_warnings = convert_clients(adguard.get("clients"))
     warnings.extend(group_warnings)

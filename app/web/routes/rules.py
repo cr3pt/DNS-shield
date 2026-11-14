@@ -14,11 +14,12 @@ from fastapi import Depends, FastAPI, HTTPException
 from app.blocklist import check_regex_pattern_safety, normalize_tld
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app.netmatch import normalize_client_pattern
+from app.services import catalog as services_catalog
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.url_safety import check_public_url
 from app.web.common import _ref_index
 from app.web.context import AppContext
-from app.web.models import BlocklistSourceIn, DomainIn, RegexPatternIn, ValueIn
+from app.web.models import BlockedServicesIn, BlocklistSourceIn, DomainIn, RegexPatternIn, ValueIn
 
 
 def register(app: FastAPI, ctx: AppContext) -> None:
@@ -125,6 +126,21 @@ def register(app: FastAPI, ctx: AppContext) -> None:
     def refresh_blocklists(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         blocklist.refresh()  # explicit "refresh now": the caller waits for the new counts
         return {"ok": True, "domains": blocklist.total_count(), "allowed": blocklist.allowed_count()}
+
+    @app.get("/api/services")
+    def get_services(_: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        return {
+            "services": services_catalog(),
+            "blocked": config_store.get("blocked_services", default=[]) or [],
+        }
+
+    @app.put("/api/blocked-services")
+    def set_blocked_services(body: BlockedServicesIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            data["blocked_services"] = body.services
+            return body.services
+
+        return config_store.mutate(_mutate)
 
     @app.get("/api/rules")
     def get_rules(_: dict[str, Any] = Depends(require_auth)) -> dict[str, list[str]]:

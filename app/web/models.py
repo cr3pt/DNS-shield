@@ -87,6 +87,30 @@ class ClientGroupIn(BaseModel):
     blocklist_sources: list[dict[str, Any]] = []
     safe_search: bool | None = None
     schedule: dict[str, Any] | None = None
+    blocked_services: list[str] = []
+
+    @field_validator("blocked_services")
+    @classmethod
+    def _validate_services(cls, value: list[str]) -> list[str]:
+        return _validate_service_ids(value)
+
+
+def _validate_service_ids(value: list[str]) -> list[str]:
+    from app.services import SERVICES, known_ids
+
+    unknown = sorted({str(v).strip().lower() for v in value} - set(SERVICES))
+    if unknown:
+        raise ValueError(f"unknown service(s): {', '.join(unknown)}")
+    return known_ids(value)
+
+
+class BlockedServicesIn(BaseModel):
+    services: list[str] = []
+
+    @field_validator("services")
+    @classmethod
+    def _validate(cls, value: list[str]) -> list[str]:
+        return _validate_service_ids(value)
 
 
 class GroupNameIn(BaseModel):

@@ -21,6 +21,7 @@ import requests
 
 from app.netmatch import best_matching_group, client_matches
 from app.schedule import group_access_override, is_schedule_blocked
+from app.services import blocked_service, service_name
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
 from app.upstream import matches_domain_or_parent, protected_hostnames
 from app.url_safety import check_public_url, public_dns_guard
@@ -344,8 +345,15 @@ class BlocklistManager:
             return None
         if group and matches(group.get("denylist")):
             return f"Denylist (client group \"{group.get('name', '')}\")"
+        if group:
+            service_id = blocked_service(qname, group.get("blocked_services"))
+            if service_id is not None:
+                return f'Blocked service: {service_name(service_id)} (client group "{group.get("name", "")}")'
         if matches(self._config.get("denylist", default=[])):
             return "Denylist (manually added)"
+        service_id = blocked_service(qname, self._config.get("blocked_services", default=[]))
+        if service_id is not None:
+            return f"Blocked service: {service_name(service_id)}"
         if self._config.get("dns", "regex_denylist_enabled", default=False):
             for pattern_text, pattern in self._compiled_regex_patterns():
                 try:
