@@ -89,3 +89,13 @@ def test_client_and_ip_lists_are_validated_and_cidrs_removable(client):
 def test_mac_client_block_can_be_removed(client):
     assert client.post("/api/rules/deny-client", json={"value": "mac:aa-bb-cc-dd-ee-ff"}).status_code == 200
     assert client.delete("/api/rules/deny-client/mac:AA:BB:CC:DD:EE:FF").json() == []
+
+
+def test_query_parameters_are_bounded(client):
+    assert client.get("/api/stats?log_n=100000000").status_code == 422
+    assert client.get("/api/stats?top_n=0").status_code == 422
+    assert client.get("/api/stats?top_n=10&log_n=10").status_code == 200
+    assert client.get("/api/query-log?limit=0").status_code == 422
+    assert client.get("/api/query-log?offset=-1").status_code == 422
+    assert client.post("/api/pause", json={"seconds": -5}).status_code == 422
+    assert client.patch("/api/settings/anomaly", json={"check_interval_minutes": 0}).status_code == 422
