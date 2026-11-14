@@ -12,6 +12,8 @@ dns:
   upstream_strategy: "in_order"
   upstream_stats_window_minutes: 15
   query_case_randomization_enabled: false
+  strip_ecs: true                # don't forward EDNS Client Subnet to upstreams
+  edns_padding: true             # pad DoT/DoH/DoQ messages (RFC 7830 / 8467)
   block_mode: "nxdomain"
   blocked_ipv4: "0.0.0.0"
   blocked_ipv6: "::"

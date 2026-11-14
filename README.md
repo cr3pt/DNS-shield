@@ -1645,6 +1645,24 @@ the limit is logged once a minute. With several DNS worker processes, each
 one counts on its own. A home device rarely sends more than 5 queries a
 second, so 20-50 is a safe limit.
 
+### EDNS Client Subnet and padding
+
+Some clients and apps attach **EDNS Client Subnet** (ECS) to their queries,
+which tells the upstream which network they're on. DNS-shield removes it
+before a query goes upstream (`dns.strip_ecs`, on by default), and also the
+client's DNS cookie and padding, which only apply between the client and
+DNS-shield. That way the upstream never learns your LAN's addresses, and an
+answer tailored to one subnet can't get into the cache that every client
+shares. Turn it off only if a CDN needs to see your real network and your
+upstream supports ECS.
+
+On encrypted transports a message's length can still give away the name in
+it. With `dns.edns_padding` (on by default) every query to a `dot://`,
+`https://`/`doh://` or `quic://` upstream is padded to a multiple of 128
+bytes, and a DoT/DoQ client that pads its own queries gets its answers
+padded to a multiple of 468 bytes. This follows RFC 7830 and RFC 8467.
+Plain-DNS upstreams and clients are left alone.
+
 ### DNS rebinding protection
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) is an attack

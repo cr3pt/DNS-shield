@@ -446,6 +446,8 @@
   "dns.client_hostnames": "客户端主机名(反向 DNS)",
   "dns.resolve_hostnames": "解析客户端主机名",
   "dns.names_from_dhcp": "使用 DHCP 租约中的主机名",
+  "dns.strip_ecs": "不向上游传递 EDNS Client Subnet（隐私：上游无法得知客户端的网络）",
+  "dns.edns_padding": "将加密 DNS 消息（DoT/DoH/DoQ）填充到固定大小，使其长度不会泄露域名",
   "sync.title": "从主服务器同步",
   "sync.hint": "将此实例设为从服务器：它会定期从主服务器复制屏蔽列表、允许/拒绝规则、屏蔽的服务、客户端分组、DNS 重写和 DNS 设置。请在主服务器上更改；此处同步的部分会被覆盖。账户、单点登录、Web 界面、DHCP、反向代理以及本机的监听地址和端口永远不会被复制。在主服务器上为管理员创建 API 令牌（设置，API 令牌）并粘贴到下方。",
   "sync.enabled": "从主服务器同步此实例",

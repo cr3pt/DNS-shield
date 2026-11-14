@@ -446,6 +446,8 @@
   "dns.client_hostnames": "Client hostnames (reverse DNS)",
   "dns.resolve_hostnames": "Resolve client hostnames",
   "dns.names_from_dhcp": "Use hostnames from DHCP leases",
+  "dns.strip_ecs": "Don't pass EDNS Client Subnet on to upstreams (privacy: they don't learn your clients' network)",
+  "dns.edns_padding": "Pad encrypted DNS messages (DoT/DoH/DoQ) to fixed sizes, so their length doesn't reveal the name",
   "sync.title": "Sync from a primary",
   "sync.hint": "Turn this instance into a secondary: it copies blocklists, allow/deny rules, blocked services, client groups, DNS rewrites and DNS settings from the primary at a regular interval. Make changes on the primary; the synced sections here get overwritten. Accounts, single sign-on, the web UI, DHCP, the reverse proxy and this machine's listen addresses and ports are never copied. On the primary, create an API token for an admin user (Settings, API tokens) and paste it below.",
   "sync.enabled": "Sync this instance from a primary",

@@ -13,7 +13,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from dnslib import AAAA, CNAME, EDNS0, QTYPE, RCODE, RR, TXT, A, DNSHeader, DNSQuestion, DNSRecord
+from dnslib import AAAA, CNAME, EDNS0, QTYPE, RCODE, RR, TXT, A, DNSHeader, DNSQuestion, DNSRecord, EDNSOption
 from dnslib.server import DNSServer
 from dnslib.server import TCPServer as _DNSLibTCPServer
 from dnslib.server import UDPServer as _DNSLibUDPServer
@@ -50,6 +50,67 @@ _TRUSTED_QUERY_NETWORKS = tuple(
 )
 
 
+_ECS_OPTION = 8
+_COOKIE_OPTION = 10
+_PADDING_OPTION = 12
+# EDNS options that only make sense between the client and us.
+_HOP_BY_HOP_OPTIONS = frozenset({_COOKIE_OPTION, _PADDING_OPTION})
+# RFC 8467: pad queries to a multiple of 128 bytes, responses to 468.
+_QUERY_PAD_BLOCK = 128
+_RESPONSE_PAD_BLOCK = 468
+_ENCRYPTED_UPSTREAM_PREFIXES = ("dot://", "doh://", "https://", *upstream_transport.DOQ_PREFIXES)
+
+
+def pad_message(record: DNSRecord, block: int) -> bytes:
+    """Pack a message with an EDNS padding option (RFC 7830) so its length
+    is a multiple of block - on an encrypted transport the size of a query
+    or answer otherwise gives away which name it is about."""
+    padded = DNSRecord.parse(record.pack())
+    opt = next((rr for rr in padded.ar if rr.rtype == QTYPE.OPT), None)
+    if opt is None:
+        opt = EDNS0(udp_len=_DNSSEC_UDP_SIZE)
+        padded.add_ar(opt)
+    options = [o for o in (opt.rdata or []) if o.code != _PADDING_OPTION]
+    opt.rdata = options + [EDNSOption(_PADDING_OPTION, b"")]
+    base = len(padded.pack())
+    opt.rdata = options + [EDNSOption(_PADDING_OPTION, b"\x00" * ((-base) % block))]
+    return padded.pack()
+
+
+class _PaddedReply:
+    """A reply that packs itself padded to a multiple of 468 bytes; looks
+    like the DNSRecord it wraps to everything else."""
+
+    def __init__(self, record: DNSRecord):
+        self._record = record
+
+    def __getattr__(self, name):
+        return getattr(self._record, name)
+
+    def pack(self) -> bytes:
+        return pad_message(self._record, _RESPONSE_PAD_BLOCK)
+
+
+class _UpstreamPayload:
+    """One upstream query in wire format: padded for encrypted upstreams
+    (dns.edns_padding, on by default), plain for the rest."""
+
+    __slots__ = ("_record", "_plain", "_padded", "_padding")
+
+    def __init__(self, record: DNSRecord, padding: bool):
+        self._record = record
+        self._plain = record.pack()
+        self._padded: bytes | None = None
+        self._padding = padding
+
+    def for_upstream(self, upstream: str) -> bytes:
+        if not self._padding or not upstream.startswith(_ENCRYPTED_UPSTREAM_PREFIXES):
+            return self._plain
+        if self._padded is None:
+            self._padded = pad_message(self._record, _QUERY_PAD_BLOCK)
+        return self._padded
+
+
 class FilteringResolver:
     def __init__(
         self, blocklist, stats, config_store, cache=None, client_names=None, upstream_stats=None, dnssec_cache=None
@@ -64,6 +125,30 @@ class FilteringResolver:
         self._rate_limiter = ClientRateLimiter(config_store)
 
     def resolve(self, request, handler):
+        response = self._resolve(request, handler)
+        if (
+            handler is not None
+            and self._wants_padded_response(request, handler)
+            and bool(self._config.get("dns", "edns_padding", default=True))
+        ):
+            return _PaddedReply(response)
+        return response
+
+    @staticmethod
+    def _wants_padded_response(request, handler) -> bool:
+        """Pad the answer when the client padded its query (RFC 7830 s4)
+        and the transport is encrypted (DoT / DoQ)."""
+        encrypted = getattr(handler, "encrypted_transport", False) or getattr(
+            getattr(handler, "server", None), "encrypted_transport", False
+        )
+        if not encrypted:
+            return False
+        for rr in request.ar:
+            if rr.rtype == QTYPE.OPT:
+                return any(option.code == _PADDING_OPTION for option in rr.rdata or [])
+        return False
+
+    def _resolve(self, request, handler):
         qname = str(request.q.qname).rstrip(".").lower()
         qtype = request.q.qtype
         qtype_name = QTYPE.get(qtype, str(qtype))
@@ -352,20 +437,39 @@ class FilteringResolver:
     def _randomize_case(name: str) -> str:
         return "".join(random.choice((c.upper(), c.lower())) if c.isalpha() else c for c in name)
 
-    def _prepare_upstream_data(self, request: DNSRecord) -> bytes:
+    def _prepare_upstream_query(self, request: DNSRecord) -> DNSRecord:
+        """The query as sent upstream: a fresh message with only the question
+        and our own EDNS record. The client's EDNS options are passed on
+        except the ones that are about this hop (cookies, padding) and, with
+        dns.strip_ecs (on by default), EDNS Client Subnet: it would tell every
+        upstream the client's network, and answers tailored to one subnet
+        would land in the shared cache."""
         dnssec = self._dnssec_enabled()
-        case_random = self._case_randomization_enabled()
-        if not dnssec and not case_random:
-            return request.pack()
-
         q = request.q
-        qname = self._randomize_case(str(q.qname)) if case_random else q.qname
+        qname = self._randomize_case(str(q.qname)) if self._case_randomization_enabled() else q.qname
         outgoing = DNSRecord(
-            DNSHeader(id=request.header.id, rd=request.header.rd), q=DNSQuestion(qname, q.qtype, q.qclass)
+            DNSHeader(id=request.header.id, rd=request.header.rd, cd=request.header.cd),
+            q=DNSQuestion(qname, q.qtype, q.qclass),
         )
-        if dnssec:
-            outgoing.add_ar(EDNS0(flags="do", udp_len=_DNSSEC_UDP_SIZE))
-        return outgoing.pack()
+        client_opt = next((rr for rr in request.ar if rr.rtype == QTYPE.OPT), None)
+        if client_opt is None and not dnssec:
+            return outgoing
+        strip_ecs = bool(self._config.get("dns", "strip_ecs", default=True))
+        options = []
+        if client_opt is not None:
+            for option in client_opt.rdata or []:
+                if option.code in _HOP_BY_HOP_OPTIONS or (strip_ecs and option.code == _ECS_OPTION):
+                    continue
+                options.append(option)
+        do = dnssec or (client_opt is not None and bool(client_opt.ttl & _EDNS_DO_BIT))
+        udp_len = _DNSSEC_UDP_SIZE if client_opt is None else max(512, min(int(client_opt.rclass), 4096))
+        outgoing.add_ar(EDNS0(flags="do" if do else "", udp_len=udp_len, opts=options))
+        return outgoing
+
+    def _upstream_payload(self, request: DNSRecord) -> _UpstreamPayload:
+        return _UpstreamPayload(
+            self._prepare_upstream_query(request), bool(self._config.get("dns", "edns_padding", default=True))
+        )
 
     def _record_dnssec(self, qname: str, response: DNSRecord) -> None:
         if self._dnssec_enabled() and qname:
@@ -402,13 +506,13 @@ class FilteringResolver:
     def _forward(
         self, request: DNSRecord, qname: str, client_ip: str, group_upstreams=_UNSET, variant: str = ""
     ) -> DNSRecord:
-        data = self._prepare_upstream_data(request)
+        payload = self._upstream_payload(request)
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
         upstreams = self._select_upstreams(qname, client_ip, group_upstreams)
         strategy = self._config.get("dns", "upstream_strategy", default="in_order")
 
         if strategy == "race" and len(upstreams) > 1:
-            return self._forward_race(request, data, upstreams, timeout, qname, variant)
+            return self._forward_race(request, payload, upstreams, timeout, qname, variant)
 
         if strategy == "random":
             upstreams = list(upstreams)
@@ -419,7 +523,7 @@ class FilteringResolver:
         for upstream in upstreams:
             start = time.monotonic()
             try:
-                resp = upstream_transport.forward(data, upstream, timeout)
+                resp = upstream_transport.forward(payload.for_upstream(upstream), upstream, timeout)
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
                 return self._finish_upstream_response(request, resp, qname)
@@ -458,7 +562,7 @@ class FilteringResolver:
     def _forward_race(
         self,
         request: DNSRecord,
-        data: bytes,
+        payload: _UpstreamPayload,
         upstreams: list[str],
         timeout: float,
         qname: str = "",
@@ -469,7 +573,7 @@ class FilteringResolver:
         def worker(upstream: str) -> None:
             start = time.monotonic()
             try:
-                resp = upstream_transport.forward(data, upstream, timeout)
+                resp = upstream_transport.forward(payload.for_upstream(upstream), upstream, timeout)
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
                 results.put((upstream, resp, None))
@@ -650,6 +754,8 @@ def reuse_port_supported() -> bool:
 
 def _make_dot_server_class(ssl_context: ssl.SSLContext):
     class _DoTServer(_PooledTCPServer):
+        encrypted_transport = True
+
         def finish_request(self, request, client_address):
             try:
                 tls_request = ssl_context.wrap_socket(request, server_side=True)

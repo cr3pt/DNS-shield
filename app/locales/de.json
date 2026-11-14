@@ -446,6 +446,8 @@
   "dns.client_hostnames": "Client-Hostnamen (Reverse DNS)",
   "dns.resolve_hostnames": "Client-Hostnamen auflösen",
   "dns.names_from_dhcp": "Hostnamen aus DHCP-Leases verwenden",
+  "dns.strip_ecs": "EDNS Client Subnet nicht an Upstreams weitergeben (Datenschutz: sie erfahren das Netz deiner Clients nicht)",
+  "dns.edns_padding": "Verschlüsselte DNS-Nachrichten (DoT/DoH/DoQ) auf feste Größen auffüllen, damit ihre Länge den Namen nicht verrät",
   "sync.title": "Von einem Primärserver synchronisieren",
   "sync.hint": "Macht diese Instanz zum Sekundärserver: Sie kopiert in regelmäßigen Abständen Blocklisten, Allow/Deny-Regeln, gesperrte Dienste, Client-Gruppen, DNS-Umschreibungen und DNS-Einstellungen vom Primärserver. Änderungen auf dem Primärserver vornehmen; synchronisierte Bereiche werden hier überschrieben. Konten, Single Sign-on, Web-UI, DHCP, Reverse-Proxy sowie Adressen und Ports dieser Maschine werden nie kopiert. Erstelle auf dem Primärserver ein API-Token für einen Admin (Einstellungen, API-Tokens) und füge es unten ein.",
   "sync.enabled": "Diese Instanz von einem Primärserver synchronisieren",

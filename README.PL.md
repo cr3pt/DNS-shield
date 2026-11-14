@@ -1819,6 +1819,25 @@ przekroczy limit, jest logowany raz na minutę. Przy kilku procesach DNS
 każdy liczy osobno. Urządzenie domowe rzadko wysyła więcej niż 5 zapytań
 na sekundę, więc 20-50 to bezpieczny limit.
 
+### EDNS Client Subnet i dopełnianie (padding)
+
+Niektóre urządzenia i aplikacje dołączają do zapytań **EDNS Client Subnet**
+(ECS), czyli informację, w jakiej sieci są. DNS-shield usuwa ją, zanim
+zapytanie pójdzie dalej (`dns.strip_ecs`, domyślnie włączone), razem z
+cookie DNS i paddingiem klienta, które dotyczą tylko odcinka między
+klientem a DNS-shield. Dzięki temu serwer nadrzędny nie poznaje adresów
+Twojej sieci, a odpowiedź dopasowana do jednej podsieci nie trafia do
+cache wspólnego dla wszystkich klientów. Wyłącz to tylko wtedy, gdy CDN
+musi widzieć Twoją prawdziwą sieć, a serwer nadrzędny obsługuje ECS.
+
+W szyfrowanych protokołach długość wiadomości wciąż może zdradzić nazwę.
+Z `dns.edns_padding` (domyślnie włączone) każde zapytanie do serwera
+nadrzędnego `dot://`, `https://`/`doh://` lub `quic://` jest dopełniane do
+wielokrotności 128 bajtów, a klient DoT/DoQ, który sam dopełnia zapytania,
+dostaje odpowiedzi dopełnione do wielokrotności 468 bajtów. To zgodne z
+RFC 7830 i RFC 8467. Zwykły DNS, zarówno do serwerów nadrzędnych, jak i od
+klientów, zostaje bez zmian.
+
 ### Ochrona przed DNS rebindingiem
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) to atak, w
