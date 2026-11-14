@@ -4062,6 +4062,12 @@ document.getElementById("graph-clear-btn").addEventListener("click", async () =>
   await loadGraph();
 });
 
+// Stable id of a config list entry for API paths; older servers have none,
+// so fall back to its position.
+function refOf(item, position) {
+  return item && item.id ? encodeURIComponent(item.id) : position;
+}
+
 async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
   const sources = await api(apiPath);
   const status = await api("/api/status");
@@ -4070,7 +4076,8 @@ async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
   const updates = status.source_updates || {};
   const rows = document.getElementById(rowsElId);
   rows.innerHTML = "";
-  sources.forEach((s, i) => {
+  sources.forEach((s, position) => {
+    const i = refOf(s, position);
     const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? "Disable" : "Enable" });
     toggleBtn.onclick = async () => {
       try {
@@ -4387,7 +4394,8 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
     ])]);
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
-    sources.forEach((s, si) => {
+    sources.forEach((s, position) => {
+      const si = refOf(s, position);
       const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? t("common.disable", "Disable") : t("common.enable", "Enable") });
       toggleBtn.onclick = async () => {
         try {
@@ -4485,7 +4493,8 @@ async function loadClientGroups() {
   const container = document.getElementById("group-list");
   container.innerHTML = "";
 
-  groups.forEach((g, i) => {
+  groups.forEach((g, position) => {
+    const i = refOf(g, position);
     const delBtn = ruleDeleteButton(t("groups.delete_group", "Delete group"), `/api/client-groups/${i}`);
 
     const header = buildGroupHeader(i, g, delBtn);
@@ -4646,7 +4655,8 @@ async function loadDhcpScopes() {
 function renderDhcpScopes(scopes) {
   const container = document.getElementById("dhcp-scope-list");
   container.innerHTML = "";
-  scopes.forEach((scope, i) => {
+  scopes.forEach((scope, position) => {
+    const i = refOf(scope, position);
     const card = el("div", { class: "group-card" });
 
     const title = scope.vlan_id ? `${scope.name} (VLAN ${scope.vlan_id})` : scope.name;
@@ -5386,7 +5396,7 @@ async function loadDomainUpstreams() {
   const rows = document.getElementById("domain-upstream-rows");
   rows.innerHTML = "";
   rules.forEach((r, i) => {
-    const delBtn = ruleDeleteButton("Remove", `/api/domain-upstreams/${i}`);
+    const delBtn = ruleDeleteButton("Remove", `/api/domain-upstreams/${refOf(r, i)}`);
     rows.appendChild(el("tr", {}, [
       el("td", { text: r.name || "-" }),
       el("td", { text: (r.domains || []).join(", ") }),
@@ -5401,7 +5411,7 @@ async function loadRewrites() {
   const rows = document.getElementById("rewrite-rows");
   rows.innerHTML = "";
   rewrites.forEach((r, i) => {
-    const delBtn = ruleDeleteButton("Remove", `/api/rewrites/${i}`);
+    const delBtn = ruleDeleteButton("Remove", `/api/rewrites/${refOf(r, i)}`);
     rows.appendChild(el("tr", {}, [
       el("td", { text: r.name }),
       el("td", { text: r.type }),
@@ -5426,7 +5436,8 @@ async function loadWebhooks() {
   const webhooks = (s.notifications || {}).webhooks || [];
   const rows = document.getElementById("webhook-rows");
   rows.innerHTML = "";
-  webhooks.forEach((w, i) => {
+  webhooks.forEach((w, position) => {
+    const i = refOf(w, position);
     const target = w.type === "telegram"
       ? (w.telegram_bot_token_set ? `bot ${w.telegram_bot_token_preview} -> chat ${w.telegram_chat_id}` : "(not configured)")
       : (w.url_set ? w.url_preview : "(not configured)");
