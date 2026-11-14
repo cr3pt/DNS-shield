@@ -753,5 +753,17 @@
   "dns.doq": "クライアント向けDNS-over-QUIC(DoQ)",
   "dns.doq_accept": "下のUDPポートでクライアントからのDNS-over-QUIC(DoQ)を受け付ける(再起動が必要)",
   "dns.doq_port": "DoQ待受ポート(UDP)",
-  "dns.hint.doq": "RFC 9250。AdGuardアプリやdnsproxyなどが使用します。DoTやダッシュボードのHTTPSと同じ証明書を使うため、自己署名証明書に関する同じ注意が当てはまります。DoTはTCP、DoQはUDPなので、ポート853をDoTと共有できます。メインプロセスでのみ動作します。"
+  "dns.hint.doq": "RFC 9250。AdGuardアプリやdnsproxyなどが使用します。DoTやダッシュボードのHTTPSと同じ証明書を使うため、自己署名証明書に関する同じ注意が当てはまります。DoTはTCP、DoQはUDPなので、ポート853をDoTと共有できます。メインプロセスでのみ動作します。",
+  "groups.access_normal": "インターネット: 通常(スケジュールとフィルタリングを適用)",
+  "groups.access_off_indef": "インターネット: 再度オンにするまでオフ",
+  "groups.access_off_until": "インターネット: オフ(終了時刻)",
+  "groups.access_on_until": "インターネット: 許可中(スケジュール一時停止)終了時刻",
+  "groups.access_off_for": "インターネットをオフにする時間",
+  "groups.access_until_on": "再度オンにするまで",
+  "groups.access_off_btn": "インターネットをオフにする",
+  "groups.access_allow_for": "インターネットを許可する時間",
+  "groups.access_allow_btn": "今すぐ許可",
+  "groups.access_on_btn": "インターネットを再びオンにする",
+  "groups.access_end_btn": "例外を終了",
+  "groups.access_hint": "インターネットをオフにすると、フィルタリングが一時停止中でもこのグループの端末からの問い合わせはすべてブロックされます。「今すぐ許可」は選んだ時間だけ就寝スケジュール(とインターネットオフ)を解除します。端末は解決済みのアドレスを1〜2分使い続けることがあります。"
 }

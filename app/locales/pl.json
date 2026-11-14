@@ -754,5 +754,17 @@
   "dns.doq": "DNS-over-QUIC (DoQ) dla klientów",
   "dns.doq_accept": "Akceptuj DNS-over-QUIC (DoQ) od klientów na porcie UDP poniżej (wymaga restartu)",
   "dns.doq_port": "Port nasłuchu DoQ (UDP)",
-  "dns.hint.doq": "RFC 9250, używany np. przez aplikacje AdGuard i dnsproxy. Korzysta z tego samego certyfikatu co DoT i HTTPS panelu, więc obowiązuje ta sama uwaga o certyfikatach samopodpisanych. Może dzielić port 853 z DoT, bo DoT to TCP, a DoQ to UDP. Działa tylko w głównym procesie."
+  "dns.hint.doq": "RFC 9250, używany np. przez aplikacje AdGuard i dnsproxy. Korzysta z tego samego certyfikatu co DoT i HTTPS panelu, więc obowiązuje ta sama uwaga o certyfikatach samopodpisanych. Może dzielić port 853 z DoT, bo DoT to TCP, a DoQ to UDP. Działa tylko w głównym procesie.",
+  "groups.access_normal": "Internet: normalnie (działa harmonogram i filtrowanie)",
+  "groups.access_off_indef": "Internet: WYŁĄCZONY do ponownego włączenia",
+  "groups.access_off_until": "Internet: WYŁĄCZONY do",
+  "groups.access_on_until": "Internet: dozwolony (harmonogram zawieszony) do",
+  "groups.access_off_for": "Wyłącz internet na",
+  "groups.access_until_on": "do ponownego włączenia",
+  "groups.access_off_btn": "Wyłącz internet",
+  "groups.access_allow_for": "Zezwól na internet przez",
+  "groups.access_allow_btn": "Zezwól teraz",
+  "groups.access_on_btn": "Włącz internet z powrotem",
+  "groups.access_end_btn": "Zakończ wyjątek",
+  "groups.access_hint": "Wyłączenie internetu blokuje każde zapytanie z urządzeń tej grupy, nawet gdy filtrowanie jest wstrzymane. „Zezwól teraz” zawiesza harmonogram godziny snu (i wyłączenie internetu) na wybrany czas. Urządzenia mogą jeszcze przez minutę lub dwie korzystać z już rozwiązanych adresów."
 }

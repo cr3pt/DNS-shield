@@ -228,6 +228,15 @@ class ScheduleWindowIn(BaseModel):
     end: str
 
 
+class InternetOffIn(BaseModel):
+    # None: until someone turns it back on
+    minutes: int | None = Field(default=None, ge=1, le=7 * 24 * 60)
+
+
+class AllowNowIn(BaseModel):
+    minutes: int = Field(ge=1, le=24 * 60)
+
+
 class GroupScheduleIn(BaseModel):
     enabled: bool = False
     timezone: str = ""

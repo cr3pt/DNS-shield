@@ -2027,6 +2027,74 @@ function buildGroupFilterSwitch(index, group) {
   return el("div", { class: "group-state" }, [label, hint]);
 }
 
+// "Internet off now" and "allow for N minutes" (lifts the bedtime schedule):
+// a parent's quick manual override for the whole group.
+function groupAccessState(group) {
+  const now = Date.now() / 1000;
+  const off = group.internet_off;
+  if (off && off.active && (off.until == null || now < off.until)) return { kind: "off", until: off.until };
+  if (group.allow_until != null && now < group.allow_until) return { kind: "on", until: group.allow_until };
+  return { kind: "normal" };
+}
+
+function buildGroupAccessControls(index, group) {
+  const state = groupAccessState(group);
+  const timeOf = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  let statusText = t("groups.access_normal", "Internet: normal (schedule and filtering apply)");
+  if (state.kind === "off") {
+    statusText = state.until == null
+      ? t("groups.access_off_indef", "Internet: OFF until turned back on")
+      : t("groups.access_off_until", "Internet: OFF until") + " " + timeOf(state.until);
+  } else if (state.kind === "on") {
+    statusText = t("groups.access_on_until", "Internet: allowed (schedule lifted) until") + " " + timeOf(state.until);
+  }
+  const status = el("div", { class: state.kind === "off" ? "access-status access-off" : "access-status", text: statusText });
+
+  const durations = [15, 30, 60, 120, 240];
+  const minutesLabel = (m) => (m < 60 ? `${m} min` : `${m / 60} h`);
+  const offSelect = el("select", { "aria-label": t("groups.access_off_for", "Turn internet off for") });
+  for (const m of durations) offSelect.appendChild(el("option", { value: String(m), text: minutesLabel(m) }));
+  offSelect.appendChild(el("option", { value: "", text: t("groups.access_until_on", "until turned back on") }));
+  const offBtn = el("button", { type: "button", class: "danger", text: t("groups.access_off_btn", "Turn internet off") });
+
+  const allowSelect = el("select", { "aria-label": t("groups.access_allow_for", "Allow internet for") });
+  for (const m of durations) allowSelect.appendChild(el("option", { value: String(m), text: minutesLabel(m) }));
+  const allowBtn = el("button", { type: "button", class: "secondary", text: t("groups.access_allow_btn", "Allow now") });
+
+  const endBtn = el("button", {
+    type: "button",
+    class: "secondary",
+    text: state.kind === "off" ? t("groups.access_on_btn", "Turn internet back on") : t("groups.access_end_btn", "End override"),
+  });
+  if (state.kind === "normal") endBtn.style.display = "none";
+
+  const call = async (btn, path, method, body) => {
+    try {
+      await withSpinner(btn, () => api(`/api/client-groups/${index}/${path}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      }), t("common.saving", "Saving..."));
+      refreshAll();
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    }
+  };
+  offBtn.onclick = () => call(offBtn, "internet-off", "PUT", { minutes: offSelect.value ? Number(offSelect.value) : null });
+  allowBtn.onclick = () => call(allowBtn, "allow-now", "PUT", { minutes: Number(allowSelect.value) });
+  endBtn.onclick = () => call(endBtn, state.kind === "off" ? "internet-off" : "allow-now", "DELETE");
+
+  return el("div", { class: "group-access" }, [
+    status,
+    el("div", { class: "btn-row" }, [offSelect, offBtn, allowSelect, allowBtn, endBtn]),
+    el("div", {
+      class: "muted",
+      style: "font-size:0.78rem;margin-top:0.25rem;",
+      text: t("groups.access_hint", "Internet off blocks every lookup from this group's devices, even while filtering is paused. Allow now lifts the bedtime schedule (and an internet-off) for the chosen time. Devices may keep already-resolved addresses for a minute or two."),
+    }),
+  ]);
+}
+
 function buildGroupMatchEditor(index, patterns) {
   const wrap = el("div", { class: "rule-editor" });
   wrap.appendChild(el("div", { class: "title", text: t("groups.match_title", "Clients in this group") }));
@@ -2203,6 +2271,7 @@ async function loadClientGroups() {
 
     const header = buildGroupHeader(i, g, delBtn);
     const filterSwitch = buildGroupFilterSwitch(i, g);
+    const accessControls = buildGroupAccessControls(i, g);
     const matchEditor = buildGroupMatchEditor(i, g.match || []);
 
     const allowEditor = buildRuleEditor(
@@ -2318,7 +2387,7 @@ async function loadClientGroups() {
       refreshAll();
     });
 
-    container.appendChild(el("div", { class: "group-card" }, [header, filterSwitch, matchEditor, allowEditor, denyEditor, upstreamsForm, safeSearchForm, scheduleForm, groupBlocklistEditor]));
+    container.appendChild(el("div", { class: "group-card" }, [header, filterSwitch, accessControls, matchEditor, allowEditor, denyEditor, upstreamsForm, safeSearchForm, scheduleForm, groupBlocklistEditor]));
   });
 }
 

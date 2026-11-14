@@ -419,6 +419,10 @@ button.danger { background: var(--danger); color: var(--danger-text); }
 .switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .switch input:disabled { opacity: 0.6; cursor: progress; }
 .group-state { margin-top: 0.4rem; }
+.group-access { margin-top: 0.6rem; }
+.group-access .btn-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.3rem; }
+.access-status { font-size: 0.85rem; font-weight: 600; }
+.access-status.access-off { color: var(--danger); }
 .group-error { color: var(--danger); font-size: 0.8rem; margin-top: 0.3rem; }
 .rule-editor { margin: 0.5rem 0; }
 .rule-editor .title { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.3rem; }

@@ -753,5 +753,17 @@
   "dns.doq": "DNS-over-QUIC (DoQ) für Clients",
   "dns.doq_accept": "DNS-over-QUIC (DoQ) von Clients auf dem UDP-Port unten annehmen (Neustart erforderlich)",
   "dns.doq_port": "DoQ-Listen-Port (UDP)",
-  "dns.hint.doq": "RFC 9250, genutzt z. B. von AdGuard-Apps und dnsproxy. Verwendet dasselbe Zertifikat wie DoT und das HTTPS des Dashboards, daher gilt derselbe Hinweis zu selbstsignierten Zertifikaten. Kann Port 853 mit DoT teilen, da DoT TCP und DoQ UDP nutzt. Läuft nur im Hauptprozess."
+  "dns.hint.doq": "RFC 9250, genutzt z. B. von AdGuard-Apps und dnsproxy. Verwendet dasselbe Zertifikat wie DoT und das HTTPS des Dashboards, daher gilt derselbe Hinweis zu selbstsignierten Zertifikaten. Kann Port 853 mit DoT teilen, da DoT TCP und DoQ UDP nutzt. Läuft nur im Hauptprozess.",
+  "groups.access_normal": "Internet: normal (Zeitplan und Filter gelten)",
+  "groups.access_off_indef": "Internet: AUS bis zum Wiedereinschalten",
+  "groups.access_off_until": "Internet: AUS bis",
+  "groups.access_on_until": "Internet: erlaubt (Zeitplan ausgesetzt) bis",
+  "groups.access_off_for": "Internet ausschalten für",
+  "groups.access_until_on": "bis zum Wiedereinschalten",
+  "groups.access_off_btn": "Internet ausschalten",
+  "groups.access_allow_for": "Internet erlauben für",
+  "groups.access_allow_btn": "Jetzt erlauben",
+  "groups.access_on_btn": "Internet wieder einschalten",
+  "groups.access_end_btn": "Ausnahme beenden",
+  "groups.access_hint": "„Internet aus“ blockiert jede Anfrage der Geräte dieser Gruppe, auch wenn die Filterung pausiert ist. „Jetzt erlauben“ setzt den Schlafenszeit-Zeitplan (und ein „Internet aus“) für die gewählte Zeit aus. Geräte können bereits aufgelöste Adressen noch ein bis zwei Minuten nutzen."
 }

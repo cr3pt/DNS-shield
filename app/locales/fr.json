@@ -753,5 +753,17 @@
   "dns.doq": "DNS-over-QUIC (DoQ) pour les clients",
   "dns.doq_accept": "Accepter le DNS-over-QUIC (DoQ) des clients sur le port UDP ci-dessous (redémarrage requis)",
   "dns.doq_port": "Port d'écoute DoQ (UDP)",
-  "dns.hint.doq": "RFC 9250, utilisé par exemple par les applications AdGuard et dnsproxy. Utilise le même certificat que DoT et le HTTPS du tableau de bord : la même remarque sur les certificats auto-signés s'applique. Peut partager le port 853 avec DoT, car DoT est en TCP et DoQ en UDP. Ne tourne que dans le processus principal."
+  "dns.hint.doq": "RFC 9250, utilisé par exemple par les applications AdGuard et dnsproxy. Utilise le même certificat que DoT et le HTTPS du tableau de bord : la même remarque sur les certificats auto-signés s'applique. Peut partager le port 853 avec DoT, car DoT est en TCP et DoQ en UDP. Ne tourne que dans le processus principal.",
+  "groups.access_normal": "Internet : normal (planning et filtrage appliqués)",
+  "groups.access_off_indef": "Internet : COUPÉ jusqu'à réactivation",
+  "groups.access_off_until": "Internet : COUPÉ jusqu'à",
+  "groups.access_on_until": "Internet : autorisé (planning suspendu) jusqu'à",
+  "groups.access_off_for": "Couper Internet pendant",
+  "groups.access_until_on": "jusqu'à réactivation",
+  "groups.access_off_btn": "Couper Internet",
+  "groups.access_allow_for": "Autoriser Internet pendant",
+  "groups.access_allow_btn": "Autoriser maintenant",
+  "groups.access_on_btn": "Rétablir Internet",
+  "groups.access_end_btn": "Terminer l'exception",
+  "groups.access_hint": "Couper Internet bloque toutes les requêtes des appareils de ce groupe, même quand le filtrage est en pause. « Autoriser maintenant » suspend le planning du coucher (et une coupure) pour la durée choisie. Les appareils peuvent encore utiliser des adresses déjà résolues pendant une ou deux minutes."
 }

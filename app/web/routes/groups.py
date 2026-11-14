@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -14,6 +15,7 @@ from app.url_safety import check_public_url
 from app.web.common import _ref_index
 from app.web.context import AppContext
 from app.web.models import (
+    AllowNowIn,
     BlocklistSourceIn,
     ClientGroupIn,
     DomainIn,
@@ -22,6 +24,7 @@ from app.web.models import (
     GroupNameIn,
     GroupSafeSearchIn,
     GroupScheduleIn,
+    InternetOffIn,
     UpstreamsIn,
 )
 
@@ -209,6 +212,50 @@ def register(app: FastAPI, ctx: AppContext) -> None:
     ) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["safe_search"] = body.safe_search
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.put("/api/client-groups/{index}/internet-off")
+    def set_group_internet_off(
+        index: str, body: InternetOffIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        """Cut the group's internet now - for a while, or until turned back on."""
+
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            until = time.time() + body.minutes * 60 if body.minutes else None
+            group["internet_off"] = {"active": True, "until": until}
+            group.pop("allow_until", None)
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.delete("/api/client-groups/{index}/internet-off")
+    def clear_group_internet_off(index: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            group.pop("internet_off", None)
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.put("/api/client-groups/{index}/allow-now")
+    def set_group_allow_now(
+        index: str, body: AllowNowIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        """Give the group its internet back for a while, even inside its
+        bedtime schedule ("30 more minutes"); also ends an "internet off"."""
+
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            group["allow_until"] = time.time() + body.minutes * 60
+            group.pop("internet_off", None)
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.delete("/api/client-groups/{index}/allow-now")
+    def clear_group_allow_now(index: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            group.pop("allow_until", None)
             return group
 
         return _group_mutate(index, _fn)

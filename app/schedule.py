@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time
+from time import time as current_timestamp
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -22,6 +23,24 @@ def _now(tz_name: str | None) -> datetime:
         except (ZoneInfoNotFoundError, ValueError, KeyError):
             pass
     return datetime.now().astimezone()
+
+
+def group_access_override(group: dict | None, now: float | None = None) -> str | None:
+    """A parent's manual override of a client group's internet access, if
+    one is in force: "off" (internet off now) or "on" (allowed now, the
+    bedtime schedule is lifted). None when neither applies."""
+    if not group:
+        return None
+    moment = current_timestamp() if now is None else now
+    off = group.get("internet_off")
+    if isinstance(off, dict) and off.get("active"):
+        until = off.get("until")
+        if until is None or moment < float(until):
+            return "off"
+    allowed_until = group.get("allow_until")
+    if allowed_until is not None and moment < float(allowed_until):
+        return "on"
+    return None
 
 
 def is_schedule_blocked(schedule: dict | None, now: datetime | None = None) -> bool:
