@@ -29,8 +29,8 @@ def test_get_stale_within_grace_returns_answer(config_store):
     cache.put(request, _response("expired.example.com", ttl=1))
 
     key = cache._key(request)
-    expires_at, answers, hits = cache._store[key]
-    cache._store[key] = (time.time() - 10, answers, hits)
+    expires_at, answers, hits, _negative = cache._store[key]
+    cache._store[key] = (time.time() - 10, answers, hits, None)
 
     stale = cache.get_stale(request, grace_seconds=60)
     assert stale is not None
@@ -43,8 +43,8 @@ def test_get_stale_beyond_grace_returns_none(config_store):
     cache.put(request, _response("gone.example.com", ttl=1))
 
     key = cache._key(request)
-    _expires_at, answers, hits = cache._store[key]
-    cache._store[key] = (time.time() - 120, answers, hits)
+    _expires_at, answers, hits, _negative = cache._store[key]
+    cache._store[key] = (time.time() - 120, answers, hits, None)
 
     assert cache.get_stale(request, grace_seconds=60) is None
 
@@ -67,8 +67,8 @@ def test_get_stale_echoes_current_request_case_not_cached_case(config_store):
     cache.put(populating_request, _response("PyPi.OrG", ttl=1))
 
     key = cache._key(populating_request)
-    expires_at, answers, hits = cache._store[key]
-    cache._store[key] = (time.time() - 10, answers, hits)
+    expires_at, answers, hits, _negative = cache._store[key]
+    cache._store[key] = (time.time() - 10, answers, hits, None)
 
     differently_cased_request = DNSRecord.question("pypi.org", qtype="A")
     stale = cache.get_stale(differently_cased_request, grace_seconds=60)
@@ -122,8 +122,8 @@ def test_purge_expired_removes_only_beyond_grace(config_store):
 
     fresh_key = cache._key(fresh_request)
     old_key = cache._key(old_request)
-    cache._store[fresh_key] = (time.time() - 5, cache._store[fresh_key][1], 0)
-    cache._store[old_key] = (time.time() - 120, cache._store[old_key][1], 0)
+    cache._store[fresh_key] = (time.time() - 5, cache._store[fresh_key][1], 0, None)
+    cache._store[old_key] = (time.time() - 120, cache._store[old_key][1], 0, None)
 
     cache.purge_expired(grace_seconds=60)
 
@@ -166,7 +166,7 @@ def test_persistence_drops_already_expired_entries(config_store, tmp_path):
     request = DNSRecord.question("shortlived.example.com", qtype="A")
     cache.put(request, _response("shortlived.example.com", ttl=1))
     key = cache._key(request)
-    cache._store[key] = (time.time() - 10, cache._store[key][1], 0)
+    cache._store[key] = (time.time() - 10, cache._store[key][1], 0, None)
     cache.save()
 
     reloaded = DNSCache(config_store, persist_path=path)

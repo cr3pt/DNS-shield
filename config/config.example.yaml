@@ -33,6 +33,7 @@ dns:
   cache_max_entries: 10000
   cache_min_ttl_seconds: 0
   cache_max_ttl_seconds: 3600
+  cache_negative_max_ttl_seconds: 300
   cache_serve_stale_enabled: true
   cache_stale_grace_seconds: 3600
   cache_prefetch_enabled: false

@@ -222,6 +222,7 @@ dns:
   cache_max_entries: 10000
   cache_min_ttl_seconds: 0        # dolna granica dla buforowanych TTL
   cache_max_ttl_seconds: 3600     # górna granica dla buforowanych TTL
+  cache_negative_max_ttl_seconds: 300  # górna granica dla buforowanych odpowiedzi "nie ma takiej nazwy/rekordu"; 0 = nie buforuj
   resolve_client_names: false    # odwrotny DNS dla IP klientów, wyłącznie do wyświetlania (zobacz niżej)
   client_name_resolver: ""       # np. "192.168.1.1:53" - adres routera, nie serwera nadrzędnego do filtrowania
   client_name_cache_seconds: 3600
@@ -985,7 +986,12 @@ ich własny czas życia (TTL) - ograniczony z dołu przez
 `cache_min_ttl_seconds` i z góry przez `cache_max_ttl_seconds` (przydatne,
 jeśli któryś z serwerów nadrzędnych zwraca nietypowo krótkie albo długie
 TTL, którym nie ufasz), a łączna liczba wpisów jest ograniczona przez
-`cache_max_entries` z wypieraniem najstarszych (LRU). Powtórne zapytanie o
+`cache_max_entries` z wypieraniem najstarszych (LRU). Odpowiedzi "nie ma
+takiej nazwy" (NXDOMAIN) i "brak rekordu tego typu" (NODATA) też trafiają do
+cache, na tyle, na ile pozwala SOA strefy (RFC 2308), najwyżej
+`cache_negative_max_ttl_seconds` (domyślnie 300; 0 wyłącza) - dzięki temu
+nieudane zapytania AAAA o nazwy tylko z IPv4 czy literówki nie idą za każdym
+razem do serwera nadrzędnego. Powtórne zapytanie o
 coś, co nadal jest w cache, jest odpowiadane od razu, bez przekazywania go
 w ogóle do serwera nadrzędnego - niższe opóźnienie i mniej ruchu
 wychodzącego dla nazw hostów CDN, reklam i trackerów, które i tak stanowią
