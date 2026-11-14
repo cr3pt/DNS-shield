@@ -228,6 +228,32 @@ def normalize_tld(value: str) -> str:
     return text
 
 
+class _SourceIndex:
+    """Which list a domain (or IP) came from - only asked when something is
+    blocked, to label it. Answered from the per-list sets that are in memory
+    anyway, instead of a domain -> list-name dict as large as all the lists
+    together (millions of entries for big lists)."""
+
+    __slots__ = ("_sources", "_extra")
+
+    def __init__(self, sources: Iterable[tuple[str, set[str], set[str]]] = ()):
+        self._sources = list(sources)  # (name, domains, exceptions), in priority order
+        self._extra: dict[str, str] = {}
+
+    def get(self, key: str, default: str | None = None) -> str | None:
+        for name, domains, exceptions in self._sources:
+            if key in domains and key not in exceptions:
+                return name
+        return self._extra.get(key, default)
+
+    def setdefault(self, key: str, value: str) -> str:
+        found = self.get(key)
+        if found is None:
+            self._extra[key] = value
+            return value
+        return found
+
+
 class BlocklistManager:
     def __init__(self, config_store, cache_dir: Path, mac_resolver=None, client_names=None):
         self._config = config_store
@@ -239,7 +265,7 @@ class BlocklistManager:
         self._lock = threading.RLock()
         self._blocked: frozenset[str] = frozenset()
         self._allowed: frozenset[str] = frozenset()
-        self._domain_source: dict[str, str] = {}
+        self._domain_source: _SourceIndex = _SourceIndex()
         self._source_counts: dict[str, int] = {}
         self._source_formats: dict[str, str] = {}
         self._allow_source_counts: dict[str, int] = {}
@@ -247,7 +273,7 @@ class BlocklistManager:
         self._group_blocked: dict[str, frozenset[str]] = {}
         self._carve_outs: dict[str, frozenset[str]] = {}
         self._group_carve_outs: dict[str, dict[str, frozenset[str]]] = {}
-        self._group_domain_source: dict[str, dict[str, str]] = {}
+        self._group_domain_source: dict[str, _SourceIndex] = {}
         self._group_source_counts: dict[str, dict[str, int]] = {}
         self._group_source_formats: dict[str, dict[str, str]] = {}
         self._alert_matched: frozenset[str] = frozenset()
@@ -274,7 +300,7 @@ class BlocklistManager:
 
         self._answer_ip_exact: frozenset[str] = frozenset()
         self._answer_ip_nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-        self._answer_ip_source: dict[str, str] = {}
+        self._answer_ip_source: _SourceIndex = _SourceIndex()
         self._answer_ip_source_counts: dict[str, int] = {}
         self._answer_ip_source_formats: dict[str, str] = {}
 
@@ -724,6 +750,15 @@ class BlocklistManager:
             self._fetch_cache[cache_key] = (now, *result)
         return result
 
+    def _trim_fetch_cache(self) -> None:
+        """The fetch cache only spares re-downloading a list that several
+        places use (global and group sources) within one refresh. Drop what's
+        past that, so a removed list's domains don't stay in memory forever."""
+        now = time.time()
+        with self._fetch_cache_lock:
+            for key in [k for k, v in self._fetch_cache.items() if now - v[0] >= _FETCH_CACHE_TTL_SECONDS]:
+                del self._fetch_cache[key]
+
     def _fetch_sources(
         self,
         sources: Iterable[dict],
@@ -731,11 +766,10 @@ class BlocklistManager:
         describer=describe_format,
         network: bool = True,
         carve_outs: dict[str, frozenset[str]] | None = None,
-    ) -> tuple[set[str], dict[str, int], dict[str, str], dict[str, str], set[str]]:
+    ) -> tuple[set[str], dict[str, int], dict[str, str], _SourceIndex, set[str]]:
         merged: set[str] = set()
         counts: dict[str, int] = {}
         formats: dict[str, str] = {}
-        domain_source: dict[str, str] = {}
         exceptions: set[str] = set()
 
         enabled: list[tuple[str, str]] = [
@@ -744,7 +778,7 @@ class BlocklistManager:
             if source.get("enabled", True) and source.get("url")
         ]
         if not enabled:
-            return merged, counts, formats, domain_source, exceptions
+            return merged, counts, formats, _SourceIndex(), exceptions
 
         results: dict[str, tuple[set[str], dict[str, int], set[str]]] = {}
         with ThreadPoolExecutor(max_workers=min(8, len(enabled))) as executor:
@@ -762,17 +796,17 @@ class BlocklistManager:
             domains, format_counts, source_exceptions = results[name]
             counts[name] = len(domains)
             formats[name] = describer(format_counts)
-            effective = domains - source_exceptions
-            merged |= effective
+            if source_exceptions:
+                merged |= domains - source_exceptions
+            else:
+                merged |= domains
             exceptions |= source_exceptions
-            for domain in effective:
-                domain_source.setdefault(domain, name)
             if carve_outs is not None:
                 for exc in source_exceptions:
                     labels = exc.split(".")
                     for i in range(1, len(labels) - 1):
                         parent = ".".join(labels[i:])
-                        if parent in effective:
+                        if parent in domains and parent not in source_exceptions:
                             per_source_carve.setdefault(name, {}).setdefault(parent, set()).add(exc)
 
         if carve_outs is not None:
@@ -789,6 +823,7 @@ class BlocklistManager:
                     allowed = set(mine) if allowed is None else allowed & mine
                 if allowed:
                     carve_outs[parent] = frozenset(allowed)
+        domain_source = _SourceIndex((name, results[name][0], results[name][2]) for name, _url in enabled)
         return merged, counts, formats, domain_source, exceptions
 
     def refresh(self, network: bool = True) -> None:
@@ -818,7 +853,7 @@ class BlocklistManager:
                 alert_domain_source.setdefault(domain, "manually added")
 
             group_blocked: dict[str, frozenset[str]] = {}
-            group_domain_source: dict[str, dict[str, str]] = {}
+            group_domain_source: dict[str, _SourceIndex] = {}
             group_source_counts: dict[str, dict[str, int]] = {}
             group_source_formats: dict[str, dict[str, str]] = {}
             group_carve_outs: dict[str, dict[str, frozenset[str]]] = {}
@@ -884,6 +919,7 @@ class BlocklistManager:
                 self._loaded_signature = signature
                 if network:
                     self._last_refresh = time.time()
+            self._trim_fetch_cache()
             logger.info(
                 "blocklist %s complete: %d blocked domains from %d sources, "
                 "%d allow-listed domains from %d sources, %d client group(s) with extra sources, "
