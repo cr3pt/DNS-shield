@@ -446,6 +446,8 @@
   "dns.client_hostnames": "Noms d'hôtes des clients (DNS inverse)",
   "dns.resolve_hostnames": "Résoudre les noms d'hôtes des clients",
   "dns.names_from_dhcp": "Utiliser les noms d'hôtes des baux DHCP",
+  "dns.strip_ecs": "Ne pas transmettre EDNS Client Subnet aux serveurs amont (confidentialité : ils n'apprennent pas le réseau de vos clients)",
+  "dns.edns_padding": "Remplir les messages DNS chiffrés (DoT/DoH/DoQ) jusqu'à des tailles fixes, pour que leur longueur ne révèle pas le nom",
   "sync.title": "Synchroniser depuis un primaire",
   "sync.hint": "Fait de cette instance un secondaire : elle copie à intervalle régulier depuis le primaire les listes de blocage, règles allow/deny, services bloqués, groupes de clients, réécritures DNS et réglages DNS. Faites les modifications sur le primaire ; les sections synchronisées ici sont écrasées. Les comptes, l'authentification unique, l'interface web, le DHCP, le proxy inverse et les adresses et ports d'écoute de cette machine ne sont jamais copiés. Sur le primaire, créez un jeton API pour un administrateur (Réglages, Jetons API) et collez-le ci-dessous.",
   "sync.enabled": "Synchroniser cette instance depuis un primaire",

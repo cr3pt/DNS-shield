@@ -590,6 +590,14 @@
             <input type="checkbox" id="s-dns-case-randomization-enabled">
             <label for="s-dns-case-randomization-enabled" data-i18n="dns.case_randomization">Randomize query letter case sent to upstream (0x20 encoding - a cheap anti-spoofing/cache-poisoning mitigation)</label>
           </div>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-strip-ecs">
+            <label for="s-dns-strip-ecs" data-i18n="dns.strip_ecs">Don't pass EDNS Client Subnet on to upstreams (privacy: they don't learn your clients' network)</label>
+          </div>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-edns-padding">
+            <label for="s-dns-edns-padding" data-i18n="dns.edns_padding">Pad encrypted DNS messages (DoT/DoH/DoQ) to fixed sizes, so their length doesn't reveal the name</label>
+          </div>
         </div>
 
         <div class="settings-group">

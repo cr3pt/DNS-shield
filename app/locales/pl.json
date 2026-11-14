@@ -446,6 +446,8 @@
   "dns.client_hostnames": "Nazwy hostów klientów (reverse DNS)",
   "dns.resolve_hostnames": "Rozwiązuj nazwy hostów klientów",
   "dns.names_from_dhcp": "Używaj nazw hostów z dzierżaw DHCP",
+  "dns.strip_ecs": "Nie przekazuj EDNS Client Subnet do serwerów nadrzędnych (prywatność: nie poznają sieci Twoich klientów)",
+  "dns.edns_padding": "Dopełniaj szyfrowane wiadomości DNS (DoT/DoH/DoQ) do stałych rozmiarów, żeby ich długość nie zdradzała nazwy",
   "sync.title": "Synchronizacja z serwerem głównym",
   "sync.hint": "Zamień tę instancję w zapasową: co pewien czas kopiuje z głównej listy blokad, reguły allow/deny, blokowane usługi, grupy klientów, przepisania DNS i ustawienia DNS. Zmiany rób na głównej; synchronizowane sekcje tutaj zostaną nadpisane. Konta, logowanie SSO, panel WWW, DHCP, reverse proxy oraz adresy i porty nasłuchu tej maszyny nigdy nie są kopiowane. Na głównej utwórz token API dla administratora (Ustawienia, Tokeny API) i wklej go poniżej.",
   "sync.enabled": "Synchronizuj tę instancję z serwera głównego",

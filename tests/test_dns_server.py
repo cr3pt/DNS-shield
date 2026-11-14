@@ -176,8 +176,7 @@ def test_case_randomization_scrambles_outgoing_qname(config_store, tmp_path, mon
     request = DNSRecord.question("verification.example.com", qtype="A")
     seen_qnames = set()
     for _ in range(20):
-        data = resolver._prepare_upstream_data(request)
-        seen_qnames.add(str(DNSRecord.parse(data).q.qname))
+        seen_qnames.add(str(resolver._prepare_upstream_query(request).q.qname))
 
     assert len(seen_qnames) > 1
     assert all(q.lower() == "verification.example.com." for q in seen_qnames)

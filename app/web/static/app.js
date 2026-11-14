@@ -3014,6 +3014,8 @@ async function loadSettings() {
   document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
   document.getElementById("s-dns-upstream-stats-window").value = s.dns.upstream_stats_window_minutes ?? "";
   document.getElementById("s-dns-case-randomization-enabled").checked = !!s.dns.query_case_randomization_enabled;
+  document.getElementById("s-dns-strip-ecs").checked = s.dns.strip_ecs !== false;
+  document.getElementById("s-dns-edns-padding").checked = s.dns.edns_padding !== false;
   document.getElementById("s-dns-cache-enabled").checked = !!s.dns.cache_enabled;
   document.getElementById("s-dns-cache-max-entries").value = s.dns.cache_max_entries ?? "";
   document.getElementById("s-dns-cache-min-ttl").value = s.dns.cache_min_ttl_seconds ?? "";
@@ -4977,6 +4979,8 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
         upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
         upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),
         query_case_randomization_enabled: document.getElementById("s-dns-case-randomization-enabled").checked,
+        strip_ecs: document.getElementById("s-dns-strip-ecs").checked,
+        edns_padding: document.getElementById("s-dns-edns-padding").checked,
         cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
         cache_max_entries: intField("s-dns-cache-max-entries"),
         cache_min_ttl_seconds: intField("s-dns-cache-min-ttl"),

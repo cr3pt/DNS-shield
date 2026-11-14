@@ -197,6 +197,7 @@ class _Handler:
     """What the resolver expects as its request handler: the client's address."""
 
     __slots__ = ("client_address",)
+    encrypted_transport = True
 
     def __init__(self, client_address) -> None:
         self.client_address = client_address

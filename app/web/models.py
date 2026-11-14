@@ -275,6 +275,8 @@ class DnsSettingsIn(BaseModel):
     upstream_strategy: str | None = None
     upstream_stats_window_minutes: float | None = None
     query_case_randomization_enabled: bool | None = None
+    strip_ecs: bool | None = None
+    edns_padding: bool | None = None
     block_mode: str | None = None
     blocked_ipv4: str | None = None
     blocked_ipv6: str | None = None
