@@ -209,6 +209,8 @@
   "alerts.hint.overview": "Tutaj trafia wszystko, co oznaczy DNS-shield: lokalne wykrywanie anomalii, trafienia reguł alertów (obserwowana domena/lista) oraz sprawdzenia wywiadu zagrożeń, które wypadły wystarczająco źle - skonfiguruj każde z nich w Ustawienia -> Anomalie / Threat intelligence. \"Sprawdź teraz\" uruchamia heurystyki anomalii dla bieżącego okna; \"Przeanalizuj ponownie\" zamiast tego cofa się w wybrany zakres historyczny, sprawdzając go tak, jakby detektor działał przez cały ten czas - przydatne po zmianie progów lub po prostu do audytu historii, dla której nie miałeś wtedy włączonego wykrywania. Zakresy 7 dni lub dłuższe skanują dużo danych i mogą trochę potrwać; nie wysyła żadnych powiadomień o tym, co znajdzie (to retrospektywny audyt, nie zdarzenie na żywo).",
   "stats.hint.top_queried": "Wszystkie zapytania, blokowane i dozwolone.",
   "stats.hint.blocked_by": "Która lista blokująca/reguła odpowiada za najwięcej blokad.",
+  "blocklists.tlds": "Blokowane domeny najwyższego poziomu (TLD)",
+  "blocklists.hint.tlds": "Blokowana jest każda domena w podanej tu domenie najwyższego poziomu - np. \".ru\" blokuje example.ru, mail.example.ru itd. Lista dozwolonych i źródła list dozwolonych nadal mają pierwszeństwo, więc pojedyncze strony możesz przepuścić.",
   "blocklists.title": "Listy blokujące",
   "blocklists.refresh_now": "Odśwież teraz",
   "blocklists.suggested": "Sugerowane listy",

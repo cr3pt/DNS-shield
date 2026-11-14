@@ -189,6 +189,29 @@ def describe_ip_format(format_counts: dict[str, int]) -> str:
     return f"mixed ({labels})"
 
 
+_TLD_LABEL_RE = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
+
+
+def normalize_tld(value: str) -> str:
+    """Normalize a user-typed top-level domain (".RU", "ru.", "рф") to the
+    lowercase ASCII form DNS queries arrive in ("ru", "xn--p1ai").
+
+    Multi-label suffixes such as "co.uk" are accepted too, since matching is
+    plain suffix matching anyway. Raises ValueError for anything that isn't a
+    valid domain suffix."""
+    text = (value or "").strip().strip(".").lower()
+    if not text:
+        raise ValueError("Empty TLD")
+    try:
+        text = text.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError(f"Invalid TLD: {value!r}") from exc
+    labels = text.split(".")
+    if len(text) > 253 or not all(_TLD_LABEL_RE.match(label) for label in labels):
+        raise ValueError(f"Invalid TLD: {value!r}")
+    return text
+
+
 class BlocklistManager:
     def __init__(self, config_store, cache_dir: Path, mac_resolver=None, client_names=None):
         self._config = config_store
@@ -292,6 +315,10 @@ class BlocklistManager:
         if group is not None and not group.get("enabled", True):
             return None
 
+        tld = self.blocked_tld_match(qname)
+        if tld is not None:
+            return f"Blocked TLD: .{tld}"
+
         if self._config.get("dns", "block_non_latin", default=False) and is_non_latin_domain(qname):
             return "Non-Latin-script domain filter"
 
@@ -360,6 +387,22 @@ class BlocklistManager:
             if tld and (qname == tld or qname.endswith("." + tld)):
                 return tld
         return None
+
+    def blocked_tlds(self) -> list[str]:
+        return [t for t in (self._config.get("blocked_tlds", default=[]) or []) if t]
+
+    def blocked_tld_match(self, qname: str) -> str | None:
+        """Return the entry of the blocked-TLD list that `qname` falls under
+        (the longest one, if several do), or None."""
+        qname = qname.rstrip(".").lower()
+        if not qname:
+            return None
+        best: str | None = None
+        for tld in self.blocked_tlds():
+            tld = str(tld).strip(".").lower()
+            if tld and (qname == tld or qname.endswith("." + tld)) and (best is None or len(tld) > len(best)):
+                best = tld
+        return best
 
     def lookup_domain(self, qname: str) -> dict[str, Any]:
         qname = qname.rstrip(".").lower()
