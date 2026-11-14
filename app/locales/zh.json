@@ -749,5 +749,9 @@
   "general.public_view": "Show a public summary (query trend and top blocked domains) to visitors who aren't signed in",
   "general.hint.public_view": "Off by default: the top blocked domains can reveal what people on your network try to visit. When off, visitors are sent straight to the sign-in page.",
   "general.public_url": "Dashboard address (optional)",
-  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request."
+  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request.",
+  "dns.doq": "面向客户端的 DNS-over-QUIC (DoQ)",
+  "dns.doq_accept": "在下方 UDP 端口接受客户端的 DNS-over-QUIC (DoQ)(需要重启)",
+  "dns.doq_port": "DoQ 监听端口 (UDP)",
+  "dns.hint.doq": "RFC 9250,AdGuard 应用和 dnsproxy 等会使用。与 DoT 和仪表盘 HTTPS 使用同一证书,因此关于自签名证书的提醒同样适用。由于 DoT 使用 TCP、DoQ 使用 UDP,二者可共用 853 端口。仅在主进程中运行。"
 }

@@ -76,7 +76,7 @@ założenia działa **wyłącznie lokalnie**:
   dokładny opis tego, co robi każdy plik, znajdziesz w rozdziale
   [Architektura](#architektura) poniżej.
 
-DNS-shield celowo pozostaje mały - nie ma DoQ ani kontroli na poziomie
+DNS-shield celowo pozostaje mały - nie ma kontroli na poziomie
 pojedynczej aplikacji. Zajmuje się hasłem "blokuj reklamy i trackery w
 całej sieci z kontenera Docker, nie wypuszczając niczego, o co nie
 prosiłem", uzupełnionym o te elementy kontroli rodzicielskiej na poziomie
@@ -150,7 +150,7 @@ Kompromis: przy `network_mode: host` nie ma listy `ports:` do edycji
 (Docker ją ignoruje w tym trybie) - kontener wiąże się bezpośrednio z
 portami, o które prosi jego własna konfiguracja, na hoście: `53` dla DNS,
 `3000` dla panelu, plus `80`/`443` jeśli włączysz
-[reverse proxy](#reverse-proxy-opcjonalnie), `853` dla DNS-over-TLS, albo
+[reverse proxy](#reverse-proxy-opcjonalnie), `853` dla DNS-over-TLS (TCP) i DNS-over-QUIC (UDP), albo
 `67` dla DHCP - każdy tylko wtedy, gdy dana funkcja jest faktycznie
 włączona. Upewnij się, że nic innego na hoście nie zajmuje już portu,
 którego zamierzasz użyć - najczęściej chodzi o `53`: wiele dystrybucji
@@ -175,7 +175,7 @@ services:
 ```
 
 (dodaj też `80:80/tcp` i `443:443/tcp`, jeśli korzystasz z reverse proxy,
-oraz `853:853/tcp` dla DNS-over-TLS). Miej tylko na uwadze, że wtedy
+`853:853/tcp` dla DNS-over-TLS oraz `853:853/udp` dla DNS-over-QUIC). Miej tylko na uwadze, że wtedy
 każdy klient będzie widoczny jako adres bramy Dockera, dopasowywanie
 `mac:` w [grupach klientów](#polityki-dla-poszczególnych-klientów-i-grup)
 nie zobaczy prawdziwej tablicy ARP Twojej sieci LAN, a DHCP w ogóle nie
@@ -298,13 +298,19 @@ dns:
     - "dot://1.1.1.1"                          # DNS-over-TLS
     - "doh://cloudflare-dns.com/dns-query"     # DNS-over-HTTPS
     - "https://dns.quad9.net/dns-query"        # DNS-over-HTTPS, pełny adres URL też działa
+    - "quic://dns.adguard-dns.com"             # DNS-over-QUIC (RFC 9250; działa też "doq://")
 ```
+
+DNS-over-QUIC trzyma jedno otwarte połączenie QUIC na serwer nadrzędny i
+wysyła każde zapytanie osobnym strumieniem, więc po pierwszym uzgodnieniu
+połączenia zapytanie kosztuje jedną wymianę pakietów, bez blokowania
+kolejki znanego z TCP.
 
 Zwykłe wpisy w formacie `host:port` korzystają z UDP, z automatycznym
 ponowieniem przez TCP, gdy odpowiedź jest obcięta. Ta sekcja dotyczy
 wyłącznie połączenia *do serwera nadrzędnego* - DNS-shield zawsze
 nasłuchuje też zwykłego DNS od klientów Twojej sieci LAN na porcie 53,
-a opcjonalnie także DoH/DoT dla klientów, które chcą szyfrowanego
+a opcjonalnie także DoH/DoT/DoQ dla klientów, które chcą szyfrowanego
 połączenia do samego DNS-shield; zobacz
 [DNS-over-HTTPS / DNS-over-TLS dla klientów](#dns-over-https--dns-over-tls-dla-klientów)
 niżej.
@@ -2306,6 +2312,14 @@ z samopodpisanym certyfikatem DoT jest w dużej mierze nie do
 przetestowania, choć technicznie działa, dopóki nie wskażesz na prawdziwy
 certyfikat.
 
+**DoQ** też jest domyślnie wyłączone - `dns.doq_enabled` (Settings -> DNS,
+wymaga restartu kontenera) nasłuchuje DNS-over-QUIC (RFC 9250) na porcie
+UDP `dns.doq_port` (domyślnie 853; może mieć ten sam numer co DoT, bo
+DoT używa TCP). Obsługują go m.in. aplikacje AdGuard i dnsproxy. Używa
+tego samego certyfikatu co DoT, z tą samą uwagą o certyfikatach
+samopodpisanych, i odpowiada przez ten sam resolver, więc filtrowanie,
+cache i dziennik zapytań działają tak jak dla zwykłego DNS.
+
 Oba te nasłuchy działają wyłącznie w głównym procesie, nie są rozproszone
 między procesy robocze `DNSSHIELD_DNS_WORKERS`, tak jak zwykły UDP/TCP -
 sam panel webowy już jest jednoprocesowy, a DoH/DoT trzymają się tej samej
@@ -2314,7 +2328,7 @@ i interakcję z `SO_REUSEPORT` dla ścieżki o stosunkowo niskiej
 przepustowości. Dzięki sieci hosta w dostarczonym `docker-compose.yml`
 DoT jest dostępny natychmiast po włączeniu `dns.dot_enabled` - bez
 żadnego mapowania portów. Przy sieci typu bridge dodaj mapowanie
-`- "853:853/tcp"` (albo inny port, jaki ustawiłeś) samodzielnie -
+`- "853:853/tcp"` (i `- "853:853/udp"` dla DoQ, albo inne porty, jakie ustawiłeś) samodzielnie -
 dokładnie tak, jak przy mapowaniu portu dla strony blokady opisanym
 wyżej.
 
@@ -3087,8 +3101,8 @@ GitHub Actions (`.github/workflows/ci.yml`) uruchamia ten sam lint (reguły w
 
 ## Ograniczenia / plany na przyszłość
 
-- Brak DoQ (DoH/DoT są obsługiwane zarówno jako transport do serwera
-  nadrzędnego, jak i jako nasłuch dla klientów - zobacz wyżej).
+- DoH, DoT i DoQ są obsługiwane zarówno jako transport do serwera
+  nadrzędnego, jak i jako nasłuch dla klientów (zobacz wyżej).
   [Kontrola rodzicielska](#kontrola-rodzicielska--safesearch) jest
   ograniczona do tego, co faktycznie da się zrobić na poziomie
   rozwiązywania DNS - wymuszone SafeSearch, listy blokad kategorii
