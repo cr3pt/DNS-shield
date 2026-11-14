@@ -14,6 +14,7 @@ from pathlib import Path
 
 import uvicorn
 
+from app import new_client_detection
 from app.anomaly import AnomalyDetector
 from app.audit import AuditLog
 from app.auto_enrich import AutoEnricher
@@ -24,18 +25,17 @@ from app.config import ConfigStore
 from app.dhcp.rogue_detector import RogueDhcpDetector
 from app.dhcp.server import DhcpServer
 from app.dns_cache import DNSCache
-from app.graph import ClientDomainGraph
-from app.proxy.manager import ProxyManager
 from app.dns_server import build_resolver, reuse_port_supported, start_dns_servers, start_dot_server
 from app.dnssec import DnssecCache
 from app.enrichment_store import EnrichmentStore
-from app.tls import ensure_self_signed_cert
+from app.graph import ClientDomainGraph
 from app.mac_resolve import MacResolver
-from app import new_client_detection
 from app.notifications import NotificationSender
+from app.proxy.manager import ProxyManager
 from app.sessions import SessionStore
 from app.startup_page import start_startup_page_server, stop_startup_page_server
 from app.stats import Stats
+from app.tls import ensure_self_signed_cert
 from app.upstream_stats import UpstreamStats
 from app.url_ping import UrlPingTask
 from app.users import UserStore

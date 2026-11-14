@@ -49,7 +49,7 @@ class Stats:
         self._config = config_store
         self._flush_interval = flush_interval
         self._queue: (
-            "queue.Queue[tuple[float, str, str, str, int, str | None, str | None, str | None, str | None]]"
+            queue.Queue[tuple[float, str, str, str, int, str | None, str | None, str | None, str | None]]
         ) = queue.Queue()
         self._started_at = time.time()
         self._stop_event = threading.Event()

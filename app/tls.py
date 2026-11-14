@@ -33,7 +33,7 @@ def ensure_self_signed_cert(cert_path: Path, key_path: Path, common_name: str = 
             x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
         ]
     )
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)

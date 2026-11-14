@@ -2608,8 +2608,12 @@ throwaway SQLite file rather than hand-rolled fakes wherever practical.
 
 ```bash
 pip install -r requirements-dev.txt
+ruff check .
 pytest
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the same lint (rules in
+`ruff.toml`) and test suite on every push and pull request.
 
 ## Security notes
 

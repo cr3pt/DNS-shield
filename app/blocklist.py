@@ -10,9 +10,10 @@ import re
 import threading
 import time
 import unicodedata
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urljoin
 
 import regex
@@ -264,7 +265,7 @@ class BlocklistManager:
 
         self._regex_lock = threading.Lock()
         self._regex_cache_key: tuple[str, ...] | None = None
-        self._regex_cache_compiled: list[tuple[str, "regex.Pattern"]] = []
+        self._regex_cache_compiled: list[tuple[str, regex.Pattern]] = []
 
         self._answer_ip_exact: frozenset[str] = frozenset()
         self._answer_ip_nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
@@ -442,7 +443,7 @@ class BlocklistManager:
             "local_tld": local_tld,
         }
 
-    def _compiled_regex_patterns(self) -> list[tuple[str, "regex.Pattern"]]:
+    def _compiled_regex_patterns(self) -> list[tuple[str, regex.Pattern]]:
         patterns = tuple(self._config.get("denylist_regex", default=[]) or [])
         with self._regex_lock:
             if patterns != self._regex_cache_key:

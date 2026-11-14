@@ -67,7 +67,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             try:
                 dns_request = DNSRecord.parse(wire_bytes)
             except Exception:
-                raise HTTPException(status_code=400, detail="Malformed DNS message")
+                raise HTTPException(status_code=400, detail="Malformed DNS message") from None
             dns_response = resolver.resolve(dns_request, _DoHHandler(client_ip))
             return Response(content=bytes(dns_response.pack()), media_type="application/dns-message")
 
@@ -79,7 +79,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             try:
                 wire_bytes = base64.urlsafe_b64decode(padded)
             except Exception:
-                raise HTTPException(status_code=400, detail="Invalid base64url encoding")
+                raise HTTPException(status_code=400, detail="Invalid base64url encoding") from None
             return _doh_respond(wire_bytes, _doh_client_ip(request))
 
         @app.post("/dns-query")

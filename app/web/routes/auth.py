@@ -138,7 +138,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             )
         except Exception:
             login_throttle.record_failure(client_ip)
-            raise HTTPException(status_code=401, detail="Passkey verification failed")
+            raise HTTPException(status_code=401, detail="Passkey verification failed") from None
 
         users.record_passkey_use(username, passkey["credential_id"], result.new_sign_count)
         pending_totp.consume(body.totp_token)

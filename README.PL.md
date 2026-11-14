@@ -2888,8 +2888,12 @@ praktyczne, zamiast ręcznie pisanych atrap.
 
 ```bash
 pip install -r requirements-dev.txt
+ruff check .
 pytest
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) uruchamia ten sam lint (reguły w
+`ruff.toml`) i testy przy każdym pushu i pull requeście.
 
 ## Uwagi o bezpieczeństwie
 

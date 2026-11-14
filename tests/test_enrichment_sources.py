@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
 # See the LICENSE file in the project root for full license terms.
 
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -56,10 +57,10 @@ def test_query_rdap_extracts_full_whois_style_record():
 
 def test_query_rdap_flags_very_recently_registered_domain():
     import copy
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     payload = copy.deepcopy(RDAP_PAYLOAD)
-    recent = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat().replace("+00:00", "Z")
+    recent = (datetime.now(UTC) - timedelta(days=2)).isoformat().replace("+00:00", "Z")
     payload["events"][0]["eventDate"] = recent
 
     with patch("app.enrichment._session") as mock_session:

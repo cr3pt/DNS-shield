@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -377,7 +377,7 @@ def query_rdap(domain: str) -> dict[str, Any]:
         if registration_date:
             try:
                 reg_dt = datetime.fromisoformat(registration_date.replace("Z", "+00:00"))
-                age_days = (datetime.now(timezone.utc) - reg_dt).days
+                age_days = (datetime.now(UTC) - reg_dt).days
             except ValueError:
                 age_days = None
 
@@ -459,8 +459,8 @@ def _query_whois_fallback(domain: str) -> dict[str, Any] | None:
             try:
                 creation_dt = datetime.strptime(creation_date[:19] if "T" in creation_date else creation_date, fmt)
                 if creation_dt.tzinfo is None:
-                    creation_dt = creation_dt.replace(tzinfo=timezone.utc)
-                age_days = (datetime.now(timezone.utc) - creation_dt).days
+                    creation_dt = creation_dt.replace(tzinfo=UTC)
+                age_days = (datetime.now(UTC) - creation_dt).days
                 break
             except ValueError:
                 continue

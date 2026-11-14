@@ -9,7 +9,7 @@ import time
 
 import pytest
 from joserfc import jwt
-from joserfc.jwk import ECKey, KeySet, OctKey, RSAKey
+from joserfc.jwk import ECKey, KeySet, RSAKey
 
 import app.sso as sso
 

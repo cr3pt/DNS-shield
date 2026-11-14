@@ -67,7 +67,7 @@ def discover_dhcp_servers(interface: str | None, listen_seconds: float = 4.0) ->
     while time.monotonic() < deadline:
         try:
             data, addr = sock.recvfrom(4096)
-        except socket.timeout:
+        except TimeoutError:
             continue
         except OSError:
             break

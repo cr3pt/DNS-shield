@@ -8,7 +8,6 @@ import copy
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -218,7 +217,7 @@ def main() -> None:
     args = parser.parse_args()
 
     base_path = args.base or (Path(__file__).resolve().parent.parent / "config" / "config.example.yaml")
-    with open(base_path, "r", encoding="utf-8") as fh:
+    with open(base_path, encoding="utf-8") as fh:
         base = yaml.safe_load(fh) or {}
 
     result, warnings = import_config(args.gravity_db, base)
