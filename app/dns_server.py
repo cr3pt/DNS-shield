@@ -53,6 +53,7 @@ _TRUSTED_QUERY_NETWORKS = tuple(
 _ECS_OPTION = 8
 _COOKIE_OPTION = 10
 _PADDING_OPTION = 12
+_EDE_OPTION = 15
 # EDNS options that only make sense between the client and us.
 _HOP_BY_HOP_OPTIONS = frozenset({_COOKIE_OPTION, _PADDING_OPTION})
 # RFC 8467: pad queries to a multiple of 128 bytes, responses to 468.
@@ -537,10 +538,66 @@ class FilteringResolver:
 
     def _finish_upstream_response(self, request: DNSRecord, resp: bytes, qname: str) -> DNSRecord:
         parsed = DNSRecord.parse(resp)
+        validation = self._validate_locally(resp)
+        if validation == "bogus":
+            logger.warning("DNSSEC validation failed (bogus) for %s - answering SERVFAIL", qname)
+            if self._dnssec_cache is not None and qname:
+                self._dnssec_cache.record(qname, False)
+            reply = request.reply(aa=0)
+            reply.header.rcode = RCODE.SERVFAIL
+            # Extended DNS Error 6: DNSSEC Bogus (RFC 8914).
+            reply.add_ar(EDNS0(udp_len=_DNSSEC_UDP_SIZE, opts=[EDNSOption(_EDE_OPTION, b"\x00\x06")]))
+            return reply
         self._restore_query_case(request, parsed)
+        if validation in ("secure", "insecure"):
+            parsed.header.ad = 1 if validation == "secure" else 0
         self._record_dnssec(qname, parsed)
         self._sanitize_dnssec(request, parsed)
         return parsed
+
+    def _local_validation_enabled(self) -> bool:
+        return self._dnssec_enabled() and self._config.get("dns", "dnssec_validation", default="upstream") == "local"
+
+    def _validate_locally(self, resp: bytes) -> str | None:
+        """"secure" / "insecure" / "bogus" / "indeterminate" with local
+        validation on, None otherwise (the upstream's AD flag is used)."""
+        if not self._local_validation_enabled():
+            return None
+        validator = self._local_validator()
+        return validator.validate(resp) if validator is not None else None
+
+    def _local_validator(self):
+        anchors = tuple(self._config.get("dns", "dnssec_trust_anchors", default=[]) or ())
+        cache_seconds = float(self._config.get("dns", "dnssec_cache_seconds", default=3600))
+        key = (anchors, cache_seconds)
+        if getattr(self, "_validator_key", None) != key:
+            from app.dnssec_validate import ROOT_TRUST_ANCHORS, LocalValidator, upstream_query_fn
+
+            try:
+                self._validator = LocalValidator(
+                    upstream_query_fn(self._validation_forward),
+                    anchors=anchors or ROOT_TRUST_ANCHORS,
+                    cache_seconds=cache_seconds,
+                )
+            except ValueError as exc:
+                logger.warning("invalid dns.dnssec_trust_anchors (%s) - local DNSSEC validation is off", exc)
+                self._validator = None
+            self._validator_key = key
+        return self._validator
+
+    def _validation_forward(self, data: bytes) -> bytes:
+        """Send one of the validator's own lookups (DNSKEY, DS, SOA) to the default upstreams."""
+        timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
+        upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
+        error: Exception | None = None
+        for upstream in upstreams:
+            if upstream_transport.is_disabled(upstream):
+                continue
+            try:
+                return upstream_transport.forward(data, upstream, timeout)
+            except Exception as exc:
+                error = exc
+        raise OSError(f"no upstream answered: {error}")
 
     def _upstream_failure_reply(self, request: DNSRecord, qname: str, variant: str) -> DNSRecord:
         stale = self._stale_fallback(request, variant)

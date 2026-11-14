@@ -357,9 +357,34 @@ or otherwise treat unsigned answers differently; a validating upstream
 already refuses (SERVFAIL) to hand back an answer whose signature fails
 verification on its own, before DNS-shield ever sees it.
 
-Turning the setting back off (or leaving it off) reverts to exactly the
-pre-existing behavior - queries are packed and forwarded with no EDNS0
-record added, at no extra cost.
+**Local validation.** With `dns.dnssec_validation: "local"` (Settings -> DNS
+-> "Who checks the signatures", needs `dns.dnssec_enabled`), DNS-shield
+checks the signatures itself instead of believing the `AD` flag:
+
+- Every RRset in an answer that carries RRSIGs is verified with the
+  signer zone's DNSKEYs.
+- Those keys are trusted when one of them matches a DS record signed by the
+  parent zone's trusted keys, all the way up to the root. The root's keys
+  are checked against the IANA root trust anchors (KSK-2017 and KSK-2024),
+  which `dns.dnssec_trust_anchors` can replace with your own DS lines.
+- An RRset without signatures in a zone that is signed is bogus, because
+  that is what stripped signatures look like.
+
+A bogus answer gets `SERVFAIL` with Extended DNS Error 6 (DNSSEC Bogus) and
+isn't cached. A secure one gets `AD` set for clients that asked with `DO`.
+The checking costs a few extra lookups (DNSKEY, DS, SOA) the first time a
+zone is seen; after that the results are cached for
+`dns.dnssec_cache_seconds`. Limits: denial proofs (NSEC/NSEC3) aren't
+checked, so an upstream that says a zone has no DS is believed and the zone
+is treated as unsigned. Negative answers have their signatures checked but
+not the proof itself. If the chain can't be built at all (no DNSSEC data
+from the upstream, or root keys that don't match the anchors), the answer
+passes through as before with a warning in the log, rather than every
+lookup failing.
+
+Turning the setting back off (or leaving it off) reverts to the
+pre-existing behavior - DNS-shield adds no DO bit of its own, at no extra
+cost.
 
 ### Upstream and blocklist hostnames are always resolvable and never logged
 

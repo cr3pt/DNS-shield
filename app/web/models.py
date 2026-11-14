@@ -301,6 +301,22 @@ class DnsSettingsIn(BaseModel):
     safe_search_enabled: bool | None = None
     dnssec_enabled: bool | None = None
     dnssec_cache_seconds: float | None = None
+    dnssec_validation: str | None = Field(default=None, pattern="^(upstream|local)$")
+    dnssec_trust_anchors: list[str] | None = None
+
+    @field_validator("dnssec_trust_anchors")
+    @classmethod
+    def _validate_trust_anchors(cls, value: list[str] | None) -> list[str] | None:
+        if not value:
+            return value
+        from app.dnssec_validate import _parse_anchors
+
+        cleaned = [line.strip() for line in value if line.strip()]
+        try:
+            _parse_anchors(cleaned)
+        except Exception as exc:
+            raise ValueError(f"invalid trust anchor: {exc}") from None
+        return cleaned
     typosquat_enabled: bool | None = None
     typosquat_max_distance: int | None = None
     typosquat_cooldown_minutes: float | None = None
