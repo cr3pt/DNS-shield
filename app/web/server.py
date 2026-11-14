@@ -886,22 +886,23 @@ def create_app(
         ):
             user = _current_user(request)
             if user is not None:
-                client_ip = request.client.host if request.client else "unknown"
+                client_ip = _client_ip(request)
                 audit_log.record(user["username"], f"{request.method} {request.url.path}", client_ip=client_ip)
         return response
 
-    @app.get("/login")
-    def login_page() -> FileResponse:
-        return FileResponse(STATIC_DIR / "login.html", headers=NO_CACHE)
+    def _client_ip(request: Request) -> str:
+        return request.client.host if request.client else "unknown"
 
-    @app.post("/api/login")
-    def login(body: LoginIn, request: Request, response: Response) -> dict[str, Any]:
-        client_ip = request.client.host if request.client else "unknown"
+    def _login_retry_after(client_ip: str) -> float | None:
+        """Seconds this IP still has to wait after too many failed logins
+        (None = may try now), with the limits currently configured."""
         max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
         lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
         login_throttle.configure(max_attempts, lockout_seconds)
+        return login_throttle.retry_after(client_ip)
 
-        retry_after = login_throttle.retry_after(client_ip)
+    def _enforce_login_throttle(client_ip: str) -> None:
+        retry_after = _login_retry_after(client_ip)
         if retry_after is not None:
             wait_seconds = int(retry_after) + 1
             raise HTTPException(
@@ -909,6 +910,15 @@ def create_app(
                 detail=f"Too many failed login attempts - try again in {wait_seconds}s",
                 headers={"Retry-After": str(wait_seconds)},
             )
+
+    @app.get("/login")
+    def login_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "login.html", headers=NO_CACHE)
+
+    @app.post("/api/login")
+    def login(body: LoginIn, request: Request, response: Response) -> dict[str, Any]:
+        client_ip = _client_ip(request)
+        _enforce_login_throttle(client_ip)
 
         user = users.verify_login(body.username.strip(), body.password)
         if user is None:
@@ -934,19 +944,8 @@ def create_app(
 
     @app.post("/api/login/totp")
     def login_totp(body: TotpLoginIn, request: Request, response: Response) -> dict[str, Any]:
-        client_ip = request.client.host if request.client else "unknown"
-        max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
-        lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
-        login_throttle.configure(max_attempts, lockout_seconds)
-
-        retry_after = login_throttle.retry_after(client_ip)
-        if retry_after is not None:
-            wait_seconds = int(retry_after) + 1
-            raise HTTPException(
-                status_code=429,
-                detail=f"Too many failed login attempts - try again in {wait_seconds}s",
-                headers={"Retry-After": str(wait_seconds)},
-            )
+        client_ip = _client_ip(request)
+        _enforce_login_throttle(client_ip)
 
         username = pending_totp.username_for(body.totp_token)
         if username is None:
@@ -979,19 +978,8 @@ def create_app(
 
     @app.post("/api/login/passkey/verify")
     def login_passkey_verify(body: PasskeyLoginVerifyIn, request: Request, response: Response) -> dict[str, Any]:
-        client_ip = request.client.host if request.client else "unknown"
-        max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
-        lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
-        login_throttle.configure(max_attempts, lockout_seconds)
-
-        retry_after = login_throttle.retry_after(client_ip)
-        if retry_after is not None:
-            wait_seconds = int(retry_after) + 1
-            raise HTTPException(
-                status_code=429,
-                detail=f"Too many failed login attempts - try again in {wait_seconds}s",
-                headers={"Retry-After": str(wait_seconds)},
-            )
+        client_ip = _client_ip(request)
+        _enforce_login_throttle(client_ip)
 
         pending_username = pending_totp.username_for(body.totp_token)
         challenge_entry = pending_challenges.get(body.totp_token)
@@ -1057,15 +1045,12 @@ def create_app(
         state: str | None = None,
         error: str | None = None,
     ) -> RedirectResponse:
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _client_ip(request)
         cfg = _sso_config()
         if not cfg.get("enabled"):
             raise HTTPException(status_code=404, detail="Single sign-on is not enabled")
 
-        max_attempts = int(config_store.get("web", "login_max_attempts", default=5) or 5)
-        lockout_seconds = max(1.0, float(config_store.get("web", "login_lockout_minutes", default=15) or 15) * 60)
-        login_throttle.configure(max_attempts, lockout_seconds)
-        if login_throttle.retry_after(client_ip) is not None:
+        if _login_retry_after(client_ip) is not None:
             return RedirectResponse("/login?error=sso_failed")
 
         entry = pending_sso.consume(state)
@@ -1116,7 +1101,7 @@ def create_app(
         sessions.destroy(request.cookies.get(COOKIE_NAME))
         _clear_auth_cookies(response)
         if audit_log is not None and user is not None:
-            client_ip = request.client.host if request.client else "unknown"
+            client_ip = _client_ip(request)
             audit_log.record(user["username"], "logout", client_ip=client_ip)
         return {"ok": True}
 
