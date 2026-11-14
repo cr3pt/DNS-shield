@@ -738,5 +738,16 @@
   "col.updated": "Dernière mise à jour",
   "sources.never_updated": "jamais",
   "sources.update_failed": "Échec du dernier téléchargement {when}",
-  "sources.last_checked": "Dernière vérification : {when}"
+  "sources.last_checked": "Dernière vérification : {when}",
+  "forced_pw.title": "Changez le mot de passe par défaut",
+  "forced_pw.intro": "Ce compte utilise encore le mot de passe par défaut. N'importe qui sur votre réseau pourrait se connecter avec, choisissez-en un nouveau (au moins 8 caractères) avant de continuer.",
+  "forced_pw.current": "Mot de passe actuel",
+  "forced_pw.new": "Nouveau mot de passe",
+  "forced_pw.repeat": "Répétez le nouveau mot de passe",
+  "forced_pw.submit": "Changer le mot de passe",
+  "forced_pw.mismatch": "Les nouveaux mots de passe ne correspondent pas.",
+  "general.public_view": "Show a public summary (query trend and top blocked domains) to visitors who aren't signed in",
+  "general.hint.public_view": "Off by default: the top blocked domains can reveal what people on your network try to visit. When off, visitors are sent straight to the sign-in page.",
+  "general.public_url": "Dashboard address (optional)",
+  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request."
 }

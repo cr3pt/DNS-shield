@@ -12,11 +12,15 @@ from pathlib import Path
 
 from dnslib import QTYPE, RCODE, RR, DNSBuffer, DNSError, DNSRecord
 
-CacheKey = tuple[str, int, int]
+# (qname, qtype, qclass, variant). The variant separates answers that differ per
+# client profile (SafeSearch, client-group upstreams), so one client's answer is
+# never served to a client with a different policy. "" = the default profile.
+CacheKey = tuple[str, int, int, str]
 CacheEntry = tuple[float, list[RR], int]
 
 _DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
 _EDNS_DO_BIT = 1 << 15
+_PERSIST_VERSION = 2
 
 
 class DNSCache:
@@ -29,22 +33,29 @@ class DNSCache:
         self._hits = 0
         self._misses = 0
         self._stale_hits = 0
+        self._generation = config_store.get("dns", "cache_generation", default=0)
         if self._persist_path is not None:
             self._load()
 
     def _enabled(self) -> bool:
+        if self._config.get("dns", "cache_generation", default=0) != self._generation:
+            # Another process asked every cache to be flushed.
+            self.clear()
         return bool(self._config.get("dns", "cache_enabled", default=True))
 
-    @staticmethod
-    def _key(request: DNSRecord) -> CacheKey:
-        q = request.q
-        return (str(q.qname).lower(), q.qtype, q.qclass)
+    def sync_generation(self) -> None:
+        self._generation = self._config.get("dns", "cache_generation", default=0)
 
-    def get(self, request: DNSRecord) -> DNSRecord | None:
+    @staticmethod
+    def _key(request: DNSRecord, variant: str = "") -> CacheKey:
+        q = request.q
+        return (str(q.qname).lower(), q.qtype, q.qclass, variant)
+
+    def get(self, request: DNSRecord, variant: str = "") -> DNSRecord | None:
         if not self._enabled():
             return None
 
-        key = self._key(request)
+        key = self._key(request, variant)
         with self._lock:
             entry = self._store.get(key)
             if entry is None:
@@ -67,8 +78,8 @@ class DNSCache:
             )
         return reply
 
-    def get_stale(self, request: DNSRecord, grace_seconds: float) -> DNSRecord | None:
-        key = self._key(request)
+    def get_stale(self, request: DNSRecord, grace_seconds: float, variant: str = "") -> DNSRecord | None:
+        key = self._key(request, variant)
         with self._lock:
             entry = self._store.get(key)
             if entry is None:
@@ -105,7 +116,7 @@ class DNSCache:
             return original
         return rname
 
-    def put(self, request: DNSRecord, response: DNSRecord) -> None:
+    def put(self, request: DNSRecord, response: DNSRecord, variant: str = "") -> None:
         if not self._enabled():
             return
         if response.header.rcode != RCODE.NOERROR or response.header.tc:
@@ -122,7 +133,7 @@ class DNSCache:
             return
 
         max_entries = int(self._config.get("dns", "cache_max_entries", default=10000))
-        key = self._key(request)
+        key = self._key(request, variant)
         with self._lock:
             previous_hits = self._store[key][2] if key in self._store else 0
             self._store[key] = (time.time() + ttl, answers, previous_hits)
@@ -168,6 +179,7 @@ class DNSCache:
             }
 
     def clear(self) -> None:
+        self._generation = self._config.get("dns", "cache_generation", default=0)
         with self._lock:
             self._store.clear()
             self._prefetch_inflight.clear()
@@ -191,21 +203,23 @@ class DNSCache:
                 saved = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
             return
-        if not isinstance(saved, dict) or saved.get("version") != 1:
+        # Version 1 files predate the per-profile variant and may hold answers
+        # that belong to another client's policy, so they are dropped.
+        if not isinstance(saved, dict) or saved.get("version") != _PERSIST_VERSION:
             return
 
         now = time.time()
         with self._lock:
             for entry in saved.get("entries", []):
                 try:
-                    qname, qtype, qclass = entry["key"]
+                    qname, qtype, qclass, variant = entry["key"]
                     expires_at = float(entry["expires_at"])
                     hits = int(entry["hits"])
                     answers = [self._decode_rr(blob) for blob in entry["answers"]]
                 except (KeyError, TypeError, ValueError, DNSError):
                     continue
                 if expires_at > now and answers:
-                    self._store[(qname, qtype, qclass)] = (expires_at, answers, hits)
+                    self._store[(str(qname), int(qtype), int(qclass), str(variant))] = (expires_at, answers, hits)
 
     def save(self) -> None:
         if self._persist_path is None:
@@ -225,7 +239,7 @@ class DNSCache:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self._persist_path.with_suffix(".tmp")
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump({"version": 1, "entries": entries}, f)
+                json.dump({"version": _PERSIST_VERSION, "entries": entries}, f)
             tmp_path.replace(self._persist_path)
         except OSError:
             pass

@@ -53,6 +53,9 @@ dns:
 
 blocklists:
   refresh_interval_hours: 24
+  # Largest list download accepted, in MB - protects against a broken or
+  # hostile server streaming endless data (0 = no limit).
+  max_download_mb: 512
   sources:
     - name: "StevenBlack Unified Hosts"
       url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"

@@ -108,7 +108,7 @@ class NotificationSender:
                 raise ValueError("Discord webhook URL is required")
             check_public_url(url)
             with public_dns_guard(url):
-                resp = requests.post(url, json={"content": text}, timeout=_WEBHOOK_TIMEOUT)
+                resp = requests.post(url, json={"content": text}, timeout=_WEBHOOK_TIMEOUT, allow_redirects=False)
             resp.raise_for_status()
         elif wtype == "slack":
             url = (cfg.get("url") or "").strip()
@@ -116,7 +116,7 @@ class NotificationSender:
                 raise ValueError("Slack webhook URL is required")
             check_public_url(url)
             with public_dns_guard(url):
-                resp = requests.post(url, json={"text": text}, timeout=_WEBHOOK_TIMEOUT)
+                resp = requests.post(url, json={"text": text}, timeout=_WEBHOOK_TIMEOUT, allow_redirects=False)
             resp.raise_for_status()
         elif wtype == "telegram":
             token = (cfg.get("telegram_bot_token") or "").strip()

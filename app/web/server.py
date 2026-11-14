@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import io
+import ipaddress
 import logging
 import os
 import re
@@ -15,6 +16,7 @@ import time
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 from dnslib import DNSRecord
@@ -25,6 +27,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.anomaly import _base_domain
 from app.auth import verify_password
 from app.blocklist import check_regex_pattern_safety, normalize_tld
+from app.domain_suffix import normalize_domain
 from app.graph import GRAPH_VIEWS
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app import dns_rewrites
@@ -53,7 +56,7 @@ from app.two_factor import PendingTotpStore, qr_svg
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
-from app.users import LANGUAGE_NATIVE_NAMES, SUPPORTED_LANGUAGES, UserStore, public_user
+from app.users import LANGUAGE_NATIVE_NAMES, SUPPORTED_LANGUAGES, UserStore, check_new_password, public_user
 
 logger = logging.getLogger("dnsshield.web")
 
@@ -81,6 +84,14 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login/totp",
     "/api/login/passkey/options",
     "/api/login/passkey/verify",
+}
+
+# The only endpoints an account flagged must_change_password may call
+# (everything else answers 403 until the password is changed).
+_PASSWORD_CHANGE_ALLOWED_PATHS = {
+    "/api/account/password",
+    "/api/account/language",
+    "/api/languages",
 }
 
 _CLEARABLE_SECRET_PATHS = {
@@ -227,6 +238,11 @@ class BlocklistSourceIn(BaseModel):
 
 class DomainIn(BaseModel):
     domain: str
+
+    @field_validator("domain")
+    @classmethod
+    def _validate_domain(cls, value: str) -> str:
+        return normalize_domain(value)
 
 
 class TyposquatFpIn(BaseModel):
@@ -507,6 +523,18 @@ class WebSettingsIn(BaseModel):
     https_key_path: str | None = None
     login_max_attempts: int | None = None
     login_lockout_minutes: float | None = None
+    public_view_enabled: bool | None = None
+    public_url: str | None = None
+
+    @field_validator("public_url")
+    @classmethod
+    def _validate_public_url(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return value
+        parsed = urlparse(value.strip())
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValueError("Public URL must look like https://dns.example.lan:3000")
+        return f"{parsed.scheme}://{parsed.netloc}"
 
 
 class ClearSecretIn(BaseModel):
@@ -722,11 +750,32 @@ def create_app(
     pending_challenges = PendingChallengeStore()
     pending_sso = PendingSSOStore()
 
+    def _configured_public_url() -> tuple[str, str] | None:
+        """(origin, hostname) of web.public_url - the address people open the
+        dashboard at - when it's set."""
+        raw = (config_store.get("web", "public_url", default="") or "").strip()
+        if not raw:
+            return None
+        parsed = urlparse(raw)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}", parsed.hostname
+
     def _webauthn_rp_id(request: Request) -> str:
+        configured = _configured_public_url()
+        if configured is not None:
+            return configured[1]
         return request.url.hostname or "localhost"
 
     def _webauthn_origin(request: Request) -> str:
-        return request.headers.get("origin") or f"{request.url.scheme}://{request.url.netloc}"
+        # Never the request's own Origin header: the expected origin is what
+        # the browser-signed clientData is checked against, so it has to come
+        # from our side - the configured public URL, else the address this
+        # request was made to.
+        configured = _configured_public_url()
+        if configured is not None:
+            return configured[0]
+        return f"{request.url.scheme}://{request.url.netloc}"
 
     NO_CACHE = {"Cache-Control": "no-cache"}
 
@@ -770,6 +819,11 @@ def create_app(
         user = _current_user(request)
         if user is None:
             raise HTTPException(status_code=401, detail="Unauthorized")
+        if user.get("must_change_password") and request.url.path not in _PASSWORD_CHANGE_ALLOWED_PATHS:
+            raise HTTPException(
+                status_code=403,
+                detail="password_change_required: change the default password before using the dashboard",
+            )
         return user
 
     def require_admin(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
@@ -1096,6 +1150,8 @@ def create_app(
 
     @app.get("/api/public/summary")
     def public_summary() -> dict[str, Any]:
+        if not config_store.get("web", "public_view_enabled", default=False):
+            raise HTTPException(status_code=404, detail="The public view is turned off")
         snap = stats.snapshot(top_n=25, log_n=0)
         return {
             "top_blocked_domains": snap["top_blocked_domains"],
@@ -1390,6 +1446,14 @@ def create_app(
         if cache is None:
             raise HTTPException(status_code=404, detail="Cache is disabled")
         cache.clear()
+        # Extra DNS worker processes (DNSSHIELD_DNS_WORKERS > 1) keep their own
+        # cache; bumping the generation tells them to drop it too.
+        config_store.mutate(
+            lambda d: d.setdefault("dns", {}).update(
+                {"cache_generation": int((d.get("dns") or {}).get("cache_generation") or 0) + 1}
+            )
+        )
+        cache.sync_generation()
         return {"ok": True}
 
     def _list_sources(field: str) -> list[dict[str, Any]]:
@@ -1486,6 +1550,17 @@ def create_app(
             "blocked_answer_ips": config_store.get("blocked_answer_ips", default=[]) or [],
         }
 
+    def _ip_or_cidr(value: str) -> str:
+        text = (value or "").strip()
+        try:
+            if "/" in text:
+                return str(ipaddress.ip_network(text, strict=False))
+            return str(ipaddress.ip_address(text))
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f'"{value}" is not an IP address or CIDR range (e.g. 192.168.1.10 or 10.0.0.0/8)'
+            ) from None
+
     def _add_rule(list_name: str, value: str, label: str = "domain") -> list[str]:
         value = value.strip().lower().rstrip(".")
         if not value:
@@ -1504,8 +1579,8 @@ def create_app(
 
         def _mutate(data: dict[str, Any]) -> list[str]:
             items = data.setdefault(list_name, [])
-            if value in items:
-                items.remove(value)
+            for item in [i for i in items if str(i).strip().lower().rstrip(".") == value]:
+                items.remove(item)
             return items
 
         return config_store.mutate(_mutate)
@@ -1514,7 +1589,7 @@ def create_app(
     def add_allow(body: DomainIn, _: dict[str, Any] = Depends(require_permission("can_whitelist"))) -> list[str]:
         return _add_rule("allowlist", body.domain)
 
-    @app.delete("/api/rules/allow/{domain}")
+    @app.delete("/api/rules/allow/{domain:path}")
     def remove_allow(domain: str, _: dict[str, Any] = Depends(require_permission("can_whitelist"))) -> list[str]:
         return _remove_rule("allowlist", domain)
 
@@ -1522,7 +1597,7 @@ def create_app(
     def add_deny(body: DomainIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _add_rule("denylist", body.domain)
 
-    @app.delete("/api/rules/deny/{domain}")
+    @app.delete("/api/rules/deny/{domain:path}")
     def remove_deny(domain: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _remove_rule("denylist", domain)
 
@@ -1582,7 +1657,7 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
-    @app.delete("/api/rules/deny-regex/{pattern}")
+    @app.delete("/api/rules/deny-regex/{pattern:path}")
     def remove_deny_regex(pattern: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         def _mutate(data: dict[str, Any]) -> list[str]:
             items = data.setdefault("denylist_regex", [])
@@ -1594,19 +1669,23 @@ def create_app(
 
     @app.post("/api/rules/deny-client")
     def add_deny_client(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
-        return _add_rule("blocked_clients", body.value, label="client")
+        try:
+            pattern = normalize_client_pattern(body.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _add_rule("blocked_clients", pattern, label="client")
 
-    @app.delete("/api/rules/deny-client/{client}")
+    @app.delete("/api/rules/deny-client/{client:path}")
     def remove_deny_client(client: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _remove_rule("blocked_clients", client)
 
     @app.post("/api/rules/deny-answer-ip")
     def add_deny_answer_ip(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
-        result = _add_rule("blocked_answer_ips", body.value, label="IP")
+        result = _add_rule("blocked_answer_ips", _ip_or_cidr(body.value), label="IP")
         blocklist.refresh()
         return result
 
-    @app.delete("/api/rules/deny-answer-ip/{value}")
+    @app.delete("/api/rules/deny-answer-ip/{value:path}")
     def remove_deny_answer_ip(value: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         result = _remove_rule("blocked_answer_ips", value)
         blocklist.refresh()
@@ -1696,15 +1775,15 @@ def create_app(
     def add_ignored_domain(body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _add_nested_rule("logging", "ignored_domains", body.domain.strip().lower().rstrip("."))
 
-    @app.delete("/api/log-ignore/domains/{value}")
+    @app.delete("/api/log-ignore/domains/{value:path}")
     def remove_ignored_domain(value: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _remove_nested_rule("logging", "ignored_domains", value.strip().lower().rstrip("."))
 
     @app.post("/api/log-ignore/clients")
     def add_ignored_client(body: ValueIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
-        return _add_nested_rule("logging", "ignored_clients", body.value.strip())
+        return _add_nested_rule("logging", "ignored_clients", _ip_or_cidr(body.value))
 
-    @app.delete("/api/log-ignore/clients/{value}")
+    @app.delete("/api/log-ignore/clients/{value:path}")
     def remove_ignored_client(value: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _remove_nested_rule("logging", "ignored_clients", value.strip())
 
@@ -1721,7 +1800,7 @@ def create_app(
         blocklist.clear_typosquat_cache()
         return result
 
-    @app.delete("/api/typosquat-domains/{value}")
+    @app.delete("/api/typosquat-domains/{value:path}")
     def remove_typosquat_domain(value: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         result = _remove_nested_rule("dns", "typosquat_extra_domains", value.strip().lower().rstrip("."))
         blocklist.clear_typosquat_cache()
@@ -1884,7 +1963,7 @@ def create_app(
     def add_group_allow(index: int, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _add_group_rule(index, "allowlist", body.domain)
 
-    @app.delete("/api/client-groups/{index}/allow/{domain}")
+    @app.delete("/api/client-groups/{index}/allow/{domain:path}")
     def remove_group_allow(index: int, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _remove_group_rule(index, "allowlist", domain)
 
@@ -1892,7 +1971,7 @@ def create_app(
     def add_group_deny(index: int, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _add_group_rule(index, "denylist", body.domain)
 
-    @app.delete("/api/client-groups/{index}/deny/{domain}")
+    @app.delete("/api/client-groups/{index}/deny/{domain:path}")
     def remove_group_deny(index: int, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _remove_group_rule(index, "denylist", domain)
 
@@ -2543,6 +2622,8 @@ To restore into an EXISTING instance (data/config.db already exists):
                 "https_key_path": web_cfg.get("https_key_path", "") or "",
                 "login_max_attempts": web_cfg.get("login_max_attempts", 5),
                 "login_lockout_minutes": web_cfg.get("login_lockout_minutes", 15),
+                "public_view_enabled": bool(web_cfg.get("public_view_enabled", False)),
+                "public_url": web_cfg.get("public_url", "") or "",
             },
             "logging": snap.get("logging", {}),
             "blocklists_refresh_interval_hours": snap.get("blocklists", {}).get("refresh_interval_hours", 24),
@@ -2833,7 +2914,7 @@ To restore into an EXISTING instance (data/config.db already exists):
     def add_alert_domain(body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _add_alert_domain(body.domain)
 
-    @app.delete("/api/alert-rules/domains/{domain}")
+    @app.delete("/api/alert-rules/domains/{domain:path}")
     def remove_alert_domain(domain: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         return _remove_alert_domain(domain)
 
@@ -3044,7 +3125,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         return config_store.mutate(_mutate)
 
-    @app.delete("/api/anomaly-subdomain-exclusions/{domain}")
+    @app.delete("/api/anomaly-subdomain-exclusions/{domain:path}")
     def remove_anomaly_subdomain_exclusion(domain: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         domain = domain.strip().lower().rstrip(".")
 
@@ -3144,7 +3225,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         return config_store.mutate(_mutate)
 
-    @app.delete("/api/anomaly-exclusions/{domain}")
+    @app.delete("/api/anomaly-exclusions/{domain:path}")
     def remove_anomaly_exclusion(domain: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         domain = domain.strip().lower().rstrip(".")
 
@@ -3206,7 +3287,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         return config_store.mutate(_mutate)
 
-    @app.delete("/api/rebinding-fp/{domain}/{ip}")
+    @app.delete("/api/rebinding-fp/{domain}/{ip:path}")
     def remove_rebinding_fp(domain: str, ip: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
         domain = domain.strip().lower().rstrip(".")
         ip = ip.strip()
@@ -3240,7 +3321,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         return config_store.mutate(_mutate)
 
-    @app.delete("/api/threat-intel-fp/{target}")
+    @app.delete("/api/threat-intel-fp/{target:path}")
     def remove_threat_intel_fp(target: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, str]]:
         target = target.strip().lower()
 
@@ -3310,6 +3391,7 @@ To restore into an EXISTING instance (data/config.db already exists):
     @app.post("/api/users")
     def create_user(body: UserCreateIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         try:
+            check_new_password(body.password)
             user = users.create(
                 body.username,
                 body.password,
@@ -3323,6 +3405,8 @@ To restore into an EXISTING instance (data/config.db already exists):
     @app.patch("/api/users/{username}")
     def update_user(username: str, body: UserUpdateIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         try:
+            if body.password:
+                check_new_password(body.password)
             user = users.update(
                 username,
                 password=body.password or None,
@@ -3348,13 +3432,21 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.post("/api/account/password")
     def change_own_password(
-        body: ChangePasswordIn, user: dict[str, Any] = Depends(require_auth)
+        body: ChangePasswordIn, response: Response, user: dict[str, Any] = Depends(require_auth)
     ) -> dict[str, Any]:
         if not verify_password(body.current_password, user.get("password_hash", "")):
             raise HTTPException(status_code=400, detail="Current password is incorrect")
-        if not body.new_password:
-            raise HTTPException(status_code=400, detail="New password is required")
+        try:
+            check_new_password(body.new_password)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if body.new_password == body.current_password:
+            raise HTTPException(status_code=400, detail="The new password must differ from the current one")
         users.update(user["username"], password=body.new_password)
+        # Log out every other session of this account (e.g. a stolen cookie),
+        # and give this browser a fresh session so it stays signed in.
+        sessions.destroy_all_for(user["username"])
+        _set_auth_cookies(response, sessions.create(user["username"]))
         return {"ok": True}
 
     @app.get("/api/languages")

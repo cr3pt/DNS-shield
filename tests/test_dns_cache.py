@@ -182,7 +182,7 @@ def test_persisted_file_is_plain_json_not_pickle(config_store, tmp_path):
 
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    assert data["version"] == 1
+    assert data["version"] == 2
     assert data["entries"][0]["key"][0] == "jsoncheck.example.com."
 
 
@@ -204,3 +204,17 @@ def test_load_ignores_corrupt_or_hostile_file_contents(config_store, tmp_path):
     path.write_text("not even json{{{", encoding="utf-8")
     cache = DNSCache(config_store, persist_path=path)
     assert cache.stats()["entries"] == 0
+
+
+def test_bumped_cache_generation_flushes_other_processes_caches(config_store):
+    cache = DNSCache(config_store)
+    request = DNSRecord.question("gen.example.com", qtype="A")
+    cache.put(request, _response("gen.example.com", ttl=300))
+    assert cache.get(request) is not None
+
+    # another process (the web UI) bumps the generation
+    config_store.mutate(lambda d: d.setdefault("dns", {}).update({"cache_generation": 1}))
+
+    assert cache.get(request) is None
+    cache.put(request, _response("gen.example.com", ttl=300))
+    assert cache.get(request) is not None

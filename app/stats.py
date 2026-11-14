@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import sqlite3
 import threading
@@ -12,6 +13,13 @@ from typing import Any
 
 from app.netmatch import ip_matches
 from app.upstream import protected_hostnames
+
+logger = logging.getLogger("dnsshield.stats")
+
+# Upper bounds that keep a stalled query-log writer from exhausting memory.
+_MAX_QUEUE = 200_000
+_MAX_PENDING = 100_000
+_MAX_BATCH = 5_000
 
 _TIMESERIES_RANGES: dict[str, tuple[int, int]] = {
     "24h": (86400, 3600),
@@ -45,6 +53,7 @@ class Stats:
         ) = queue.Queue()
         self._started_at = time.time()
         self._stop_event = threading.Event()
+        self._dropped = 0
 
         self._init_schema()
 
@@ -96,6 +105,13 @@ class Stats:
     ) -> None:
         if self._is_ignored(qname, client_ip):
             return
+        if self._queue.qsize() >= _MAX_QUEUE:
+            # The writer is far behind (or the disk is gone): drop rather than
+            # let memory grow until the process is killed.
+            self._dropped += 1
+            if self._dropped % 10000 == 1:
+                logger.warning("query log queue full - dropped %d row(s) so far", self._dropped)
+            return
         self._queue.put(
             (
                 time.time(),
@@ -122,28 +138,55 @@ class Stats:
         protected = protected_hostnames(self._config)
         return any(qname == h or qname.endswith("." + h) for h in protected)
 
+    _INSERT_SQL = (
+        "INSERT INTO queries "
+        "(ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match, "
+        "rebinding_ip, local_tld_match) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+
     def _writer_loop(self) -> None:
-        conn = self._connect()
-        try:
-            while not self._stop_event.is_set():
+        # The writer must never die: if it did, the query log would silently
+        # stop and the in-memory queue would grow without bound. A failed
+        # batch (e.g. "database is locked" while another DNS worker process
+        # writes) is kept and retried with a growing pause, and the database
+        # connection is reopened in case it went bad.
+        conn: sqlite3.Connection | None = None
+        pending: list[tuple] = []
+        backoff = self._flush_interval
+        while not self._stop_event.is_set():
+            if not pending:
                 try:
-                    batch = [self._queue.get(timeout=self._flush_interval)]
+                    pending = [self._queue.get(timeout=self._flush_interval)]
                 except queue.Empty:
                     continue
-                while True:
-                    try:
-                        batch.append(self._queue.get_nowait())
-                    except queue.Empty:
-                        break
-                conn.executemany(
-                    "INSERT INTO queries "
-                    "(ts, domain, qtype, client, blocked, reason, answer_ip, alert_rule, typosquat_match, "
-                    "rebinding_ip, local_tld_match) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    batch,
-                )
+            while len(pending) < _MAX_BATCH:
+                try:
+                    pending.append(self._queue.get_nowait())
+                except queue.Empty:
+                    break
+            try:
+                if conn is None:
+                    conn = self._connect()
+                conn.executemany(self._INSERT_SQL, pending)
                 conn.commit()
-        finally:
+                pending = []
+                backoff = self._flush_interval
+            except Exception:
+                logger.exception("writing %d query log row(s) failed - will retry", len(pending))
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    conn = None
+                if len(pending) > _MAX_PENDING:
+                    dropped = len(pending) - _MAX_PENDING
+                    pending = pending[dropped:]
+                    logger.warning("dropped %d oldest query log row(s) that could not be written", dropped)
+                self._stop_event.wait(backoff)
+                backoff = min(backoff * 2, 30.0)
+        if conn is not None:
             conn.close()
 
     def stop(self) -> None:
