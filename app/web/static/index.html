@@ -533,6 +533,16 @@
         </div>
 
         <div class="settings-group">
+          <h3 data-i18n="dns.rate_limit">Per-client rate limit</h3>
+          <div class="field-grid">
+            <div class="field"><label data-i18n="dns.rate_limit_qps">Queries per second per client (0 = off)</label><input type="number" min="0" step="any" id="s-dns-rate-limit-qps"></div>
+            <div class="field"><label data-i18n="dns.rate_limit_burst">Burst (0 = automatic)</label><input type="number" min="0" step="any" id="s-dns-rate-limit-burst"></div>
+            <div class="field"><label data-i18n="dns.rate_limit_exempt">Exempt IPs/networks, comma separated</label><input type="text" id="s-dns-rate-limit-exempt" placeholder="e.g. 192.168.1.10, 10.0.5.0/24"></div>
+          </div>
+          <p class="hint" data-i18n="dns.hint.rate_limit">A client that sends more queries than this gets REFUSED until it slows down, so one looping app or infected device can't slow DNS for everyone. Loopback is never limited. Automatic burst is twice the rate, at least 20. A typical home device stays under 5 queries a second; 20-50 is a safe limit.</p>
+        </div>
+
+        <div class="settings-group">
           <h3 data-i18n="dns.upstream_strategy">Upstream selection strategy</h3>
           <p class="muted" style="margin:0 0 0.6rem;" data-i18n="dns.hint.upstream_strategy">The upstream server list itself is managed below, in "Upstream DNS servers" - this only decides which one is tried first.</p>
           <div class="field-grid">

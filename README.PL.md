@@ -1805,6 +1805,20 @@ wyłączać całą tę ochronę - przełącznik istnieje dla kogoś, kto świado
 chce mieć otwarty resolver, ale to powinien być świadomy wybór, a nie
 ustawienie domyślne.
 
+### Limit zapytań na klienta
+
+`dns.rate_limit_qps` (0 = wyłączone, domyślnie) ogranicza liczbę zapytań
+na sekundę z jednego adresu IP. Każdy klient ma kubełek tokenów, który
+mieści do `dns.rate_limit_burst` zapytań (0 = dwukrotność limitu, co
+najmniej 20). Po jego wyczerpaniu klient dostaje `REFUSED` od razu, przed
+listami blokad, cache i serwerami nadrzędnymi, dopóki nie zwolni. Dzięki
+temu jedna zapętlona aplikacja albo zainfekowane urządzenie nie spowolni
+DNS wszystkim ani nie zużyje limitu serwera nadrzędnego. Loopback i
+`dns.rate_limit_exempt` (IP/CIDR) nigdy nie są limitowane. Klient, który
+przekroczy limit, jest logowany raz na minutę. Przy kilku procesach DNS
+każdy liczy osobno. Urządzenie domowe rzadko wysyła więcej niż 5 zapytań
+na sekundę, więc 20-50 to bezpieczny limit.
+
 ### Ochrona przed DNS rebindingiem
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) to atak, w

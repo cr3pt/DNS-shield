@@ -55,6 +55,9 @@ dns:
   local_tld_cooldown_minutes: 30
   query_acl_enabled: true
   query_acl_extra_networks: []
+  rate_limit_qps: 0              # queries/s per client before REFUSED; 0 = off
+  rate_limit_burst: 0            # 0 = twice the rate, at least 20
+  rate_limit_exempt: []
 
 blocklists:
   refresh_interval_hours: 24
