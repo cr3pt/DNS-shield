@@ -3045,6 +3045,12 @@ async function loadSettings() {
   document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
 
   document.getElementById("s-retention-days").value = s.logging.retention_days ?? "";
+  document.getElementById("s-syslog-enabled").checked = !!s.logging.syslog_enabled;
+  document.getElementById("s-syslog-host").value = s.logging.syslog_host ?? "";
+  document.getElementById("s-syslog-port").value = s.logging.syslog_port ?? "";
+  document.getElementById("s-syslog-protocol").value = s.logging.syslog_protocol || "udp";
+  document.getElementById("s-syslog-format").value = s.logging.syslog_format || "text";
+  document.getElementById("s-syslog-only-blocked").checked = !!s.logging.syslog_only_blocked;
   document.getElementById("s-refresh-interval").value = s.blocklists_refresh_interval_hours ?? "";
 
   document.getElementById("s-vt-key").value = "";
@@ -5295,6 +5301,38 @@ document.getElementById("logging-settings-form").addEventListener("submit", asyn
   });
   refreshAll();
 });
+
+document.getElementById("syslog-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/logging", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        syslog_enabled: document.getElementById("s-syslog-enabled").checked,
+        syslog_host: document.getElementById("s-syslog-host").value.trim(),
+        syslog_port: intField("s-syslog-port"),
+        syslog_protocol: document.getElementById("s-syslog-protocol").value,
+        syslog_format: document.getElementById("s-syslog-format").value,
+        syslog_only_blocked: document.getElementById("s-syslog-only-blocked").checked,
+      }),
+    });
+  });
+  refreshAll();
+});
+
+function exportQueryLog(format) {
+  const params = queryLogFilterParams();
+  params.set("format", format);
+  const link = document.createElement("a");
+  link.href = `/api/query-log/export?${params.toString()}`;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+document.getElementById("query-log-export-csv").addEventListener("click", () => exportQueryLog("csv"));
+document.getElementById("query-log-export-jsonl").addEventListener("click", () => exportQueryLog("jsonl"));
 
 document.getElementById("blocklist-refresh-form").addEventListener("submit", async (e) => {
   e.preventDefault();

@@ -852,6 +852,22 @@
     </section>
 
     <section>
+      <h2 data-i18n="logging.syslog">Forward to syslog / SIEM</h2>
+      <p class="muted" data-i18n="logging.hint.syslog">Sends every logged query (RFC 5424, facility local0; blocked queries as notice, the rest as info) to a syslog server such as rsyslog, Graylog, Wazuh or Splunk. Sending never delays DNS answers: if the server can't keep up, messages are dropped. Domains and clients excluded from the log are not sent.</p>
+      <form id="syslog-settings-form">
+        <div class="field checkbox"><input type="checkbox" id="s-syslog-enabled"><label for="s-syslog-enabled" data-i18n="logging.syslog_enabled">Forward queries to syslog</label></div>
+        <div class="field-grid">
+          <div class="field"><label data-i18n="logging.syslog_host">Server</label><input type="text" id="s-syslog-host" placeholder="192.168.1.20"></div>
+          <div class="field"><label data-i18n="logging.syslog_port">Port</label><input type="number" min="1" max="65535" id="s-syslog-port" placeholder="514"></div>
+          <div class="field"><label data-i18n="logging.syslog_protocol">Protocol</label><select id="s-syslog-protocol"><option value="udp">UDP</option><option value="tcp">TCP</option></select></div>
+          <div class="field"><label data-i18n="logging.syslog_format">Message format</label><select id="s-syslog-format"><option value="text">key="value"</option><option value="json">JSON</option></select></div>
+        </div>
+        <div class="field checkbox"><input type="checkbox" id="s-syslog-only-blocked"><label for="s-syslog-only-blocked" data-i18n="logging.syslog_only_blocked">Only blocked queries</label></div>
+        <button type="submit" data-i18n="common.save">Save</button>
+      </form>
+    </section>
+
+    <section>
       <h2 data-i18n="logging.excluded">Excluded from the log</h2>
       <p class="muted" data-i18n="logging.hint.excluded">Domains/clients below are resolved and blocked completely normally - they're just never written to the query log. Handy for noisy background traffic (NTP, telemetry you've already decided to allow) that would otherwise bury what you actually want to see.</p>
       <div id="log-ignore-domains"></div>
@@ -1791,6 +1807,8 @@
       </select>
       <button type="submit" data-i18n="logs.apply_filters">Apply filters</button>
       <button type="button" class="secondary" id="query-log-clear" data-i18n="common.clear">Clear</button>
+      <button type="button" class="secondary" id="query-log-export-csv" data-i18n="logs.export_csv">Export CSV</button>
+      <button type="button" class="secondary" id="query-log-export-jsonl" data-i18n="logs.export_jsonl">Export JSON</button>
     </form>
     <div class="field checkbox" style="margin:0.4rem 0;">
       <input type="checkbox" id="ql-show-unblocked">

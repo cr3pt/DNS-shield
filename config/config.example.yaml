@@ -122,6 +122,12 @@ logging:
   retention_days: 30
   ignored_domains: []
   ignored_clients: []
+  syslog_enabled: false          # forward every logged query to a syslog server / SIEM
+  syslog_host: ""
+  syslog_port: 514
+  syslog_protocol: "udp"         # or "tcp"
+  syslog_format: "text"          # key="value" pairs, or "json"
+  syslog_only_blocked: false
 
 enrichment:
   public_enabled: false

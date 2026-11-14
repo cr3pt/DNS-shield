@@ -2445,6 +2445,27 @@ bieżącym czasem), albo możesz wcześniej kliknąć "Resume blocking". Ten
 pasek widzą i mogą go używać wyłącznie konta administratora - zobacz
 **Konta wieloużytkownikowe, role i widok publiczny** wyżej.
 
+### Eksport logu zapytań i przekazywanie do syslog
+
+Przyciski **Eksportuj CSV** / **Eksportuj JSON** obok filtrów logu pobierają
+wiersze pasujące do bieżących filtrów, od najnowszych, domyślnie do
+100 000 (`GET /api/query-log/export?format=csv|jsonl&limit=...`, z tymi
+samymi filtrami co `/api/query-log`). Kolumny to czas (UTC), domena, typ,
+klient, nazwa klienta, grupa, blokada, powód i adres IP odpowiedzi. Komórka
+zaczynająca się od `=`, `+`, `-` lub `@` dostaje na początku `'`, żeby
+arkusz kalkulacyjny nie wykonał spreparowanej nazwy domeny jako formuły.
+
+Ustawienia → Logowanie → **Przekazywanie do syslog / SIEM** wysyła każde
+zalogowane zapytanie do serwera syslog (rsyslog, Graylog, Wazuh,
+Splunk...). Wiadomości są w formacie RFC 5424 z facility local0, z poziomem
+notice dla zablokowanych zapytań i info dla pozostałych. Idą po UDP albo po
+TCP z ramkowaniem octet-counting, a treść to pary `klucz="wartość"` albo
+JSON (`logging.syslog_enabled`, `syslog_host`, `syslog_port`,
+`syslog_protocol`, `syslog_format`, `syslog_only_blocked`). Wysyłanie
+działa w wątku w tle, więc nigdy nie opóźnia odpowiedzi: jeśli serwer nie
+działa albo nie nadąża, wiadomości są pomijane. Domeny i klienci wyłączeni
+z logu nie są wysyłani.
+
 ### Wykluczanie domen i klientów z logu
 
 `logging.ignored_domains` / `logging.ignored_clients` (panel: Settings ->
