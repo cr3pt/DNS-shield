@@ -13,6 +13,8 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.login_throttle import LoginThrottle
 from app.netmatch import ip_matches
@@ -28,10 +30,23 @@ from app.web.common import (
     _SECURITY_HEADERS,
     CSRF_COOKIE_NAME,
     CSRF_HEADER_NAME,
+    STATIC_DIR,
 )
 from app.web.context import AppContext
 
 __all__ = ["CSRF_COOKIE_NAME", "CSRF_HEADER_NAME", "PendingSSOStore", "create_app"]
+
+
+class _DashboardAssets(StaticFiles):
+    """The dashboard's and login page's CSS/JS. Served with no-cache, so a
+    browser revalidates (a cheap 304) and picks up an upgrade at once."""
+
+    async def get_response(self, path: str, scope) -> Response:
+        if not path.endswith((".css", ".js")):
+            raise StarletteHTTPException(status_code=404)
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def create_app(
@@ -57,6 +72,7 @@ def create_app(
     data_dir: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None, openapi_url=None)
+    app.mount("/static", _DashboardAssets(directory=STATIC_DIR), name="static")
     data_dir = data_dir if data_dir is not None else Path(os.environ.get("DNSSHIELD_DATA_DIR", "/data"))
 
     users = users if users is not None else UserStore(config_store)

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-INDEX_HTML = Path(__file__).resolve().parent.parent / "app" / "web" / "static" / "index.html"
+INDEX_HTML = Path(__file__).resolve().parent.parent / "app" / "web" / "static" / "app.js"
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is required to run the graph simulation")
 

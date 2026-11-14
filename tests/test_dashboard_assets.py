@@ -4,13 +4,24 @@
 import re
 from pathlib import Path
 
-INDEX_HTML = Path(__file__).resolve().parent.parent / "app" / "web" / "static" / "index.html"
+STATIC = Path(__file__).resolve().parent.parent / "app" / "web" / "static"
+
+
+class _Dashboard:
+    """index.html and the app.js it loads, read as one source."""
+
+    @staticmethod
+    def read_text(encoding="utf-8"):
+        return (STATIC / "index.html").read_text(encoding=encoding) + (STATIC / "app.js").read_text(encoding=encoding)
+
+
+INDEX_HTML = _Dashboard
 
 
 def _function_source(name: str) -> str:
     source = INDEX_HTML.read_text(encoding="utf-8")
     match = re.search(rf"(?:const {name} =|function {name}\().*?(?=\n\n)", source, re.S)
-    assert match, f"{name} not found in index.html"
+    assert match, f"{name} not found in the dashboard"
     return match.group(0)
 
 

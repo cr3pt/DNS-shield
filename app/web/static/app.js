@@ -1,0 +1,5866 @@
+// SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause - see the LICENSE file in the project root for full license terms.
+const fmtTime = (ts) =>
+  new Date(ts * 1000).toLocaleString([], {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+
+// Table cell showing when a blocklist/allowlist source was last downloaded
+// into the system, plus a warning when the most recent attempt failed.
+function sourceUpdatedCell(info) {
+  const cell = el("td", {});
+  const updatedAt = info && info.updated_at;
+  cell.appendChild(document.createTextNode(updatedAt ? fmtTime(updatedAt) : t("sources.never_updated", "never")));
+  if (info && info.error) {
+    const when = info.checked_at ? fmtTime(info.checked_at) : "";
+    const warn = el("div", {
+      class: "muted",
+      style: "font-size:0.72rem;margin-top:0.1rem;color:var(--danger, #c0392b);",
+      text: t("sources.update_failed", "Last download failed {when}").replace("{when}", when).trim(),
+    });
+    warn.title = info.error;
+    cell.appendChild(warn);
+  } else if (info && info.checked_at && info.checked_at !== updatedAt) {
+    cell.title = t("sources.last_checked", "Last checked: {when}").replace("{when}", fmtTime(info.checked_at));
+  }
+  return cell;
+}
+
+function intField(id) {
+  const raw = document.getElementById(id).value.trim();
+  if (raw === "") return undefined;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? undefined : n;
+}
+function floatField(id) {
+  const raw = document.getElementById(id).value.trim();
+  if (raw === "") return undefined;
+  const n = parseFloat(raw);
+  return Number.isNaN(n) ? undefined : n;
+}
+const fmtDuration = (s) => {
+  s = Math.floor(s);
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60);
+  return (d ? d + "d " : "") + h + "h " + m + "m";
+};
+const fmtShortDuration = (s) => {
+  s = Math.max(0, Math.floor(s));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  if (m === 0) return sec + "s";
+  return m + "m " + sec + "s";
+};
+
+async function api(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    const csrfToken = getCookie("dnsshield_csrf");
+    if (csrfToken) {
+      options = { ...options, headers: { ...(options.headers || {}), "X-CSRF-Token": csrfToken } };
+    }
+  }
+  const res = await fetch(path, options);
+  if (res.status === 401) {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+    throw new Error("unauthorized");
+  }
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = (await res.json()).detail || "";
+      if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg) || String(d)).join("; ");
+    } catch (err) {
+      detail = await res.text();
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function showToast(message, opts = {}) {
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = "toast" + (opts.error ? " toast-error" : "");
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  const duration = opts.duration || 6000;
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 250);
+  }, duration);
+}
+
+async function withSpinner(button, fn, label) {
+  if (!button) return fn();
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<span class="spinner"></span>${label || t("common.adding", "Adding...")}`;
+  try {
+    return await fn();
+  } finally {
+    button.disabled = false;
+    button.innerHTML = original;
+  }
+}
+
+async function withDelayedSpinner(button, fn, delayMs = 1000) {
+  if (!button) return fn();
+  const original = button.innerHTML;
+  let spinnerShown = false;
+  button.disabled = true;
+  const timer = setTimeout(() => {
+    spinnerShown = true;
+    button.innerHTML = `<span class="spinner"></span>${t("common.saving", "Saving...")}`;
+  }, delayMs);
+  try {
+    return await fn();
+  } finally {
+    clearTimeout(timer);
+    button.disabled = false;
+    if (spinnerShown) button.innerHTML = original;
+  }
+}
+
+const SUPPORTED_LANGS = ["en", "pl", "de", "fr", "ar", "zh", "ja", "ko"];
+const I18N = {};
+async function loadLanguageDict(lang) {
+  if (I18N[lang]) return I18N[lang];
+  try {
+    const res = await fetch("/api/locales/" + lang);
+    if (!res.ok) throw new Error("failed to load locale " + lang);
+    I18N[lang] = await res.json();
+  } catch (e) {
+    I18N[lang] = I18N[lang] || {};
+  }
+  return I18N[lang];
+}
+
+function detectBrowserLang() {
+  const nav = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+  const match = SUPPORTED_LANGS.find((code) => nav.startsWith(code));
+  return match || "en";
+}
+
+function t(key, fallback) {
+  const dict = I18N[currentLang];
+  if (dict && Object.prototype.hasOwnProperty.call(dict, key)) return dict[key];
+  return fallback !== undefined ? fallback : key;
+}
+
+function applyI18n(root) {
+  const scope = root || document;
+  const dict = I18N[currentLang];
+  scope.querySelectorAll("[data-i18n]").forEach((elm) => {
+    if (elm.dataset.i18nOrig === undefined) elm.dataset.i18nOrig = elm.innerHTML;
+    const key = elm.getAttribute("data-i18n");
+    elm.innerHTML = dict && Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : elm.dataset.i18nOrig;
+  });
+  scope.querySelectorAll("[data-i18n-ph]").forEach((elm) => {
+    if (elm.dataset.i18nPhOrig === undefined) elm.dataset.i18nPhOrig = elm.getAttribute("placeholder") || "";
+    const key = elm.getAttribute("data-i18n-ph");
+    elm.setAttribute("placeholder", dict && Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : elm.dataset.i18nPhOrig);
+  });
+  document.documentElement.lang = currentLang;
+}
+
+let clientNames = {};
+let enrichmentAvailable = false;
+
+let currentUser = null;
+let isAdmin = false;
+
+function updateEnrichButtons() {
+  for (const btn of document.querySelectorAll(".enrich-btn")) {
+    if (btn.dataset.busy === "1") continue;
+    btn.disabled = !enrichmentAvailable;
+    btn.title = enrichmentAvailable
+      ? t("common.enrich_title", "Check reputation via your configured threat-intel service(s) (manual only)")
+      : t("common.enrich_title_unavailable", "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.");
+  }
+}
+const clientLabel = (ip) => (clientNames[ip] ? `${clientNames[ip]} (${ip})` : ip);
+
+let blockedClients = new Set();
+const isClientBlocked = (ip) => blockedClients.has(ip);
+
+let currentAllowlist = new Set();
+function isOnAllowlist(domain) {
+  return currentAllowlist.has((domain || "").toLowerCase().replace(/\.$/, ""));
+}
+
+let recentlyUnblockedDomains = new Set();
+
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "text") node.textContent = v;
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) node.appendChild(c);
+  return node;
+}
+
+// Shown instead of the dashboard while the account still uses the default
+// password - the API refuses everything else until it's changed.
+function showForcedPasswordChange() {
+  const overlay = el("div", { class: "forced-pw-overlay" });
+  overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(5,9,25,0.92);display:flex;align-items:center;justify-content:center;padding:16px;";
+  const box = el("form", { class: "card" });
+  box.style.cssText = "max-width:420px;width:100%;padding:1.5rem;background:var(--panel, #111a3a);border-radius:12px;";
+  const title = el("h2", { text: t("forced_pw.title", "Change the default password") });
+  const intro = el("p", { class: "muted", text: t("forced_pw.intro", "This account still uses the default password. Anyone on your network could sign in with it, so choose a new one (at least 8 characters) before continuing.") });
+  const current = el("input", { type: "password", autocomplete: "current-password", placeholder: t("forced_pw.current", "Current password"), required: "required" });
+  const next = el("input", { type: "password", autocomplete: "new-password", placeholder: t("forced_pw.new", "New password"), minlength: "8", required: "required" });
+  const repeat = el("input", { type: "password", autocomplete: "new-password", placeholder: t("forced_pw.repeat", "Repeat new password"), minlength: "8", required: "required" });
+  const error = el("p", { class: "muted" });
+  error.style.color = "var(--danger)";
+  const submit = el("button", { type: "submit", text: t("forced_pw.submit", "Change password") });
+  for (const input of [current, next, repeat]) input.style.cssText = "display:block;width:100%;margin:0.4rem 0;";
+  box.append(title, intro, current, next, repeat, error, submit);
+  box.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.textContent = "";
+    if (next.value !== repeat.value) {
+      error.textContent = t("forced_pw.mismatch", "The new passwords don't match.");
+      return;
+    }
+    try {
+      await api("/api/account/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: current.value, new_password: next.value }),
+      });
+      location.reload();
+    } catch (err) {
+      error.textContent = err && err.message ? err.message : String(err);
+    }
+  });
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  current.focus();
+}
+
+function isIpAddress(value) {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(":");
+}
+
+function copyButton(text) {
+  const btn = el("button", { class: "icon-btn copy-btn", type: "button", title: t("common.copy_title", 'Copy "{value}" to clipboard').replace("{value}", text), text: t("common.copy", "Copy") });
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch (fallbackErr) {
+        return;
+      }
+    }
+    const original = btn.textContent;
+    btn.textContent = t("common.copied", "Copied");
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = original; btn.classList.remove("copied"); }, 1200);
+  };
+  return btn;
+}
+
+function addressCell(displayText, extra = [], copyValue = null, label = null) {
+  const value = copyValue ?? displayText;
+  const attrs = label ? { "data-label": label } : {};
+  return el("td", attrs, [el("div", { class: "addr-cell" }, [
+    el("span", { text: displayText }),
+    el("div", { class: "addr-cell-actions" }, [copyButton(value), ...extra]),
+  ])]);
+}
+
+function domainCell(domain, answerIp) {
+  const rows = [
+    el("div", { class: "addr-cell" }, [
+      el("span", { text: domain }),
+      el("div", { class: "addr-cell-actions" }, [copyButton(domain), enrichButton(domain, "domain")]),
+    ]),
+  ];
+  if (answerIp) {
+    rows.push(el("div", { class: "addr-cell resolved-ip" }, [
+      el("span", { class: "muted", text: "→ " + answerIp }),
+      el("div", { class: "addr-cell-actions" }, [copyButton(answerIp), enrichButton(answerIp, "ip")]),
+    ]));
+  }
+  return el("td", { "data-label": "Domain" }, rows);
+}
+
+const VERDICT_COLORS = {
+  safe: { bg: "#0d3b26", fg: "#d6f5e3", accent: "#22c55e" },
+  low: { bg: "#173a1f", fg: "#e3f5c9", accent: "#84cc16" },
+  medium: { bg: "#4a3405", fg: "#fde8b8", accent: "#f59e0b" },
+  high: { bg: "#4a1006", fg: "#fdd8d0", accent: "#ef4444" },
+  critical: { bg: "#3f0a0a", fg: "#ffd2d2", accent: "#dc2626" },
+  unknown: { bg: "#1f2430", fg: "#dbe1ee", accent: "#64748b" },
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function openEnrichmentWindow(result) {
+  const colors = VERDICT_COLORS[result.overall_verdict] || VERDICT_COLORS.unknown;
+  const w = window.open("", "_blank", "width=560,height=680");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the enrichment result.");
+    return;
+  }
+
+  const lb = result.local_blocklist;
+  const localStatusRows = [];
+  if (lb) {
+    if (lb.blocked) {
+      localStatusRows.push(`<p><strong>Blocked</strong> - ${escapeHtml(lb.block_reason || "")}</p>`);
+    }
+    if (result.type === "domain") {
+      if (lb.on_allowlist) localStatusRows.push(`<p>On the allowlist</p>`);
+      if (lb.alert_rule) {
+        localStatusRows.push(
+          `<p>Watched via alert rule: "${escapeHtml(lb.alert_rule.domain)}"`
+          + `${lb.alert_rule.source ? " (" + escapeHtml(lb.alert_rule.source) + ")" : ""}</p>`
+        );
+      }
+      if (lb.typosquat) {
+        localStatusRows.push(`<p>Possible typosquat of "${escapeHtml(lb.typosquat.protected)}" (${escapeHtml(lb.typosquat.kind)})</p>`);
+      }
+      if (lb.local_tld) localStatusRows.push(`<p>Local TLD: .${escapeHtml(lb.local_tld)}</p>`);
+    }
+  }
+  if (result.type === "ip") {
+    localStatusRows.push(
+      result.mac_address
+        ? `<p>MAC address: <code>${escapeHtml(result.mac_address)}</code> <span class="muted">(from this box's ARP table - only populated for a real LAN peer)</span></p>`
+        : `<p class="muted">No MAC address on record - not currently in this box's ARP table (only populated for a real LAN peer DNS-shield has seen traffic from).</p>`
+    );
+  }
+  const localStatusHtml = `<div class="local-status">
+      <h2>DNS-shield local status</h2>
+      ${localStatusRows.length ? localStatusRows.join("") : '<p class="muted">Not on any local blocklist, allowlist, alert rule, or typosquat/local-TLD match.</p>'}
+    </div>`;
+
+  const sourceHtml = Object.entries(result.sources)
+    .filter(([, src]) => src !== null)
+    .map(([name, src]) => {
+      if (src.enabled === false) {
+        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Public lookups are turned off - enable them in Settings -> Threat intelligence.</p></div>`;
+      }
+      if (!src.configured) {
+        const hint = name === "local"
+          ? "Not set up - enable it and add a URL in Settings -> Threat intelligence."
+          : name === "ai"
+          ? "Not set up - enable it and add a Gemini API key in Settings -> Threat intelligence."
+          : name === "rdap" || name === "crtsh" || name === "ipinfo"
+          ? "Not enabled - turn it on in Settings -> Threat intelligence."
+          : "Not configured - add an API key in Settings -> Threat intelligence.";
+        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">${hint}</p></div>`;
+      }
+      if (!src.ok) {
+        return `<div class="src"><h3>${escapeHtml(name)}</h3><p class="muted">Lookup failed: ${escapeHtml(src.error || "unknown error")}</p></div>`;
+      }
+      return `<div class="src"><h3>${escapeHtml(name)} <span class="badge">${escapeHtml(src.verdict)}</span></h3><p>${escapeHtml(src.summary)}</p></div>`;
+    })
+    .join("");
+
+  const history = result.history || [];
+  const historyHtml = history.length
+    ? `<div class="history">
+        <h2>Lookup history <span class="muted">(${history.length} of this target's past checks, newest first)</span></h2>
+        <table class="hist-table">
+          <thead><tr><th>When</th><th>Verdict at the time</th><th>Score</th><th>How</th></tr></thead>
+          <tbody>
+            ${history
+              .map((h) => {
+                const hc = VERDICT_COLORS[h.overall_verdict] || VERDICT_COLORS.unknown;
+                const when = new Date(h.ts * 1000).toLocaleString();
+                const how = h.source === "auto" ? "auto (newly seen)" : "manual";
+                return `<tr><td>${escapeHtml(when)}</td><td><span class="hbadge" style="background:${hc.accent};">${escapeHtml(h.overall_verdict)}</span></td><td>${h.overall_score != null ? h.overall_score : "&ndash;"}</td><td class="muted">${escapeHtml(how)}</td></tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>`
+    : "";
+
+  const recentClients = result.type === "domain" ? (result.recent_clients || []) : [];
+  const recentClientsHtml =
+    result.type === "domain"
+      ? `<div class="recent-clients">
+          <h2>Recently queried by <span class="muted">(up to 20 most recent unique clients, most recent first)</span></h2>
+          ${recentClients.length
+            ? `<ul>${recentClients
+                .map(
+                  (ip) =>
+                    `<li><code>${escapeHtml(clientLabel(ip))}</code><button type="button" class="enrich-client-btn" data-client="${escapeHtml(ip)}">Enrich</button></li>`
+                )
+                .join("")}</ul>`
+            : `<p class="muted">No clients on record for this domain yet - it may have aged out of the query log's retention.</p>`}
+        </div>`
+      : "";
+
+  const clientBlockHtml =
+    result.type === "ip"
+      ? `<div class="client-block">
+          <button type="button" id="block-client-btn" data-target="${escapeHtml(result.target)}" data-blocked="${result.client_blocked ? "1" : "0"}">${result.client_blocked ? "Unblock this host" : "Block this host"}</button>
+          <p class="muted" style="margin-top:0.5rem;">Blocks ALL communication from ${escapeHtml(result.target)} through DNS-shield, for every domain - not just what was looked up here.</p>
+        </div>`
+      : "";
+
+  const safeAllowHtml =
+    result.type === "domain"
+      ? `<div class="safe-allow">
+          <div class="btn-row">
+            ${result.overall_verdict === "safe" ? `<button type="button" id="safe-allow-btn" data-target="${escapeHtml(result.target)}">Add to allowlist</button>` : ""}
+            <button type="button" id="exclude-alert-btn" data-target="${escapeHtml(result.target)}">Exclude from alerts</button>
+          </div>
+          ${result.overall_verdict === "safe" ? `<p class="muted" style="margin-top:0.5rem;">Clears any denylist entry for ${escapeHtml(result.target)} and adds it to the global allowlist, same as Unblock in the query log - allowlist beats a blocklist-source match, but a fresh denylist entry would still win, hence clearing that too.</p>` : ""}
+          <p class="muted" style="margin-top:0.5rem;">Stops ${escapeHtml(result.target)} (and its subdomains) from ever raising a watched-domain, typosquat, rebinding, or local-TLD alert - same list as Settings -> Anomalies -> Excluded domains. Doesn't affect blocking.</p>
+        </div>`
+      : "";
+
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Enrichment: ${escapeHtml(result.target)}</title>
+<style>
+  body { margin:0; padding:clamp(1rem, 4vw, 2rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:${colors.bg}; color:${colors.fg}; }
+  h1 { font-size:1.3rem; margin:0 0 0.6rem; word-break:break-all; }
+  h2 { font-size:0.95rem; margin:0 0 0.6rem; }
+  .verdict { display:inline-block; padding:0.3rem 0.9rem; border-radius:999px; background:${colors.accent}; color:#04102a; font-weight:700; text-transform:uppercase; font-size:0.8rem; margin-bottom:1.5rem; letter-spacing:0.03em; }
+  .src { border-top:1px solid rgba(255,255,255,0.18); padding:1rem 0; }
+  .src h3 { margin:0 0 0.4rem; font-size:1rem; text-transform:capitalize; }
+  .badge { font-size:0.7rem; padding:0.1rem 0.5rem; border-radius:999px; background:rgba(255,255,255,0.18); margin-left:0.5rem; text-transform:uppercase; }
+  .muted { opacity:0.7; font-weight:400; text-transform:none; letter-spacing:normal; }
+  .local-status { border-top:1px solid rgba(255,255,255,0.18); padding:1rem 0; }
+  .local-status h2 { margin:0 0 0.4rem; }
+  .local-status p { margin:0.3rem 0; }
+  .footer { margin-top:1.5rem; font-size:0.75rem; opacity:0.6; }
+  .history { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .hist-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+  .hist-table th, .hist-table td { text-align:left; padding:0.35rem 0.5rem; border-bottom:1px solid rgba(255,255,255,0.1); }
+  .hist-table th { opacity:0.7; font-weight:600; }
+  .hbadge { display:inline-block; padding:0.1rem 0.5rem; border-radius:999px; color:#04102a; font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.02em; }
+  .recent-clients { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .recent-clients ul { list-style:none; margin:0.6rem 0 0; padding:0; max-height:14rem; overflow-y:auto; }
+  .recent-clients li { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.3rem 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.85rem; }
+  .recent-clients li code { word-break:break-all; }
+  .recent-clients button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.25rem 0.7rem; font-size:0.75rem; font-weight:600; cursor:pointer; white-space:nowrap; }
+  .recent-clients button:hover { border-color:currentColor; }
+  .recent-clients button:disabled { opacity:0.5; cursor:wait; }
+  .client-block { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .client-block button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.45rem 1rem; font-size:0.85rem; font-weight:600; cursor:pointer; }
+  .client-block button:hover { border-color:currentColor; }
+  .client-block button:disabled { opacity:0.5; cursor:wait; }
+  .client-block button[data-blocked="1"] { background:rgba(255,255,255,0.12); }
+  .safe-allow { border-top:1px solid rgba(255,255,255,0.18); margin-top:1rem; padding-top:1.2rem; }
+  .safe-allow .btn-row { display:flex; gap:0.6rem; flex-wrap:wrap; }
+  .safe-allow button { background:transparent; border:1px solid rgba(255,255,255,0.4); color:inherit; border-radius:6px; padding:0.45rem 1rem; font-size:0.85rem; font-weight:600; cursor:pointer; }
+  .safe-allow button:hover { border-color:currentColor; }
+  .safe-allow button:disabled { opacity:0.5; cursor:wait; }
+  .safe-allow button[data-done="1"] { background:rgba(255,255,255,0.12); cursor:default; }
+  .spinner { display:inline-block; width:0.85em; height:0.85em; margin-right:0.4em; border:2px solid rgba(255,255,255,0.35); border-top-color:currentColor; border-radius:50%; animation: spin 0.7s linear infinite; vertical-align:-0.15em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style></head>
+<body>
+  <h1>${escapeHtml(result.target)}</h1>
+  <div class="verdict">${escapeHtml(result.overall_verdict)}${result.overall_score != null ? " &middot; score " + result.overall_score : ""}</div>
+  ${localStatusHtml}
+  ${sourceHtml || '<p class="muted">No threat-intel sources configured yet.</p>'}
+  ${historyHtml}
+  ${recentClientsHtml}
+  ${safeAllowHtml}
+  ${clientBlockHtml}
+  <p class="footer">Looked up just now, stored locally in enrichment.db.</p>
+</body></html>`);
+  w.document.close();
+  // The popup inherits this page's CSP (no inline scripts), so its
+  // behaviour is wired up from here, against its window and document.
+  (function (window, document) {
+    (function () {
+      var btn = document.getElementById("block-client-btn");
+      if (!btn || !window.opener || !window.opener.api) return;
+      btn.onclick = function () {
+        var target = btn.getAttribute("data-target");
+        var blocked = btn.getAttribute("data-blocked") === "1";
+        btn.disabled = true;
+        var original = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span>Saving...';
+        var req = blocked
+          ? window.opener.api("/api/rules/deny-client/" + encodeURIComponent(target), { method: "DELETE" })
+          : window.opener.api("/api/rules/deny-client", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ value: target }),
+            });
+        req
+          .then(function () {
+            var nowBlocked = !blocked;
+            btn.setAttribute("data-blocked", nowBlocked ? "1" : "0");
+            btn.textContent = nowBlocked ? "Unblock this host" : "Block this host";
+            btn.disabled = false;
+            if (window.opener.refreshAll) window.opener.refreshAll();
+          })
+          .catch(function (err) {
+            window.alert("Failed to update block state: " + (err && err.message ? err.message : err));
+            btn.disabled = false;
+            btn.innerHTML = original;
+          });
+      };
+    })();
+    (function () {
+      var btn = document.getElementById("safe-allow-btn");
+      if (!btn || !window.opener || !window.opener.api) return;
+      btn.onclick = function () {
+        var target = btn.getAttribute("data-target");
+        btn.disabled = true;
+        var original = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span>Saving...';
+        window.opener
+          .api("/api/rules/deny/" + encodeURIComponent(target), { method: "DELETE" })
+          .then(function () {
+            if (window.opener.isOnAllowlist && window.opener.isOnAllowlist(target)) return null;
+            return window.opener.api("/api/rules/allow", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ domain: target }),
+            });
+          })
+          .then(function () {
+            btn.setAttribute("data-done", "1");
+            btn.textContent = "Added to allowlist";
+            if (window.opener.refreshAll) window.opener.refreshAll();
+          })
+          .catch(function (err) {
+            window.alert("Failed to add to allowlist: " + (err && err.message ? err.message : err));
+            btn.disabled = false;
+            btn.innerHTML = original;
+          });
+      };
+    })();
+    (function () {
+      var btn = document.getElementById("exclude-alert-btn");
+      if (!btn || !window.opener || !window.opener.api) return;
+      btn.onclick = function () {
+        var target = btn.getAttribute("data-target");
+        btn.disabled = true;
+        var original = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner"></span>Saving...';
+        window.opener
+          .api("/api/anomaly-exclusions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ domain: target }),
+          })
+          .then(function () {
+            btn.setAttribute("data-done", "1");
+            btn.textContent = "Excluded from alerts";
+            if (window.opener.refreshAll) window.opener.refreshAll();
+          })
+          .catch(function (err) {
+            window.alert("Failed to exclude domain: " + (err && err.message ? err.message : err));
+            btn.disabled = false;
+            btn.innerHTML = original;
+          });
+      };
+    })();
+    document.querySelectorAll(".enrich-client-btn").forEach(function (ebtn) {
+      if (!window.opener || !window.opener.api) return;
+      ebtn.onclick = function () {
+        var client = ebtn.getAttribute("data-client");
+        ebtn.disabled = true;
+        var original = ebtn.innerHTML;
+        ebtn.innerHTML = '<span class="spinner"></span>Checking...';
+        window.opener
+          .api("/api/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: client, type: "ip" }),
+          })
+          .then(function (result) {
+            window.opener.openEnrichmentWindow(result);
+          })
+          .catch(function (err) {
+            window.alert("Enrichment failed: " + (err && err.message ? err.message : err));
+          })
+          .finally(function () {
+            ebtn.disabled = false;
+            ebtn.innerHTML = original;
+          });
+      };
+    });
+  })(w, w.document);
+}
+
+function enrichButton(target, type) {
+  const btn = el("button", { class: "icon-btn enrich-btn", type: "button", text: t("common.enrich", "Enrich") });
+  btn.disabled = !enrichmentAvailable;
+  btn.title = enrichmentAvailable
+    ? t("common.enrich_title", "Check reputation via your configured threat-intel service(s) (manual only)")
+    : t("common.enrich_title_unavailable", "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.");
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    if (!enrichmentAvailable) return;
+    btn.dataset.busy = "1";
+    try {
+      const result = await withSpinner(btn, () => api("/api/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, type }),
+      }), t("common.checking", "Checking..."));
+      openEnrichmentWindow(result);
+    } catch (err) {
+      alert(t("common.enrich_failed", "Enrichment failed") + ": " + err.message);
+    } finally {
+      delete btn.dataset.busy;
+      btn.disabled = !enrichmentAvailable;
+    }
+  };
+  return btn;
+}
+
+function clientBlockButtonLabel(blocked) {
+  return blocked ? t("common.unblock_host", "Unblock host") : t("common.block_host", "Block host");
+}
+function clientBlockButtonTitle(blocked) {
+  return blocked
+    ? t("common.unblock_host_title", "Allow this host to make DNS queries again")
+    : t("common.block_host_title", "Block ALL communication from this host through DNS-shield, not just this one query");
+}
+
+function clientBlockButton(client) {
+  const btn = el("button", { class: "icon-btn block-client-btn", type: "button" });
+  btn.dataset.client = client;
+  btn.textContent = clientBlockButtonLabel(isClientBlocked(client));
+  btn.title = clientBlockButtonTitle(isClientBlocked(client));
+  btn.classList.toggle("is-blocked", isClientBlocked(client));
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    const blocked = isClientBlocked(client);
+    try {
+      await withSpinner(btn, () => {
+        if (blocked) {
+          return api(`/api/rules/deny-client/${encodeURIComponent(client)}`, { method: "DELETE" });
+        }
+        return api("/api/rules/deny-client", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: client }),
+        });
+      }, t("common.saving", "Saving..."));
+      refreshAll();
+    } catch (err) {
+      alert("Failed to update block state: " + err.message);
+      btn.disabled = false;
+    }
+  };
+  return btn;
+}
+
+function updateClientBlockButtons() {
+  for (const btn of document.querySelectorAll(".block-client-btn")) {
+    const client = btn.dataset.client;
+    if (!client) continue;
+    const blocked = isClientBlocked(client);
+    btn.textContent = clientBlockButtonLabel(blocked);
+    btn.title = clientBlockButtonTitle(blocked);
+    btn.classList.toggle("is-blocked", blocked);
+  }
+}
+
+function renderPauseBar(pause) {
+  const bar = document.getElementById("pause-bar");
+  const statusEl = document.getElementById("pause-status");
+  const controls = document.getElementById("pause-controls");
+  const pauseBtn = document.getElementById("pause-btn");
+  const resumeBtn = document.getElementById("resume-btn");
+  const durationSelect = document.getElementById("pause-duration");
+
+  const active = !!(pause && pause.active);
+  bar.classList.toggle("paused", active);
+
+  if (active) {
+    if (pause.until) {
+      const remaining = Math.max(0, Math.round(pause.until - Date.now() / 1000));
+      statusEl.textContent = t("pause.paused-in", "Blocking paused - resumes in ") + fmtShortDuration(remaining);
+    } else {
+      statusEl.textContent = t("pause.paused-until", "Blocking paused until manually resumed");
+    }
+    durationSelect.style.display = "none";
+    pauseBtn.style.display = "none";
+    resumeBtn.style.display = "";
+  } else {
+    statusEl.textContent = t("pause.blocking-active", "Blocking active");
+    durationSelect.style.display = "";
+    pauseBtn.style.display = "";
+    resumeBtn.style.display = "none";
+  }
+}
+
+async function loadStatusAndStats() {
+  const [status, stats] = await Promise.all([
+    api("/api/status"),
+    api("/api/stats?top_n=25&log_n=100"),
+  ]);
+
+  document.getElementById("dns-listen").textContent = t("status.dns_listening_on", "DNS listening on") + " " + status.dns_listen;
+  document.getElementById("uptime").textContent = t("status.uptime", "uptime") + " " + fmtDuration(status.uptime_seconds);
+  renderPauseBar(status.pause);
+
+  const cards = document.getElementById("cards");
+  cards.innerHTML = "";
+  const add = (label, value) => cards.appendChild(
+    el("div", { class: "card" }, [
+      el("div", { class: "value", text: value }),
+      el("div", { class: "label", text: label }),
+    ])
+  );
+  const pct = stats.total_queries ? ((stats.blocked_queries / stats.total_queries) * 100).toFixed(1) : "0.0";
+  add(t("card.total_queries", "Total queries"), stats.total_queries.toLocaleString());
+  add(t("card.blocked_queries", "Blocked queries"), stats.blocked_queries.toLocaleString());
+  add(t("card.block_rate", "Block rate"), pct + "%");
+  add(t("card.blocklist_domains", "Blocklist domains"), status.blocklist_domains.toLocaleString());
+
+  const cacheSection = document.getElementById("cache-section");
+  if (status.cache && status.cache.enabled) {
+    cacheSection.style.display = "";
+    const c = status.cache;
+    const cacheTotal = c.hits + c.misses;
+    const hitRate = cacheTotal ? ((c.hits / cacheTotal) * 100).toFixed(1) : "0.0";
+    add(t("card.cache_entries", "Cache entries"), c.entries.toLocaleString());
+    add(t("card.cache_hit_rate", "Cache hit rate"), hitRate + "%");
+  } else {
+    cacheSection.style.display = "none";
+  }
+
+  clientNames = stats.client_names || {};
+
+  const topBlocked = document.getElementById("top-blocked-rows");
+  topBlocked.innerHTML = "";
+  for (const [domain, count] of stats.top_blocked_domains) {
+    topBlocked.appendChild(el("tr", {}, [
+      addressCell(domain, [enrichButton(domain, "domain")], null, "Domain"),
+      el("td", { text: count, "data-label": "Count" }),
+    ]));
+  }
+
+  const topDomains = document.getElementById("top-domains-rows");
+  topDomains.innerHTML = "";
+  for (const [domain, count] of stats.top_domains) {
+    topDomains.appendChild(el("tr", {}, [
+      addressCell(domain, [enrichButton(domain, "domain")], null, "Domain"),
+      el("td", { text: count, "data-label": "Count" }),
+    ]));
+  }
+
+  const topClients = document.getElementById("top-clients-rows");
+  topClients.innerHTML = "";
+  for (const [client, count] of stats.top_clients) {
+    topClients.appendChild(el("tr", {}, [
+      addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip"), clientBlockButton(client)] : [], client, "Client"),
+      el("td", { text: count, "data-label": "Count" }),
+    ]));
+  }
+
+  const qtypeRows = document.getElementById("qtype-rows");
+  qtypeRows.innerHTML = "";
+  for (const [qtype, count] of stats.qtype_counts) {
+    qtypeRows.appendChild(el("tr", {}, [
+      el("td", { text: qtype }),
+      el("td", { text: count }),
+    ]));
+  }
+
+  const reasonRows = document.getElementById("block-reason-rows");
+  reasonRows.innerHTML = "";
+  if (stats.block_reasons.length === 0) {
+    reasonRows.appendChild(el("tr", {}, [el("td", { colspan: "2", class: "muted", text: "Nothing blocked yet." })]));
+  }
+  for (const [reason, count] of stats.block_reasons) {
+    reasonRows.appendChild(el("tr", {}, [
+      el("td", { text: reason }),
+      el("td", { text: count }),
+    ]));
+  }
+}
+
+let trendRange = localStorage.getItem("dnsshield-trend-range") || "24h";
+
+function fmtTrendLabel(ts, rangeKey) {
+  const d = new Date(ts * 1000);
+  return rangeKey === "24h"
+    ? d.toLocaleTimeString([], { hour: "numeric" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function fmtTrendTooltipLabel(ts, rangeKey) {
+  const d = new Date(ts * 1000);
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
+  return rangeKey === "24h"
+    ? date + ", " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : date + ", " + d.toLocaleTimeString([], { hour: "numeric" });
+}
+
+function renderTrendLegend() {
+  const legend = document.getElementById("trend-legend");
+  legend.innerHTML = "";
+  const item = (color, label) => el("span", { class: "swatch" }, [
+    el("span", { class: "dot", style: `background:${color}` }),
+    document.createTextNode(label),
+  ]);
+  legend.appendChild(item("var(--accent)", t("card.total_queries", "Total queries")));
+  legend.appendChild(item("var(--danger)", t("card.blocked_queries", "Blocked queries")));
+  legend.appendChild(item("var(--good)", t("card.allowed_queries", "Allowed queries")));
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+}
+
+function monotoneCurveCommands(points) {
+  const n = points.length;
+  if (n < 2) return "";
+  if (n === 2) return `L${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}`;
+
+  const dx = [], slope = [];
+  for (let i = 0; i < n - 1; i++) {
+    const d = points[i + 1].x - points[i].x;
+    dx.push(d);
+    slope.push(d === 0 ? 0 : (points[i + 1].y - points[i].y) / d);
+  }
+
+  const m = new Array(n);
+  m[0] = slope[0];
+  m[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    m[i] = slope[i - 1] === 0 || slope[i] === 0 || (slope[i - 1] < 0) !== (slope[i] < 0)
+      ? 0
+      : (slope[i - 1] + slope[i]) / 2;
+  }
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / slope[i];
+    const b = m[i + 1] / slope[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const tau = 3 / Math.sqrt(s);
+      m[i] = tau * a * slope[i];
+      m[i + 1] = tau * b * slope[i];
+    }
+  }
+
+  let cmds = "";
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[i], p1 = points[i + 1];
+    const step = dx[i] / 3;
+    const cp1x = p0.x + step, cp1y = p0.y + m[i] * step;
+    const cp2x = p1.x - step, cp2y = p1.y - m[i + 1] * step;
+    cmds += `C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)} `;
+  }
+  return cmds.trim();
+}
+
+function renderTrendChart(data) {
+  const wrap = document.getElementById("trend-chart-wrap");
+  wrap.innerHTML = "";
+  if (!data.length) return;
+  data = data.map((d) => ({ ...d, allowed: Math.max(0, d.total - d.blocked) }));
+
+  const W = 640, H = 200;
+  const padL = 38, padR = 10, padT = 10, padB = 20;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const n = data.length;
+  const maxTotal = Math.max(1, ...data.map((d) => d.total));
+
+  const xAt = (i) => padL + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const yAt = (v) => padT + plotH - (v / maxTotal) * plotH;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none" });
+
+  for (const frac of [0, 0.5, 1]) {
+    const y = padT + plotH * (1 - frac);
+    const line = svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y });
+    line.style.stroke = "var(--panel-border)";
+    line.style.strokeWidth = "1";
+    svg.appendChild(line);
+    const label = svgEl("text", { x: padL - 6, y: y + 3, "text-anchor": "end", class: "trend-axis-label" });
+    label.textContent = Math.round(maxTotal * frac).toLocaleString();
+    svg.appendChild(label);
+  }
+
+  const labelCount = Math.min(5, n);
+  for (let k = 0; k < labelCount; k++) {
+    const i = labelCount > 1 ? Math.round((k / (labelCount - 1)) * (n - 1)) : 0;
+    const anchor = k === 0 ? "start" : k === labelCount - 1 ? "end" : "middle";
+    const label = svgEl("text", { x: xAt(i), y: H - 4, "text-anchor": anchor, class: "trend-axis-label" });
+    label.textContent = fmtTrendLabel(data[i].bucket_start, trendRange);
+    svg.appendChild(label);
+  }
+
+  function buildSeries(key, colorVar, opts) {
+    opts = opts || {};
+    const lineWidth = opts.lineWidth != null ? opts.lineWidth : 2;
+    const areaOpacity = opts.areaOpacity != null ? opts.areaOpacity : 0.12;
+    const lineOpacity = opts.lineOpacity != null ? opts.lineOpacity : 1;
+    const points = data.map((d, i) => ({ x: xAt(i), y: yAt(d[key]) }));
+    const p0 = points[0];
+    const curveCmds = monotoneCurveCommands(points);
+    const linePath = `M${p0.x.toFixed(1)},${p0.y.toFixed(1)} ${curveCmds}`.trim();
+    const baseline = padT + plotH;
+    const areaPath = `M${p0.x.toFixed(1)},${baseline} L${p0.x.toFixed(1)},${p0.y.toFixed(1)} ${curveCmds} `
+      + `L${points[n - 1].x.toFixed(1)},${baseline} Z`;
+
+    const area = svgEl("path", { d: areaPath });
+    area.style.fill = colorVar;
+    area.style.fillOpacity = String(areaOpacity);
+    area.style.stroke = "none";
+    svg.appendChild(area);
+
+    const line = svgEl("path", { d: linePath.trim() });
+    line.style.fill = "none";
+    line.style.stroke = colorVar;
+    line.style.strokeWidth = String(lineWidth);
+    line.style.strokeOpacity = String(lineOpacity);
+    line.style.strokeLinecap = "round";
+    line.style.strokeLinejoin = "round";
+    svg.appendChild(line);
+
+    const dot = svgEl("circle", { r: 3, class: "trend-hover-dot" });
+    dot.style.fill = colorVar;
+    dot.style.opacity = "0";
+    svg.appendChild(dot);
+    return dot;
+  }
+
+  const totalDot = buildSeries("total", "var(--accent)", { lineWidth: 1.25, areaOpacity: 0.06, lineOpacity: 0.5 });
+  const blockedDot = buildSeries("blocked", "var(--danger)");
+  const allowedDot = buildSeries("allowed", "var(--good)");
+
+  const hoverLine = svgEl("line", { y1: padT, y2: padT + plotH, class: "trend-hover-line" });
+  hoverLine.style.opacity = "0";
+  svg.appendChild(hoverLine);
+
+  const tooltipW = 118, tooltipH = 54;
+  const tooltipGroup = svgEl("g");
+  tooltipGroup.style.opacity = "0";
+  const tooltipBg = svgEl("rect", { width: tooltipW, height: tooltipH, rx: 4, class: "trend-tooltip-bg" });
+  const tLabel = svgEl("text", { class: "trend-tooltip-muted" });
+  const tTotal = svgEl("text", { class: "trend-tooltip-text" });
+  const tBlocked = svgEl("text", { class: "trend-tooltip-text" });
+  const tAllowed = svgEl("text", { class: "trend-tooltip-text" });
+  tooltipGroup.append(tooltipBg, tLabel, tTotal, tBlocked, tAllowed);
+  svg.appendChild(tooltipGroup);
+
+  function showHover(i) {
+    const d = data[i];
+    const x = xAt(i);
+    hoverLine.setAttribute("x1", x);
+    hoverLine.setAttribute("x2", x);
+    hoverLine.style.opacity = "1";
+    totalDot.setAttribute("cx", x);
+    totalDot.setAttribute("cy", yAt(d.total));
+    totalDot.style.opacity = "1";
+    blockedDot.setAttribute("cx", x);
+    blockedDot.setAttribute("cy", yAt(d.blocked));
+    blockedDot.style.opacity = "1";
+    allowedDot.setAttribute("cx", x);
+    allowedDot.setAttribute("cy", yAt(d.allowed));
+    allowedDot.style.opacity = "1";
+
+    tLabel.textContent = fmtTrendTooltipLabel(d.bucket_start, trendRange);
+    tTotal.textContent = t("trend.tooltip.total", "Total") + ": " + d.total.toLocaleString();
+    tBlocked.textContent = t("trend.tooltip.blocked", "Blocked") + ": " + d.blocked.toLocaleString();
+    tAllowed.textContent = t("trend.tooltip.allowed", "Allowed") + ": " + d.allowed.toLocaleString();
+
+    let tx = x + 8;
+    if (tx + tooltipW > W - padR) tx = x - tooltipW - 8;
+    const ty = padT + 4;
+    tooltipBg.setAttribute("x", tx);
+    tooltipBg.setAttribute("y", ty);
+    tLabel.setAttribute("x", tx + 7);
+    tLabel.setAttribute("y", ty + 13);
+    tTotal.setAttribute("x", tx + 7);
+    tTotal.setAttribute("y", ty + 26);
+    tBlocked.setAttribute("x", tx + 7);
+    tBlocked.setAttribute("y", ty + 38);
+    tAllowed.setAttribute("x", tx + 7);
+    tAllowed.setAttribute("y", ty + 50);
+    tooltipGroup.style.opacity = "1";
+  }
+
+  function hideHover() {
+    hoverLine.style.opacity = "0";
+    totalDot.style.opacity = "0";
+    blockedDot.style.opacity = "0";
+    allowedDot.style.opacity = "0";
+    tooltipGroup.style.opacity = "0";
+  }
+
+  function indexAtClientX(clientX) {
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((clientX - rect.left) / rect.width) * W;
+    return Math.max(0, Math.min(n - 1, Math.round(((svgX - padL) / plotW) * (n - 1))));
+  }
+
+  const capture = svgEl("rect", { x: padL, y: padT, width: plotW, height: plotH, fill: "transparent" });
+  capture.style.cursor = "crosshair";
+  capture.addEventListener("mousemove", (e) => showHover(indexAtClientX(e.clientX)));
+  capture.addEventListener("mouseleave", hideHover);
+  capture.addEventListener("touchstart", (e) => showHover(indexAtClientX(e.touches[0].clientX)), { passive: true });
+  capture.addEventListener("touchmove", (e) => showHover(indexAtClientX(e.touches[0].clientX)), { passive: true });
+  svg.appendChild(capture);
+
+  wrap.appendChild(svg);
+}
+
+async function loadTrend() {
+  renderTrendLegend();
+  const data = await api(`/api/stats/timeseries?range=${trendRange}`);
+  renderTrendChart(data);
+}
+
+const graphState = {
+  nodes: [],
+  nodeById: new Map(),
+  edges: [],
+  canvas: null,
+  ctx: null,
+  dpr: 1,
+  width: 0,
+  height: 0,
+  hovered: null,
+  selected: null,
+  dragging: null,
+  dragMoved: false,
+  panning: false,
+  panStart: null,
+  pinch: null,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  animId: null,
+  alpha: 1,
+  radiusCap: 20,
+  settled: false,
+  loaded: false,
+  view: null,
+};
+
+const GRAPH_MIN_ZOOM = 0.3;
+const GRAPH_MAX_ZOOM = 4;
+
+function graphResetView() {
+  graphState.zoom = 1;
+  graphState.panX = 0;
+  graphState.panY = 0;
+}
+
+function graphZoomAt(screenX, screenY, factor) {
+  const oldZoom = graphState.zoom;
+  const newZoom = Math.max(GRAPH_MIN_ZOOM, Math.min(GRAPH_MAX_ZOOM, oldZoom * factor));
+  if (newZoom === oldZoom) return;
+  const worldX = (screenX - graphState.panX) / oldZoom;
+  const worldY = (screenY - graphState.panY) / oldZoom;
+  graphState.zoom = newZoom;
+  graphState.panX = screenX - worldX * newZoom;
+  graphState.panY = screenY - worldY * newZoom;
+  renderGraphFrame();
+}
+
+function graphNodeRadius(node) {
+  const natural = 4 + Math.log2((node.total || 0) + 1) * 1.6;
+  return Math.max(4, Math.min(20, graphState.radiusCap || 20, natural));
+}
+
+function graphRadiusCap(count, w, h) {
+  return Math.max(6, Math.min(20, Math.sqrt((0.16 * w * h) / (Math.PI * Math.max(1, count)))));
+}
+
+const GRAPH_CLUSTER_COLORS = ["#f59e0b", "#a855f7", "#14b8a6", "#ec4899", "#38bdf8", "#84cc16", "#818cf8", "#fb923c"];
+
+function graphNodeColor(node) {
+  if (node.suspicious) return "var(--danger)";
+  if (node.cluster !== null && node.cluster !== undefined) return GRAPH_CLUSTER_COLORS[node.cluster % GRAPH_CLUSTER_COLORS.length];
+  return node.type === "client" ? "var(--accent)" : "var(--good)";
+}
+
+function graphNodeLabel(node) {
+  if (node.type === "client" && clientNames[node.id]) return `${clientNames[node.id]} (${node.id})`;
+  return node.id;
+}
+
+function graphLinkCount(weight) {
+  return Math.round(Math.pow(2, 1 + Math.max(0, Math.min(1, weight)) * 5) - 1);
+}
+
+function buildGraphNodes(data) {
+  const wrap = document.getElementById("graph-canvas-wrap") || document.querySelector(".graph-canvas-wrap");
+  const w = graphState.width || (wrap ? wrap.clientWidth : 800) || 800;
+  const h = graphState.height || (wrap ? wrap.clientHeight : 560) || 560;
+  const previous = graphState.nodeById;
+  const total = data.clients.length + data.domains.length;
+  graphState.radiusCap = graphRadiusCap(total, w, h);
+  const nodes = [];
+  const viewChanged = graphState.view !== data.view;
+  graphState.view = data.view;
+  const clusterCount = Math.max(0, ...[...data.clients, ...data.domains].map((item) => (item.cluster ?? -1) + 1));
+  const clusterSeen = new Map();
+  const add = (type, prefix, item) => {
+    const prev = previous.get(prefix + item.id);
+    let start = prev || graphInitialPosition(nodes.length, total, w, h);
+    if (clusterCount > 1 && item.cluster !== null && item.cluster !== undefined && (!prev || viewChanged)) {
+      start = graphClusterPosition(item.cluster, clusterCount, clusterSeen, w, h);
+    }
+    nodes.push({
+      key: prefix + item.id, id: item.id, type,
+      degree: item.degree, total: item.total, blocked: item.blocked, score: item.score, suspicious: item.suspicious,
+      first_seen: item.first_seen, last_seen: item.last_seen, cluster: item.cluster ?? null,
+      x: start.x, y: start.y, vx: 0, vy: 0,
+      r: graphNodeRadius(item),
+    });
+  };
+  data.clients.forEach((c) => add("client", "c:", c));
+  data.domains.forEach((d) => add("domain", "d:", d));
+  const nodeById = new Map(nodes.map((n) => [n.key, n]));
+  const linkPrefix = data.view === "clients" ? "c:" : "d:";
+  const edges = [
+    ...data.edges.map((e) => ({ source: nodeById.get("c:" + e.client), target: nodeById.get("d:" + e.domain), count: e.count, blocked: e.blocked })),
+    ...(data.links || []).map((l) => ({ source: nodeById.get(linkPrefix + l.a), target: nodeById.get(linkPrefix + l.b), count: graphLinkCount(l.weight), blocked: 0 })),
+  ].filter((e) => e.source && e.target);
+  graphPrepareEdges(edges);
+  graphState.nodes = nodes;
+  graphState.nodeById = nodeById;
+  graphState.edges = edges;
+  graphState.alpha = previous.size ? 0.5 : 1;
+  graphState.settled = false;
+  graphResetView();
+}
+
+const GRAPH_ALPHA_DECAY = 0.0228;
+const GRAPH_ALPHA_MIN = 0.005;
+const GRAPH_REHEAT_ALPHA = 0.3;
+const GRAPH_VELOCITY_KEEP = 0.6;
+
+function graphClusterPosition(cluster, clusterCount, seen, w, h) {
+  const index = seen.get(cluster) || 0;
+  seen.set(cluster, index + 1);
+  const ring = 0.26 * Math.min(w, h);
+  const angle = (cluster / clusterCount) * Math.PI * 2;
+  const spread = graphIdealLength(w, h) * 0.4;
+  const radius = spread * Math.sqrt(index + 0.5);
+  const spiral = index * 2.399963229728653;
+  return {
+    x: w / 2 + Math.cos(angle) * ring + Math.cos(spiral) * radius,
+    y: h / 2 + Math.sin(angle) * ring + Math.sin(spiral) * radius,
+  };
+}
+
+function graphIdealLength(w, h) {
+  return Math.max(32, Math.min(90, Math.min(w, h) / 6));
+}
+
+function graphInitialPosition(index, total, w, h) {
+  const spread = Math.min(graphIdealLength(w, h) * 0.55, (0.45 * Math.min(w, h)) / Math.sqrt(Math.max(1, total)));
+  const radius = spread * Math.sqrt(index + 0.5);
+  const angle = index * 2.399963229728653;
+  return { x: w / 2 + Math.cos(angle) * radius, y: h / 2 + Math.sin(angle) * radius };
+}
+
+function graphPrepareEdges(edges) {
+  const degree = new Map();
+  for (const e of edges) {
+    degree.set(e.source, (degree.get(e.source) || 0) + 1);
+    degree.set(e.target, (degree.get(e.target) || 0) + 1);
+  }
+  for (const e of edges) {
+    const ds = degree.get(e.source), dt = degree.get(e.target);
+    const weight = 0.5 + 0.5 * Math.min(1, Math.log2(2 + e.count) / 12);
+    e.strength = weight / Math.min(ds, dt);
+    e.bias = ds / (ds + dt);
+  }
+}
+
+function stepGraphSimulation() {
+  const { nodes, edges, width: w, height: h, alpha } = graphState;
+  const n = nodes.length;
+  if (n === 0 || w < 1 || h < 1) return;
+  const idealLen = graphIdealLength(w, h);
+  const repulseK = 2600 * (idealLen / 90) ** 2;
+  const minDistSq = (idealLen / 3) ** 2;
+  const maxStep = idealLen / 2;
+  const centerK = 0.01;
+  const collideK = 0.35;
+  const clusterK = 0.12;
+
+  for (const node of nodes) {
+    node.fx = (w / 2 - node.x) * centerK;
+    node.fy = (h / 2 - node.y) * centerK;
+    node.cx = 0;
+    node.cy = 0;
+  }
+  const centroids = new Map();
+  for (const node of nodes) {
+    if (node.cluster === null || node.cluster === undefined) continue;
+    const c = centroids.get(node.cluster) || { x: 0, y: 0, n: 0 };
+    c.x += node.x; c.y += node.y; c.n += 1;
+    centroids.set(node.cluster, c);
+  }
+  for (const node of nodes) {
+    const c = centroids.get(node.cluster);
+    if (!c || c.n < 2) continue;
+    node.fx += (c.x / c.n - node.x) * clusterK;
+    node.fy += (c.y / c.n - node.y) * clusterK;
+  }
+  for (let i = 0; i < n; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      if (dx === 0 && dy === 0) {
+        const angle = (i * 31 + j) * 2.399963229728653;
+        dx = Math.cos(angle) * 0.01;
+        dy = Math.sin(angle) * 0.01;
+      }
+      const dist = Math.hypot(dx, dy);
+      const force = repulseK / Math.max(dist * dist, minDistSq);
+      const fx = (dx / dist) * force, fy = (dy / dist) * force;
+      a.fx += fx; a.fy += fy;
+      b.fx -= fx; b.fy -= fy;
+      const touching = a.r + b.r + 3;
+      if (dist < touching) {
+        const push = ((touching - dist) / dist) * collideK;
+        a.cx += dx * push; a.cy += dy * push;
+        b.cx -= dx * push; b.cy -= dy * push;
+      }
+    }
+  }
+  for (const e of edges) {
+    const dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    const pull = ((dist - idealLen) / dist) * e.strength;
+    e.source.fx += dx * pull * (1 - e.bias);
+    e.source.fy += dy * pull * (1 - e.bias);
+    e.target.fx -= dx * pull * e.bias;
+    e.target.fy -= dy * pull * e.bias;
+  }
+
+  const margin = Math.max(12, Math.min(24, Math.min(w, h) / 12));
+  for (const node of nodes) {
+    if (node === graphState.dragging) {
+      node.vx = 0;
+      node.vy = 0;
+      continue;
+    }
+    let vx = (node.vx + node.fx * alpha + node.cx) * GRAPH_VELOCITY_KEEP;
+    let vy = (node.vy + node.fy * alpha + node.cy) * GRAPH_VELOCITY_KEEP;
+    const speed = Math.hypot(vx, vy);
+    if (speed > maxStep) {
+      vx *= maxStep / speed;
+      vy *= maxStep / speed;
+    }
+    let x = node.x + vx, y = node.y + vy;
+    if (x < margin) { x = margin; vx = 0; } else if (x > w - margin) { x = w - margin; vx = 0; }
+    if (y < margin) { y = margin; vy = 0; } else if (y > h - margin) { y = h - margin; vy = 0; }
+    node.x = x;
+    node.y = y;
+    node.vx = vx;
+    node.vy = vy;
+  }
+}
+
+function graphNodeVisible(node) {
+  const filter = graphState.searchFilter;
+  const suspiciousOnly = document.getElementById("graph-suspicious-only").checked;
+  if (suspiciousOnly && !node.suspicious && !(graphState.suspiciousNeighborKeys && graphState.suspiciousNeighborKeys.has(node.key))) {
+    return false;
+  }
+  if (!filter) return true;
+  return node.id.toLowerCase().includes(filter) || (node.type === "client" && clientNames[node.id] && clientNames[node.id].toLowerCase().includes(filter));
+}
+
+function recomputeSuspiciousNeighbors() {
+  const keys = new Set();
+  for (const e of graphState.edges) {
+    if (e.source.suspicious || e.target.suspicious) {
+      keys.add(e.source.key);
+      keys.add(e.target.key);
+    }
+  }
+  graphState.suspiciousNeighborKeys = keys;
+}
+
+function renderGraphFrame() {
+  const { ctx, width: w, height: h, nodes, edges, zoom, panX, panY, dpr } = graphState;
+  if (!ctx) return;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.translate(panX, panY);
+  ctx.scale(zoom, zoom);
+  const style = getComputedStyle(document.documentElement);
+  const resolve = (v) => (v.startsWith("var(") ? style.getPropertyValue(v.slice(4, -1)).trim() : v);
+  const borderColor = resolve("var(--panel-border)");
+  const mutedColor = resolve("var(--muted)");
+
+  for (const e of edges) {
+    const visible = graphNodeVisible(e.source) && graphNodeVisible(e.target);
+    ctx.strokeStyle = borderColor;
+    ctx.globalAlpha = visible ? Math.min(0.7, 0.15 + Math.log2(1 + e.count) * 0.08) : 0.04;
+    ctx.lineWidth = Math.min(4, 0.6 + Math.log2(1 + e.count) * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(e.source.x, e.source.y);
+    ctx.lineTo(e.target.x, e.target.y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  for (const node of nodes) {
+    const visible = graphNodeVisible(node);
+    const r = graphNodeRadius(node);
+    ctx.globalAlpha = visible ? 1 : 0.12;
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = resolve(graphNodeColor(node));
+    ctx.fill();
+    if (node === graphState.selected) {
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = resolve("var(--text)");
+      ctx.stroke();
+    } else if (node.suspicious) {
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = resolve("var(--danger)");
+      ctx.stroke();
+    }
+    const labelled = r * zoom > (nodes.length > 60 ? 16 : 9) || node.suspicious;
+    if (visible && (labelled || node === graphState.hovered || node === graphState.selected)) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = mutedColor;
+      ctx.font = "10px sans-serif";
+      const label = graphNodeLabel(node);
+      const truncated = label.length > 28 ? label.slice(0, 27) + "…" : label;
+      ctx.fillText(truncated, node.x + r + 3, node.y + 3);
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function animateGraph() {
+  stepGraphSimulation();
+  renderGraphFrame();
+  if (graphState.dragging) {
+    graphState.alpha = Math.max(graphState.alpha, GRAPH_REHEAT_ALPHA);
+  } else {
+    graphState.alpha -= graphState.alpha * GRAPH_ALPHA_DECAY;
+  }
+  if (graphState.alpha > GRAPH_ALPHA_MIN) {
+    graphState.animId = requestAnimationFrame(animateGraph);
+  } else {
+    graphState.alpha = 0;
+    graphState.settled = true;
+    graphState.animId = null;
+  }
+}
+
+function wakeGraphSimulation(reheat = 0) {
+  graphState.alpha = Math.max(graphState.alpha, reheat);
+  graphState.settled = false;
+  if (graphState.animId == null) {
+    graphState.animId = requestAnimationFrame(animateGraph);
+  }
+}
+
+function graphNodeAt(x, y) {
+  const slop = 8 / graphState.zoom;
+  for (let i = graphState.nodes.length - 1; i >= 0; i--) {
+    const node = graphState.nodes[i];
+    if (!graphNodeVisible(node)) continue;
+    const r = graphNodeRadius(node) + slop;
+    const dx = node.x - x, dy = node.y - y;
+    if (dx * dx + dy * dy <= r * r) return node;
+  }
+  return null;
+}
+
+function graphScreenCoords(evt) {
+  const rect = graphState.canvas.getBoundingClientRect();
+  return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+}
+
+function graphScreenToWorld(sx, sy) {
+  return { x: (sx - graphState.panX) / graphState.zoom, y: (sy - graphState.panY) / graphState.zoom };
+}
+
+function graphCanvasCoords(evt) {
+  const { x, y } = graphScreenCoords(evt);
+  return graphScreenToWorld(x, y);
+}
+
+async function selectGraphNode(node) {
+  graphState.selected = node;
+  const empty = document.getElementById("graph-detail-empty");
+  const detail = document.getElementById("graph-detail");
+  if (!node) {
+    empty.style.display = "";
+    detail.style.display = "none";
+    return;
+  }
+  empty.style.display = "none";
+  detail.style.display = "";
+  detail.innerHTML = `<span class="graph-node-title">${escapeHtml(graphNodeLabel(node))}</span><span class="graph-node-badge ${node.type}">${node.type === "client" ? t("graph.badge.client", "Client") : t("graph.badge.domain", "Domain")}</span>`;
+  try {
+    const data = node.type === "client"
+      ? await api(`/api/graph/client/${encodeURIComponent(node.id)}`)
+      : await api(`/api/graph/domain/${encodeURIComponent(node.id)}?${graphGroupParams().toString()}`);
+    const rows = node.type === "client" ? data.domains : data.clients;
+    const rowLabel = node.type === "client" ? t("graph.col.domain", "Domain") : t("graph.col.client", "Client");
+    const table = el("table", {}, [
+      el("thead", {}, [el("tr", {}, [el("th", { text: rowLabel }), el("th", { text: t("col.count", "Count") })])]),
+      el("tbody", {}, rows.slice(0, 100).map((r) => el("tr", {}, [
+        el("td", { text: r.domain || r.client }),
+        el("td", { text: String(r.count) + (r.blocked ? ` (${r.blocked} ${t("graph.blocked_short", "blocked")})` : "") }),
+      ]))),
+    ]);
+    const meta = el("p", { class: "muted" }, []);
+    meta.textContent = `${t("graph.total_count", "Total queries")}: ${data.total_count} · ${
+      node.type === "client" ? t("graph.distinct_domains", "Distinct domains") : t("graph.distinct_clients", "Distinct clients")
+    }: ${node.type === "client" ? data.distinct_domains : data.distinct_clients}`;
+    detail.appendChild(meta);
+    if (node.first_seen) {
+      const seen = el("p", { class: "muted" });
+      seen.textContent = `${t("graph.first_seen", "First seen")}: ${new Date(node.first_seen * 1000).toLocaleString()} · ${t("graph.last_seen", "Last seen")}: ${new Date(node.last_seen * 1000).toLocaleString()}`;
+      detail.appendChild(seen);
+    }
+    detail.appendChild(table);
+  } catch (err) {
+    detail.appendChild(el("p", { class: "muted", text: String(err.message || err) }));
+  }
+}
+
+function renderGraphSuspiciousList() {
+  const container = document.getElementById("graph-suspicious-list");
+  const suspicious = graphState.nodes.filter((n) => n.suspicious).sort((a, b) => b.score - a.score).slice(0, 20);
+  if (!suspicious.length) {
+    container.className = "muted";
+    container.textContent = t("graph.none_found", "None found.");
+    return;
+  }
+  container.className = "";
+  container.innerHTML = "";
+  for (const node of suspicious) {
+    const row = el("div", { class: "graph-suspicious-row" }, [
+      el("span", { text: graphNodeLabel(node) }),
+      el("span", { class: "muted", text: `${node.degree} ${node.type === "client" ? t("graph.distinct_domains_short", "domains") : t("graph.distinct_clients_short", "clients")}` }),
+    ]);
+    row.addEventListener("click", () => {
+      graphState.searchFilter = "";
+      document.getElementById("graph-search").value = "";
+      selectGraphNode(node);
+      wakeGraphSimulation();
+      renderGraphFrame();
+    });
+    container.appendChild(row);
+  }
+}
+
+function resizeGraphCanvas() {
+  const wrap = document.querySelector(".graph-canvas-wrap");
+  const canvas = graphState.canvas;
+  if (!wrap || !canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  graphState.dpr = dpr;
+  graphState.width = wrap.clientWidth;
+  graphState.height = wrap.clientHeight;
+  canvas.width = graphState.width * dpr;
+  canvas.height = graphState.height * dpr;
+  canvas.style.width = graphState.width + "px";
+  canvas.style.height = graphState.height + "px";
+  graphState.ctx = canvas.getContext("2d");
+  graphState.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  renderGraphFrame();
+}
+
+function onGraphWindowResize() {
+  resizeGraphCanvas();
+  if (graphState.nodes.length) wakeGraphSimulation(GRAPH_REHEAT_ALPHA);
+}
+
+function initGraphCanvas() {
+  if (graphState.canvas) return;
+  const canvas = document.getElementById("graph-canvas");
+  graphState.canvas = canvas;
+  resizeGraphCanvas();
+  window.addEventListener("resize", onGraphWindowResize);
+
+  const pointerDown = (x, y, sx, sy) => {
+    const node = graphNodeAt(x, y);
+    if (node) {
+      graphState.dragging = node;
+      graphState.dragMoved = false;
+      canvas.classList.add("dragging");
+      wakeGraphSimulation(GRAPH_REHEAT_ALPHA);
+    } else {
+      graphState.panning = true;
+      graphState.panStart = { sx, sy, panX: graphState.panX, panY: graphState.panY };
+      canvas.classList.add("dragging");
+    }
+  };
+  const pointerMove = (x, y, sx, sy) => {
+    if (graphState.dragging) {
+      graphState.dragging.x = x;
+      graphState.dragging.y = y;
+      graphState.dragging.vx = 0;
+      graphState.dragging.vy = 0;
+      graphState.dragMoved = true;
+      wakeGraphSimulation(GRAPH_REHEAT_ALPHA);
+      return;
+    }
+    if (graphState.panning) {
+      graphState.panX = graphState.panStart.panX + (sx - graphState.panStart.sx);
+      graphState.panY = graphState.panStart.panY + (sy - graphState.panStart.sy);
+      renderGraphFrame();
+      return;
+    }
+    const node = graphNodeAt(x, y);
+    if (node !== graphState.hovered) {
+      graphState.hovered = node;
+      canvas.style.cursor = node ? "pointer" : "grab";
+      renderGraphFrame();
+    }
+  };
+  const pointerUp = () => {
+    if (graphState.dragging && !graphState.dragMoved) {
+      selectGraphNode(graphState.dragging);
+    }
+    graphState.dragging = null;
+    graphState.panning = false;
+    canvas.classList.remove("dragging");
+  };
+
+  canvas.addEventListener("mousedown", (evt) => {
+    const s = graphScreenCoords(evt);
+    const w = graphScreenToWorld(s.x, s.y);
+    pointerDown(w.x, w.y, s.x, s.y);
+  });
+  canvas.addEventListener("mousemove", (evt) => {
+    const s = graphScreenCoords(evt);
+    const w = graphScreenToWorld(s.x, s.y);
+    pointerMove(w.x, w.y, s.x, s.y);
+  });
+  window.addEventListener("mouseup", pointerUp);
+  canvas.addEventListener("mouseleave", () => {
+    if (!graphState.dragging && !graphState.panning) {
+      graphState.hovered = null;
+      renderGraphFrame();
+    }
+  });
+  canvas.addEventListener("wheel", (evt) => {
+    evt.preventDefault();
+    const { x, y } = graphScreenCoords(evt);
+    const factor = Math.exp(-evt.deltaY * 0.0015);
+    graphZoomAt(x, y, factor);
+  }, { passive: false });
+  canvas.addEventListener("dblclick", (evt) => {
+    evt.preventDefault();
+    graphResetView();
+    renderGraphFrame();
+  });
+
+  const touchDist = (t0, t1) => Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+  const touchMid = (t0, t1) => ({ x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 });
+
+  canvas.addEventListener("touchstart", (evt) => {
+    if (evt.touches.length === 2) {
+      evt.preventDefault();
+      graphState.dragging = null;
+      graphState.panning = false;
+      const rect = canvas.getBoundingClientRect();
+      const mid = touchMid(evt.touches[0], evt.touches[1]);
+      graphState.pinch = {
+        startDist: touchDist(evt.touches[0], evt.touches[1]),
+        startZoom: graphState.zoom,
+        startMid: { x: mid.x - rect.left, y: mid.y - rect.top },
+        startPanX: graphState.panX,
+        startPanY: graphState.panY,
+      };
+      return;
+    }
+    if (evt.touches.length !== 1) return;
+    const s = graphScreenCoords(evt.touches[0]);
+    const w = graphScreenToWorld(s.x, s.y);
+    if (graphNodeAt(w.x, w.y)) evt.preventDefault();
+    pointerDown(w.x, w.y, s.x, s.y);
+  }, { passive: false });
+  canvas.addEventListener("touchmove", (evt) => {
+    if (evt.touches.length === 2 && graphState.pinch) {
+      evt.preventDefault();
+      const pinch = graphState.pinch;
+      const dist = touchDist(evt.touches[0], evt.touches[1]);
+      const newZoom = Math.max(GRAPH_MIN_ZOOM, Math.min(GRAPH_MAX_ZOOM, pinch.startZoom * (dist / pinch.startDist)));
+      const worldMidX = (pinch.startMid.x - pinch.startPanX) / pinch.startZoom;
+      const worldMidY = (pinch.startMid.y - pinch.startPanY) / pinch.startZoom;
+      graphState.zoom = newZoom;
+      graphState.panX = pinch.startMid.x - worldMidX * newZoom;
+      graphState.panY = pinch.startMid.y - worldMidY * newZoom;
+      renderGraphFrame();
+      return;
+    }
+    if (evt.touches.length !== 1) return;
+    const s = graphScreenCoords(evt.touches[0]);
+    const w = graphScreenToWorld(s.x, s.y);
+    if (graphState.dragging || graphState.panning) evt.preventDefault();
+    pointerMove(w.x, w.y, s.x, s.y);
+  }, { passive: false });
+  canvas.addEventListener("touchend", (evt) => {
+    if (evt.touches.length < 2) graphState.pinch = null;
+    pointerUp();
+  });
+  canvas.addEventListener("touchcancel", (evt) => {
+    graphState.pinch = null;
+    pointerUp();
+  });
+}
+
+function graphGroupParams() {
+  const group = document.getElementById("graph-group").value;
+  const params = new URLSearchParams();
+  if (group === QUERY_LOG_NO_GROUP) params.set("no_group", "true");
+  else if (group.startsWith("g:")) params.set("group", group.slice(2));
+  return params;
+}
+
+function renderGraphGroupOptions(groups) {
+  const select = document.getElementById("graph-group");
+  const previous = select.value;
+  select.innerHTML = "";
+  select.appendChild(el("option", { value: "", text: t("logs.all_groups", "All groups") }));
+  for (const name of groups || []) select.appendChild(el("option", { value: "g:" + name, text: name }));
+  select.appendChild(el("option", { value: QUERY_LOG_NO_GROUP, text: t("logs.no_group", "No group (default policy)") }));
+  select.value = previous;
+  if (select.value !== previous) select.value = "";
+}
+
+function graphView() {
+  const value = document.getElementById("graph-view").value;
+  return value === "domains" || value === "clients" ? value : "bipartite";
+}
+
+function renderGraphSummary(data) {
+  const edgeCount = data.view === "bipartite" ? data.edges.length : data.links.length;
+  const parts = [];
+  if (data.clients.length || data.view !== "domains") parts.push(`${data.clients.length} ${t("graph.summary_clients", "clients")}`);
+  if (data.domains.length || data.view !== "clients") parts.push(`${data.domains.length} ${t("graph.summary_domains", "domains")}`);
+  parts.push(`${edgeCount} ${t("graph.summary_edges", "connections")}`);
+  document.getElementById("graph-summary").textContent = parts.join(" · ");
+  const hint = document.getElementById("graph-view-hint");
+  hint.style.display = data.view === "bipartite" ? "none" : "";
+  hint.textContent = data.view === "domains"
+    ? t("graph.view_hint.domains", "Domains are linked when the same clients query them - the thicker the line, the more alike their audiences. Each domain keeps only its few closest neighbours.")
+    : data.view === "clients"
+      ? t("graph.view_hint.clients", "Clients are linked when they query the same domains - the thicker the line, the more alike their browsing. Each client keeps only its few closest neighbours.")
+      : "";
+}
+
+async function loadGraph() {
+  const minCount = Math.max(1, parseInt(document.getElementById("graph-min-count").value, 10) || 1);
+  const summary = document.getElementById("graph-summary");
+  summary.textContent = t("common.checking", "Checking...");
+  const limitNodes = window.innerWidth < 640 ? 40 : window.innerWidth < 900 ? 80 : 150;
+  let data;
+  try {
+    const params = graphGroupParams();
+    params.set("min_count", String(minCount));
+    params.set("limit_nodes", String(limitNodes));
+    params.set("view", graphView());
+    try {
+      data = await api(`/api/graph?${params.toString()}`);
+    } catch (err) {
+      if (!document.getElementById("graph-group").value) throw err;
+      document.getElementById("graph-group").value = "";
+      params.delete("group");
+      params.delete("no_group");
+      data = await api(`/api/graph?${params.toString()}`);
+    }
+  } catch (err) {
+    summary.textContent = String(err.message || err);
+    return;
+  }
+  renderGraphGroupOptions(data.groups);
+  buildGraphNodes(data);
+  recomputeSuspiciousNeighbors();
+  renderGraphSuspiciousList();
+  initGraphCanvas();
+  resizeGraphCanvas();
+  wakeGraphSimulation();
+  const truncatedHint = document.getElementById("graph-truncated-hint");
+  truncatedHint.style.display = data.truncated ? "" : "none";
+  renderGraphSummary(data);
+  document.getElementById("graph-clear-btn").style.display = isAdmin ? "" : "none";
+  graphState.loaded = true;
+}
+
+document.getElementById("graph-refresh-btn").addEventListener("click", loadGraph);
+document.getElementById("graph-reset-view-btn").addEventListener("click", () => {
+  graphResetView();
+  renderGraphFrame();
+});
+document.getElementById("graph-min-count").addEventListener("change", loadGraph);
+document.getElementById("graph-group").addEventListener("change", () => {
+  graphState.selected = null;
+  selectGraphNode(null);
+  loadGraph();
+});
+document.getElementById("graph-view").addEventListener("change", () => {
+  graphState.selected = null;
+  selectGraphNode(null);
+  loadGraph();
+});
+document.getElementById("graph-suspicious-only").addEventListener("change", () => {
+  recomputeSuspiciousNeighbors();
+  renderGraphFrame();
+});
+document.getElementById("graph-search").addEventListener("input", (e) => {
+  graphState.searchFilter = e.target.value.trim().toLowerCase();
+  renderGraphFrame();
+});
+document.getElementById("graph-clear-btn").addEventListener("click", async () => {
+  if (!confirm(t("graph.confirm_clear", "Delete all stored client-domain graph history? This cannot be undone."))) return;
+  await api("/api/graph/clear", { method: "POST" });
+  showToast(t("toast.deleted", "Deleted"));
+  await loadGraph();
+});
+
+// Stable id of a config list entry for API paths; older servers have none,
+// so fall back to its position.
+function refOf(item, position) {
+  return item && item.id ? encodeURIComponent(item.id) : position;
+}
+
+async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
+  const sources = await api(apiPath);
+  const status = await api("/api/status");
+  const counts = status[countsKey] || {};
+  const formats = status[formatsKey] || {};
+  const updates = status.source_updates || {};
+  const rows = document.getElementById(rowsElId);
+  rows.innerHTML = "";
+  sources.forEach((s, position) => {
+    const i = refOf(s, position);
+    const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? "Disable" : "Enable" });
+    toggleBtn.onclick = async () => {
+      try {
+        await withSpinner(toggleBtn, () => api(`${apiPath}/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+        refreshAll();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    const delBtn = ruleDeleteButton("Remove", `${apiPath}/${i}`);
+    const domainsCell = el("td", {}, [document.createTextNode((counts[s.name] ?? "-").toString())]);
+    if (formats[s.name]) {
+      domainsCell.appendChild(el("div", { class: "muted", style: "font-size:0.72rem;margin-top:0.1rem;", text: formats[s.name] }));
+    }
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: s.name }),
+      el("td", { text: s.url, class: "url-cell" }),
+      domainsCell,
+      sourceUpdatedCell(updates[s.name]),
+      el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? "enabled" : "disabled" })]),
+      el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
+    ]));
+  });
+}
+
+async function loadBlocklists() {
+  await loadSourceTable("/api/blocklists", "blocklist-rows", "blocklist_sources", "blocklist_source_formats");
+}
+
+async function loadBlockedTlds() {
+  const tlds = await api("/api/blocked-tlds");
+  const rows = document.getElementById("blocked-tld-rows");
+  rows.innerHTML = "";
+  for (const tld of tlds) {
+    const delBtn = ruleDeleteButton(t("common.remove", "Remove"), `/api/blocked-tlds/${encodeURIComponent(tld)}`);
+    rows.appendChild(el("tr", {}, [el("td", { text: "." + tld }), el("td", {}, [delBtn])]));
+  }
+}
+
+async function loadAllowSources() {
+  await loadSourceTable("/api/allow-sources", "allow-source-rows", "allowlist_sources", "allowlist_source_formats");
+}
+
+async function loadBlocklistCatalog() {
+  const catalog = await api("/api/blocklists/catalog");
+  const rows = document.getElementById("blocklist-catalog-rows");
+  rows.innerHTML = "";
+  for (const entry of catalog) {
+    const addBtn = el("button", { class: "secondary", text: "Add" });
+    addBtn.onclick = async () => {
+      await withSpinner(addBtn, async () => {
+        await api("/api/blocklists", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: entry.name, url: entry.url }),
+        });
+      });
+      refreshAll();
+      showToast(t("toast.list_added", "List added") + `: ${entry.name}`);
+    };
+    rows.appendChild(el("tr", {}, [
+      el("td", {}, [
+        el("div", { text: entry.name }),
+        el("div", { class: "muted", style: "font-size:0.78rem;margin-top:0.1rem;", text: entry.description }),
+      ]),
+      el("td", { text: entry.category }),
+      el("td", {}, [addBtn]),
+    ]));
+  }
+}
+
+function ruleDeleteButton(label, path, onDone) {
+  const btn = el("button", { class: "danger", text: label });
+  btn.onclick = async () => {
+    try {
+      await withSpinner(btn, () => api(path, { method: "DELETE" }), t("common.saving", "Saving..."));
+      (onDone || refreshAll)();
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    }
+  };
+  return btn;
+}
+
+async function loadRules() {
+  const rules = await api("/api/rules");
+  currentAllowlist = new Set((rules.allowlist || []).map((d) => d.toLowerCase()));
+  const allowRows = document.getElementById("allow-rows");
+  allowRows.innerHTML = "";
+  for (const domain of rules.allowlist) {
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/allow/${encodeURIComponent(domain)}`);
+    allowRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
+  }
+  const denyRows = document.getElementById("deny-rows");
+  denyRows.innerHTML = "";
+  for (const domain of rules.denylist) {
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/deny/${encodeURIComponent(domain)}`);
+    denyRows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
+  }
+
+  const denyRegexRows = document.getElementById("deny-regex-rows");
+  denyRegexRows.innerHTML = "";
+  for (const pattern of rules.denylist_regex || []) {
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/deny-regex/${encodeURIComponent(pattern)}`);
+    denyRegexRows.appendChild(el("tr", {}, [el("td", { text: pattern }), el("td", {}, [delBtn])]));
+  }
+
+  blockedClients = new Set(rules.blocked_clients || []);
+  const blockedClientRows = document.getElementById("blocked-client-rows");
+  blockedClientRows.innerHTML = "";
+  for (const client of rules.blocked_clients || []) {
+    const delBtn = ruleDeleteButton("Unblock", `/api/rules/deny-client/${encodeURIComponent(client)}`);
+    blockedClientRows.appendChild(el("tr", {}, [el("td", { text: clientLabel(client) }), el("td", {}, [delBtn])]));
+  }
+  updateClientBlockButtons();
+
+  const denyAnswerIpRows = document.getElementById("deny-answer-ip-rows");
+  denyAnswerIpRows.innerHTML = "";
+  for (const value of rules.blocked_answer_ips || []) {
+    const delBtn = ruleDeleteButton("Remove", `/api/rules/deny-answer-ip/${encodeURIComponent(value)}`);
+    denyAnswerIpRows.appendChild(el("tr", {}, [el("td", { text: value }), el("td", {}, [delBtn])]));
+  }
+
+  await loadAnswerIpSources();
+  await loadTyposquatDomains();
+}
+
+async function loadAnswerIpSources() {
+  await loadSourceTable("/api/answer-ip-sources", "answer-ip-source-rows", "answer_ip_sources", "answer_ip_source_formats");
+}
+
+async function loadTyposquatDomains() {
+  const data = await api("/api/typosquat-domains");
+  document.getElementById("typosquat-default-count").textContent = (data.default || []).length;
+  document.getElementById("typosquat-default-list").textContent = (data.default || []).join(", ");
+
+  const rows = document.getElementById("typosquat-extra-rows");
+  rows.innerHTML = "";
+  for (const domain of data.extra || []) {
+    const delBtn = ruleDeleteButton("Remove", `/api/typosquat-domains/${encodeURIComponent(domain)}`);
+    rows.appendChild(el("tr", {}, [el("td", { text: domain }), el("td", {}, [delBtn])]));
+  }
+}
+
+function buildRuleEditor(title, items, onAdd, onRemove) {
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: title }));
+
+  const tags = el("div", { class: "rule-tags" });
+  for (const domain of items) {
+    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(domain)]);
+    const rm = el("button", { type: "button", text: "×" });
+    rm.onclick = () => onRemove(domain);
+    tag.appendChild(rm);
+    tags.appendChild(tag);
+  }
+  wrap.appendChild(tags);
+
+  const form = document.createElement("form");
+  form.className = "inline";
+  const input = el("input", { type: "text", placeholder: t("common.domain_ph", "domain") });
+  const submit = el("button", { type: "submit", text: t("common.add", "Add") });
+  form.appendChild(input);
+  form.appendChild(submit);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = input.value.trim();
+    if (!v) return;
+    onAdd(v);
+  });
+  wrap.appendChild(form);
+  return wrap;
+}
+
+function buildGroupHeader(index, group, deleteButton) {
+  const title = el("h3", { text: group.name });
+  const renameBtn = el("button", { type: "button", class: "secondary", text: t("groups.rename", "Rename") });
+  const left = el("div", { class: "inline", style: "margin:0;" }, [title, renameBtn]);
+  const row = el("div", { class: "row" }, [left, deleteButton]);
+  renameBtn.onclick = () => {
+    const input = el("input", { type: "text", value: group.name, maxlength: "255", "aria-label": t("groups.rename", "Rename"), style: "min-width:220px;" });
+    const form = document.createElement("form");
+    form.className = "inline";
+    form.style.margin = "0";
+    const error = el("span", { class: "group-error", style: "display:none;margin:0;" });
+    const cancel = el("button", { type: "button", class: "secondary", text: t("common.cancel", "Cancel") });
+    form.append(input, el("button", { type: "submit", text: t("common.save", "Save") }), cancel, error);
+    cancel.onclick = () => left.replaceChildren(title, renameBtn);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") cancel.onclick();
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name || name === group.name) {
+        cancel.onclick();
+        return;
+      }
+      error.style.display = "none";
+      try {
+        await withDelayedSpinner(e.submitter, async () => {
+          await api(`/api/client-groups/${index}/name`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+        });
+        refreshAll();
+      } catch (err) {
+        error.textContent = err && err.message ? err.message : String(err);
+        error.style.display = "";
+      }
+    });
+    left.replaceChildren(form);
+    input.focus();
+    input.select();
+  };
+  return row;
+}
+
+function buildGroupFilterSwitch(index, group) {
+  const on = group.enabled !== false;
+  const input = el("input", { type: "checkbox" });
+  input.checked = on;
+  const label = el("label", { class: "switch" }, [
+    input,
+    el("span", { text: t("groups.filtering_switch", "Filtering for this group") + ": " + (on ? t("groups.state_on", "On") : t("groups.state_off", "Off (pass-through)")) }),
+  ]);
+  const hint = el("div", {
+    class: "muted",
+    style: "font-size:0.78rem;margin-top:0.25rem;",
+    text: on
+      ? t("groups.filtering_on_hint", "Blocklists and rules apply to the clients in this group.")
+      : t("groups.filtering_off_hint", "Pass-through: blocklists are not applied to the clients in this group (explicit deny rules still are)."),
+  });
+  input.addEventListener("change", async () => {
+    input.disabled = true;
+    try {
+      await api(`/api/client-groups/${index}/enabled`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: input.checked }) });
+      refreshAll();
+    } catch (err) {
+      input.checked = !input.checked;
+      input.disabled = false;
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    }
+  });
+  return el("div", { class: "group-state" }, [label, hint]);
+}
+
+function buildGroupMatchEditor(index, patterns) {
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: t("groups.match_title", "Clients in this group") }));
+  const error = el("div", { class: "group-error", style: "display:none;" });
+  const fail = (err) => {
+    error.textContent = err && err.message ? err.message : String(err);
+    error.style.display = "";
+  };
+
+  const tags = el("div", { class: "rule-tags" });
+  for (const pattern of patterns) {
+    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(pattern)]);
+    if (patterns.length > 1) {
+      const rm = el("button", { type: "button", text: "×", title: t("common.remove", "Remove") });
+      rm.onclick = async () => {
+        try {
+          await api(`/api/client-groups/${index}/match?pattern=${encodeURIComponent(pattern)}`, { method: "DELETE" });
+          refreshAll();
+        } catch (err) {
+          fail(err);
+        }
+      };
+      tag.appendChild(rm);
+    }
+    tags.appendChild(tag);
+  }
+  wrap.appendChild(tags);
+
+  const form = document.createElement("form");
+  form.className = "inline";
+  const input = el("input", {
+    type: "text",
+    placeholder: t("groups.match_add_ph", "IP, CIDR, mac:.. or host:.. - several separated by commas or spaces"),
+    style: "min-width:260px;flex:1;",
+  });
+  form.appendChild(input);
+  form.appendChild(el("button", { type: "submit", text: t("common.add", "Add") }));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const entries = input.value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (!entries.length) return;
+    error.style.display = "none";
+    try {
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${index}/match`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patterns: entries }) });
+      });
+      refreshAll();
+    } catch (err) {
+      fail(err);
+    }
+  });
+  wrap.appendChild(form);
+  wrap.appendChild(error);
+  if (patterns.length === 1) {
+    wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;", text: t("groups.match_last_hint", "A group needs at least one entry - delete the group to remove it entirely.") }));
+  }
+  return wrap;
+}
+
+function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDomains, catalog, updates = {}) {
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: t("groups.extra_blocklist_title", "Extra blocklist sources for this group (adds to the global blocklist)") }));
+  wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: t("groups.extra_domains_count", "{n} extra domain(s) blocked for this group beyond the global blocklist.").replace("{n}", totalDomains) }));
+
+  if (sources.length) {
+    const table = el("table", {});
+    const thead = el("thead", {}, [el("tr", {}, [
+      el("th", { text: t("col.name", "Name") }), el("th", { text: t("col.url", "URL") }), el("th", { text: t("col.domains", "Domains") }), el("th", { text: t("col.updated", "Last updated") }), el("th", { text: t("col.status", "Status") }), el("th", {}),
+    ])]);
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    sources.forEach((s, position) => {
+      const si = refOf(s, position);
+      const toggleBtn = el("button", { class: "secondary toggle-btn", text: s.enabled ? t("common.disable", "Disable") : t("common.enable", "Enable") });
+      toggleBtn.onclick = async () => {
+        try {
+          await withSpinner(toggleBtn, () => api(`/api/client-groups/${groupIndex}/blocklist-sources/${si}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+          refreshAll();
+        } catch (err) {
+          alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        }
+      };
+      const delBtn = ruleDeleteButton(t("common.remove", "Remove"), `/api/client-groups/${groupIndex}/blocklist-sources/${si}`);
+      const domainsCell = el("td", {}, [document.createTextNode((counts[s.name] ?? "-").toString())]);
+      if (formats[s.name]) {
+        domainsCell.appendChild(el("div", { class: "muted", style: "font-size:0.72rem;margin-top:0.1rem;", text: formats[s.name] }));
+      }
+      tbody.appendChild(el("tr", {}, [
+        el("td", { text: s.name }),
+        el("td", { text: s.url, class: "url-cell" }),
+        domainsCell,
+        sourceUpdatedCell(updates[s.name]),
+        el("td", {}, [el("span", { class: "tag " + (s.enabled ? "allowed" : "blocked"), text: s.enabled ? t("tag.enabled", "enabled") : t("tag.disabled", "disabled") })]),
+        el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
+      ]));
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+
+  const addForm = document.createElement("form");
+  addForm.className = "inline";
+  addForm.style.marginTop = "0.4rem";
+  const nameInput = el("input", { type: "text", placeholder: "list name", style: "width:9rem;" });
+  const urlInput = el("input", { type: "text", placeholder: "https://...", style: "flex:1;min-width:12rem;" });
+  addForm.appendChild(nameInput);
+  addForm.appendChild(urlInput);
+  addForm.appendChild(el("button", { type: "submit", text: t("ownlists.add_list", "Add list") }));
+  addForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    const url = urlInput.value.trim();
+    if (!name || !url) return;
+    await withSpinner(e.submitter, async () => {
+      await api(`/api/client-groups/${groupIndex}/blocklist-sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, url }),
+      });
+    });
+    refreshAll();
+    showToast(t("toast.list_added", "List added") + `: ${name}`);
+  });
+  wrap.appendChild(addForm);
+
+  const usedUrls = new Set(sources.map((s) => s.url));
+  const suggestions = (catalog || []).filter((c) => !usedUrls.has(c.url));
+  if (suggestions.length) {
+    const suggestForm = document.createElement("form");
+    suggestForm.className = "inline";
+    suggestForm.style.marginTop = "0.3rem";
+    const select = document.createElement("select");
+    select.style.flex = "1";
+    select.style.minWidth = "14rem";
+    for (const entry of suggestions) {
+      const opt = document.createElement("option");
+      opt.value = entry.url;
+      opt.textContent = `[${entry.category}] ${entry.name}`;
+      opt.title = entry.description;
+      select.appendChild(opt);
+    }
+    suggestForm.appendChild(select);
+    suggestForm.appendChild(el("button", { type: "submit", class: "secondary", text: t("groups.add_suggested", "Add suggested") }));
+    suggestForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const entry = suggestions.find((c) => c.url === select.value);
+      if (!entry) return;
+      await withSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${groupIndex}/blocklist-sources`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: entry.name, url: entry.url }),
+        });
+      });
+      refreshAll();
+      showToast(t("toast.list_added", "List added") + `: ${entry.name}`);
+    });
+    wrap.appendChild(suggestForm);
+  }
+
+  return wrap;
+}
+
+async function loadClientGroups() {
+  const groups = await api("/api/client-groups");
+  const status = await api("/api/status");
+  const catalog = await api("/api/blocklists/catalog");
+  const container = document.getElementById("group-list");
+  container.innerHTML = "";
+
+  groups.forEach((g, position) => {
+    const i = refOf(g, position);
+    const delBtn = ruleDeleteButton(t("groups.delete_group", "Delete group"), `/api/client-groups/${i}`);
+
+    const header = buildGroupHeader(i, g, delBtn);
+    const filterSwitch = buildGroupFilterSwitch(i, g);
+    const matchEditor = buildGroupMatchEditor(i, g.match || []);
+
+    const allowEditor = buildRuleEditor(
+      t("editor.group_allow", "Allow (never blocked for this group)"),
+      g.allowlist || [],
+      async (d) => { await api(`/api/client-groups/${i}/allow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+      async (d) => { await api(`/api/client-groups/${i}/allow/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+    );
+    const denyEditor = buildRuleEditor(
+      t("editor.group_deny", "Deny (always blocked for this group)"),
+      g.denylist || [],
+      async (d) => { await api(`/api/client-groups/${i}/deny`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+      async (d) => { await api(`/api/client-groups/${i}/deny/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+    );
+
+    const upstreamsForm = document.createElement("form");
+    upstreamsForm.className = "rule-editor";
+    upstreamsForm.appendChild(el("div", { class: "title", text: t("groups.upstreams_override", "Upstreams override (blank = use global upstreams)") }));
+    const upstreamsInput = el("input", { type: "text", placeholder: "e.g. 9.9.9.9:53, dot://1.1.1.1", value: (g.upstreams || []).join(", "), style: "width:100%; margin-bottom:0.4rem;" });
+    upstreamsForm.appendChild(upstreamsInput);
+    upstreamsForm.appendChild(el("button", { type: "submit", text: t("groups.save_upstreams", "Save upstreams") }));
+    upstreamsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const upstreams = upstreamsInput.value.split(",").map((s) => s.trim()).filter(Boolean);
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${i}/upstreams`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upstreams }) });
+      });
+      refreshAll();
+    });
+
+    const groupBlocklistEditor = buildGroupBlocklistEditor(
+      i,
+      g.blocklist_sources || [],
+      (status.group_blocklist_sources || {})[g.name] || {},
+      (status.group_blocklist_source_formats || {})[g.name] || {},
+      (status.group_blocklist_domains || {})[g.name] || 0,
+      catalog,
+      status.source_updates || {}
+    );
+
+    const safeSearchForm = document.createElement("form");
+    safeSearchForm.className = "rule-editor";
+    safeSearchForm.appendChild(el("div", { class: "title", text: t("groups.safesearch_override", "SafeSearch override") }));
+    safeSearchForm.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: "Forces SafeSearch/Restricted Mode on Google, Bing, DuckDuckGo, YouTube, and Yandex for this group's clients." }));
+    const safeSearchSelect = document.createElement("select");
+    const ssOptions = [
+      ["", t("groups.ss_inherit", "Inherit global setting")],
+      ["on", t("groups.ss_always_on", "Always on for this group")],
+      ["off", t("groups.ss_always_off", "Always off for this group")],
+    ];
+    for (const [value, label] of ssOptions) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      if ((g.safe_search === true && value === "on") || (g.safe_search === false && value === "off") || (g.safe_search == null && value === "")) {
+        opt.selected = true;
+      }
+      safeSearchSelect.appendChild(opt);
+    }
+    safeSearchForm.appendChild(safeSearchSelect);
+    safeSearchForm.appendChild(el("button", { type: "submit", text: t("common.save", "Save") }));
+    safeSearchForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const value = safeSearchSelect.value === "" ? null : safeSearchSelect.value === "on";
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${i}/safe-search`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ safe_search: value }) });
+      });
+      refreshAll();
+    });
+
+    const existingWindow = (g.schedule && g.schedule.windows && g.schedule.windows[0]) || null;
+    const scheduleForm = document.createElement("form");
+    scheduleForm.className = "rule-editor";
+    scheduleForm.appendChild(el("div", { class: "title", text: t("groups.bedtime_schedule", "Bedtime schedule") }));
+    scheduleForm.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: "Blocks every query from this group's clients during the window below - stronger than deny/allow lists, same as Blocked clients but time-limited. Disable the checkbox to turn it off without losing the saved window. Uses the container's local time (set TZ in docker-compose.yml if it isn't already your timezone)." }));
+    const scheduleEnabled = el("label", { style: "display:flex;align-items:center;gap:0.35rem;font-size:0.85rem;margin-bottom:0.4rem;" }, [
+      Object.assign(document.createElement("input"), { type: "checkbox", id: `sched-enabled-${i}`, checked: !!(g.schedule && g.schedule.enabled) }),
+      document.createTextNode(t("common.enable", "Enable")),
+    ]);
+    scheduleForm.appendChild(scheduleEnabled);
+    const dayLabels = [
+      t("day.mon", "Mon"), t("day.tue", "Tue"), t("day.wed", "Wed"), t("day.thu", "Thu"),
+      t("day.fri", "Fri"), t("day.sat", "Sat"), t("day.sun", "Sun"),
+    ];
+    const dayBoxes = [];
+    const daysRow = el("div", { class: "inline", style: "flex-wrap:wrap;margin-bottom:0.4rem;" });
+    const selectedDays = new Set(existingWindow ? existingWindow.days : [0, 1, 2, 3, 4, 5, 6]);
+    dayLabels.forEach((label, idx) => {
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = selectedDays.has(idx);
+      dayBoxes.push(box);
+      daysRow.appendChild(el("label", { style: "display:flex;align-items:center;gap:0.2rem;font-size:0.8rem;" }, [box, document.createTextNode(label)]));
+    });
+    scheduleForm.appendChild(daysRow);
+    const timeRow = el("div", { class: "inline" });
+    const startInput = Object.assign(document.createElement("input"), { type: "time", value: existingWindow ? existingWindow.start : "22:00" });
+    const endInput = Object.assign(document.createElement("input"), { type: "time", value: existingWindow ? existingWindow.end : "07:00" });
+    timeRow.appendChild(document.createTextNode(t("groups.from", "From")));
+    timeRow.appendChild(startInput);
+    timeRow.appendChild(document.createTextNode(t("groups.to", "to")));
+    timeRow.appendChild(endInput);
+    timeRow.appendChild(el("button", { type: "submit", text: t("common.save", "Save") }));
+    scheduleForm.appendChild(timeRow);
+    scheduleForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const enabled = document.getElementById(`sched-enabled-${i}`).checked;
+      const days = dayBoxes.map((b, idx) => (b.checked ? idx : null)).filter((d) => d !== null);
+      const windows = days.length && startInput.value && endInput.value ? [{ days, start: startInput.value, end: endInput.value }] : [];
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/client-groups/${i}/schedule`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled, timezone: "", windows }) });
+      });
+      refreshAll();
+    });
+
+    container.appendChild(el("div", { class: "group-card" }, [header, filterSwitch, matchEditor, allowEditor, denyEditor, upstreamsForm, safeSearchForm, scheduleForm, groupBlocklistEditor]));
+  });
+}
+
+function parseCommaList(value) {
+  return (value || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function parseStaticRoutes(text) {
+  return (text || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+    const m = line.match(/^([\d.]+)\/(\d+)\s+via\s+([\d.]+)$/i);
+    return m ? { network: m[1], prefix_len: parseInt(m[2], 10), gateway: m[3] } : null;
+  }).filter(Boolean);
+}
+
+function formatStaticRoutes(routes) {
+  return (routes || []).map((r) => `${r.network}/${r.prefix_len} via ${r.gateway}`).join("\n");
+}
+
+function parseCustomOptions(text) {
+  return (text || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+    const parts = line.split(":");
+    if (parts.length < 3) return null;
+    const [code, type, ...rest] = parts;
+    const raw = rest.join(":").trim();
+    return { code: parseInt(code, 10), type, value: type === "ip_list" ? parseCommaList(raw) : raw };
+  }).filter(Boolean);
+}
+
+function formatCustomOptions(options) {
+  return (options || []).map((o) => `${o.code}:${o.type}:${Array.isArray(o.value) ? o.value.join(",") : o.value}`).join("\n");
+}
+
+async function loadDhcpScopes() {
+  const scopes = await api("/api/dhcp/scopes");
+  renderDhcpScopes(scopes);
+}
+
+function renderDhcpScopes(scopes) {
+  const container = document.getElementById("dhcp-scope-list");
+  container.innerHTML = "";
+  scopes.forEach((scope, position) => {
+    const i = refOf(scope, position);
+    const card = el("div", { class: "group-card" });
+
+    const title = scope.vlan_id ? `${scope.name} (VLAN ${scope.vlan_id})` : scope.name;
+    const header = el("div", { class: "row" }, [
+      el("h3", { style: "margin:0;", text: title }),
+      el("span", { class: "tag " + (scope.enabled ? "allowed" : "blocked"), text: scope.enabled ? t("tag.enabled", "enabled") : t("tag.disabled", "disabled") }),
+    ]);
+    card.appendChild(header);
+
+    const toggleBtn = el("button", { class: "secondary", type: "button", text: scope.enabled ? t("dhcp.disable_scope", "Disable") : t("dhcp.enable_scope", "Enable") });
+    toggleBtn.onclick = async () => {
+      await withSpinner(toggleBtn, () => api(`/api/dhcp/scopes/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+      refreshAll();
+    };
+    const delBtn = el("button", { class: "danger", type: "button", text: t("common.delete", "Delete") });
+    delBtn.onclick = async () => {
+      if (!confirm(t("dhcp.confirm_delete_scope", "Delete this DHCP scope?"))) return;
+      await api(`/api/dhcp/scopes/${i}`, { method: "DELETE" });
+      refreshAll();
+    };
+    card.appendChild(el("div", { class: "inline" }, [toggleBtn, delBtn]));
+
+    const form = el("form", { class: "field-grid" });
+    const fields = {};
+    const addField = (key, label, value, type) => {
+      const wrap = el("div", { class: "field" });
+      wrap.appendChild(el("label", { text: label }));
+      const input = el("input", { type: type || "text", value: value ?? "" });
+      fields[key] = input;
+      wrap.appendChild(input);
+      form.appendChild(wrap);
+    };
+    addField("interface", t("dhcp.field.interface", "Interface"), scope.interface);
+    addField("vlan_id", t("dhcp.field.vlan_id", "VLAN ID"), scope.vlan_id ?? "", "number");
+    addField("server_ip", t("dhcp.field.server_ip", "This server's IP on this network"), scope.server_ip);
+    addField("network", t("dhcp.field.network", "Network (CIDR)"), scope.network);
+    addField("pool_start", t("dhcp.field.pool_start", "Pool start"), scope.pool_start);
+    addField("pool_end", t("dhcp.field.pool_end", "Pool end"), scope.pool_end);
+    addField("gateway", t("dhcp.field.gateway", "Gateway"), scope.gateway);
+    addField("dns_servers", t("dhcp.field.dns_servers", "DNS servers (comma separated, blank = this box)"), (scope.dns_servers || []).join(", "));
+    addField("domain_name", t("dhcp.field.domain_name", "Domain name"), scope.domain_name);
+    addField("lease_seconds", t("dhcp.field.lease_seconds", "Lease time (seconds)"), scope.lease_seconds, "number");
+    addField("ntp_servers", t("dhcp.field.ntp_servers", "NTP servers (comma separated)"), (scope.ntp_servers || []).join(", "));
+    addField("wins_servers", t("dhcp.field.wins_servers", "WINS servers (comma separated)"), (scope.wins_servers || []).join(", "));
+    addField("mtu", t("dhcp.field.mtu", "Interface MTU"), scope.mtu ?? "", "number");
+    addField("tftp_server", t("dhcp.field.tftp_server", "TFTP server (PXE)"), scope.tftp_server);
+    addField("bootfile_name", t("dhcp.field.bootfile_name", "Boot filename (PXE)"), scope.bootfile_name);
+    addField("excluded_ips", t("dhcp.field.excluded_ips", "Excluded IPs in pool (comma separated)"), (scope.excluded_ips || []).join(", "));
+
+    const routesWrap = el("div", { class: "field", style: "grid-column:1/-1;" });
+    routesWrap.appendChild(el("label", { text: t("dhcp.field.static_routes", "Static routes, one per line: network/prefix via gateway") }));
+    const routesInput = document.createElement("textarea");
+    routesInput.rows = 2;
+    routesInput.style.fontFamily = "monospace";
+    routesInput.style.fontSize = "0.8rem";
+    routesInput.value = formatStaticRoutes(scope.static_routes);
+    routesWrap.appendChild(routesInput);
+    form.appendChild(routesWrap);
+
+    const optionsWrap = el("div", { class: "field", style: "grid-column:1/-1;" });
+    optionsWrap.appendChild(el("label", { text: t("dhcp.field.custom_options", "Custom DHCP options, one per line: code:type:value (type: ip, ip_list, string, uint32, hex)") }));
+    const optionsInput = document.createElement("textarea");
+    optionsInput.rows = 2;
+    optionsInput.style.fontFamily = "monospace";
+    optionsInput.style.fontSize = "0.8rem";
+    optionsInput.value = formatCustomOptions(scope.custom_options);
+    optionsWrap.appendChild(optionsInput);
+    form.appendChild(optionsWrap);
+
+    form.appendChild(el("button", { type: "submit", text: t("dhcp.save_scope", "Save scope") }));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = {
+        interface: fields.interface.value.trim(),
+        vlan_id: fields.vlan_id.value ? parseInt(fields.vlan_id.value, 10) : null,
+        server_ip: fields.server_ip.value.trim(),
+        network: fields.network.value.trim(),
+        pool_start: fields.pool_start.value.trim(),
+        pool_end: fields.pool_end.value.trim(),
+        gateway: fields.gateway.value.trim(),
+        dns_servers: parseCommaList(fields.dns_servers.value),
+        domain_name: fields.domain_name.value.trim(),
+        lease_seconds: parseFloat(fields.lease_seconds.value) || 86400,
+        ntp_servers: parseCommaList(fields.ntp_servers.value),
+        wins_servers: parseCommaList(fields.wins_servers.value),
+        mtu: fields.mtu.value ? parseInt(fields.mtu.value, 10) : null,
+        tftp_server: fields.tftp_server.value.trim(),
+        bootfile_name: fields.bootfile_name.value.trim(),
+        excluded_ips: parseCommaList(fields.excluded_ips.value),
+        static_routes: parseStaticRoutes(routesInput.value),
+        custom_options: parseCustomOptions(optionsInput.value),
+      };
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/dhcp/scopes/${i}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      });
+      refreshAll();
+      showToast(t("toast.saved", "Saved"));
+    });
+    card.appendChild(form);
+
+    const resWrap = el("div", { class: "rule-editor" });
+    resWrap.appendChild(el("div", { class: "title", text: t("dhcp.reservations_title", "Static reservations") }));
+    const resTable = el("table");
+    resTable.appendChild(el("thead", {}, [el("tr", {}, [
+      el("th", { text: t("dhcp.col.mac", "MAC") }), el("th", { text: t("dhcp.col.ip", "IP") }),
+      el("th", { text: t("dhcp.col.hostname", "Hostname") }), el("th", {}),
+    ])]));
+    const resBody = document.createElement("tbody");
+    (scope.reservations || []).forEach((r) => {
+      const rmBtn = el("button", { class: "danger", type: "button", text: t("common.remove", "Remove") });
+      rmBtn.onclick = async () => {
+        await api(`/api/dhcp/scopes/${i}/reservations/${encodeURIComponent(r.mac)}`, { method: "DELETE" });
+        refreshAll();
+      };
+      resBody.appendChild(el("tr", {}, [
+        el("td", { text: r.mac }), el("td", { text: r.ip }), el("td", { text: r.hostname || "" }),
+        el("td", {}, [rmBtn]),
+      ]));
+    });
+    resTable.appendChild(resBody);
+    resWrap.appendChild(resTable);
+
+    const resForm = el("form", { class: "inline" });
+    const macInput = el("input", { type: "text", placeholder: "AA:BB:CC:DD:EE:FF" });
+    const ipInput = el("input", { type: "text", placeholder: "192.168.1.50" });
+    const hostInput = el("input", { type: "text", placeholder: t("dhcp.hostname_ph", "hostname (optional)") });
+    resForm.appendChild(macInput);
+    resForm.appendChild(ipInput);
+    resForm.appendChild(hostInput);
+    resForm.appendChild(el("button", { type: "submit", text: t("common.add", "Add") }));
+    resForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const mac = macInput.value.trim();
+      const ip = ipInput.value.trim();
+      if (!mac || !ip) return;
+      try {
+        await api(`/api/dhcp/scopes/${i}/reservations`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac, ip, hostname: hostInput.value.trim() || null }),
+        });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+    });
+    resWrap.appendChild(resForm);
+    card.appendChild(resWrap);
+
+    container.appendChild(card);
+  });
+}
+
+document.getElementById("add-dhcp-scope-btn").addEventListener("click", async () => {
+  const name = document.getElementById("dhcp-new-name").value.trim();
+  const interfaceName = document.getElementById("dhcp-new-interface").value.trim();
+  const vlan = document.getElementById("dhcp-new-vlan").value;
+  const serverIp = document.getElementById("dhcp-new-server-ip").value.trim();
+  const network = document.getElementById("dhcp-new-network").value.trim();
+  const poolStart = document.getElementById("dhcp-new-pool-start").value.trim();
+  const poolEnd = document.getElementById("dhcp-new-pool-end").value.trim();
+  const gateway = document.getElementById("dhcp-new-gateway").value.trim();
+  if (!name || !interfaceName || !serverIp || !network || !poolStart || !poolEnd) {
+    alert(t("dhcp.fill_required", "Fill in name, interface, server IP, network, and pool range."));
+    return;
+  }
+  try {
+    await api("/api/dhcp/scopes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name, interface: interfaceName, vlan_id: vlan ? parseInt(vlan, 10) : null,
+        server_ip: serverIp, network, pool_start: poolStart, pool_end: poolEnd, gateway,
+      }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  document.getElementById("add-dhcp-scope-form").reset();
+  refreshAll();
+  showToast(t("toast.scope_added", "Scope added") + `: ${name}`);
+});
+
+document.getElementById("dhcp-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/dhcp", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: document.getElementById("s-dhcp-enabled").checked }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("rogue-dhcp-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/rogue-dhcp-detection", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: document.getElementById("s-rogue-dhcp-enabled").checked,
+        interfaces: parseCommaList(document.getElementById("s-rogue-dhcp-interfaces").value),
+        allowed_server_ips: parseCommaList(document.getElementById("s-rogue-dhcp-allowed").value),
+        check_interval_minutes: parseFloat(document.getElementById("s-rogue-dhcp-interval").value) || 15,
+        cooldown_minutes: parseFloat(document.getElementById("s-rogue-dhcp-cooldown").value) || 60,
+      }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("newclient-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/new-client-detection", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dns_enabled: document.getElementById("s-newclient-dns-enabled").checked,
+        dns_learning_days: parseFloat(document.getElementById("s-newclient-dns-days").value) || 7,
+        dhcp_enabled: document.getElementById("s-newclient-dhcp-enabled").checked,
+        dhcp_learning_days: parseFloat(document.getElementById("s-newclient-dhcp-days").value) || 7,
+      }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("newclient-reset-dns").addEventListener("click", async (e) => {
+  if (!confirm(t("dhcp.confirm_reset_dns", "Forget every known DNS client and restart the learning period?"))) return;
+  await withSpinner(e.currentTarget, () => api("/api/new-client-detection/reset-dns", { method: "POST" }), t("common.saving", "Saving..."));
+  showToast(t("toast.reset_done", "Learning reset"));
+});
+
+document.getElementById("newclient-reset-dhcp").addEventListener("click", async (e) => {
+  if (!confirm(t("dhcp.confirm_reset_dhcp", "Forget every known DHCP client and restart the learning period?"))) return;
+  await withSpinner(e.currentTarget, () => api("/api/new-client-detection/reset-dhcp", { method: "POST" }), t("common.saving", "Saving..."));
+  showToast(t("toast.reset_done", "Learning reset"));
+});
+
+async function loadDhcpLeases() {
+  const leases = await api("/api/dhcp/leases");
+  const rows = document.getElementById("dhcp-lease-rows");
+  rows.innerHTML = "";
+  for (const lease of leases) {
+    const releaseBtn = el("button", { class: "danger", type: "button", text: t("dhcp.release", "Release") });
+    releaseBtn.onclick = async () => {
+      await api(`/api/dhcp/leases/${encodeURIComponent(lease.mac)}`, { method: "DELETE" });
+      loadDhcpLeases();
+    };
+    const reserveBtn = el("button", { class: "secondary", type: "button", text: t("dhcp.reserve", "Reserve") });
+    reserveBtn.title = t("dhcp.reserve_title", "Turn this dynamic lease into a permanent static reservation");
+    reserveBtn.onclick = async () => {
+      try {
+        await api(`/api/dhcp/leases/${encodeURIComponent(lease.mac)}/reserve`, { method: "POST" });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+      showToast(t("toast.reserved", "Reserved"));
+    };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: lease.mac }),
+      el("td", { text: lease.ip }),
+      el("td", { text: lease.hostname || "" }),
+      el("td", { text: lease.scope }),
+      el("td", { text: new Date(lease.expires_at * 1000).toLocaleString() }),
+      el("td", {}, [el("div", { class: "row-actions" }, [reserveBtn, releaseBtn])]),
+    ]));
+  }
+}
+
+function splitHostnames(value) {
+  return (value || "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+}
+
+async function loadProxyDomains() {
+  let domains;
+  try {
+    domains = await api("/api/proxy/domains");
+  } catch (err) {
+    return;
+  }
+  renderProxyDomains(domains);
+}
+
+function renderProxyRuleRow(rule) {
+  const row = el("div", { class: "inline" });
+  const typeLabel = rule.type === "redirect" ? t("proxy.rule.redirect", "Redirect") : t("proxy.rule.proxy", "Proxy");
+  row.appendChild(el("span", { class: "tag allowed", text: typeLabel }));
+  row.appendChild(el("span", { text: rule.path }));
+  row.appendChild(el("span", { class: "muted", text: rule.type === "redirect" ? `-> ${rule.target} (${rule.code})` : `-> ${rule.upstream}${rule.websocket ? " (WS)" : ""}` }));
+  return row;
+}
+
+function renderProxyDomains(domains) {
+  const container = document.getElementById("proxy-domain-list");
+  container.innerHTML = "";
+  domains.forEach((domain) => {
+    const card = el("div", { class: "group-card" });
+
+    const header = el("div", { class: "row" }, [
+      el("h3", { style: "margin:0;", text: domain.hostnames.join(", ") }),
+      el("span", { class: "tag " + (domain.enabled ? "allowed" : "blocked"), text: domain.enabled ? t("tag.enabled", "enabled") : t("tag.disabled", "disabled") }),
+    ]);
+    card.appendChild(header);
+
+    const rulesWrap = el("div", {});
+    (domain.rules || []).forEach((r) => rulesWrap.appendChild(renderProxyRuleRow(r)));
+    card.appendChild(rulesWrap);
+
+    const toggleBtn = el("button", { class: "secondary", type: "button", text: domain.enabled ? t("dhcp.disable_scope", "Disable") : t("dhcp.enable_scope", "Enable") });
+    toggleBtn.onclick = async () => {
+      await withSpinner(toggleBtn, () => api(`/api/proxy/domains/${domain.id}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+      refreshAll();
+    };
+    const delBtn = el("button", { class: "danger", type: "button", text: t("common.delete", "Delete") });
+    delBtn.onclick = async () => {
+      if (!confirm(t("proxy.confirm_delete", "Delete this reverse-proxy domain?"))) return;
+      await api(`/api/proxy/domains/${domain.id}`, { method: "DELETE" });
+      refreshAll();
+    };
+    const healthBtn = el("button", { class: "secondary", type: "button", text: t("proxy.check_health", "Check health") });
+    const healthResult = el("span", { class: "muted" });
+    healthBtn.onclick = async () => {
+      healthResult.textContent = "...";
+      try {
+        const health = await api(`/api/proxy/domains/${domain.id}/health`);
+        const domainDot = health.domain_reachable ? "🟢" : "🔴";
+        const targetDot = health.target_checked ? (health.target_reachable ? "🟢" : "🔴") : "⚪";
+        healthResult.textContent = `${domainDot} ${t("proxy.health_domain", "domain")} / ${targetDot} ${t("proxy.health_target", "target")}`;
+      } catch (err) {
+        healthResult.textContent = t("common.action_failed", "Action failed");
+      }
+    };
+    card.appendChild(el("div", { class: "inline" }, [toggleBtn, delBtn, healthBtn, healthResult]));
+
+    const sslForm = el("form", { class: "field-grid" });
+    const sslEnabled = el("input", { type: "checkbox" });
+    sslEnabled.checked = !!domain.ssl?.enabled;
+    const forceHttps = el("input", { type: "checkbox" });
+    forceHttps.checked = !!domain.force_https;
+    const certPathInput = el("input", { type: "text", value: domain.ssl?.cert_path || "", placeholder: "/etc/letsencrypt/live/.../fullchain.pem" });
+    const keyPathInput = el("input", { type: "text", value: domain.ssl?.key_path || "", placeholder: "/etc/letsencrypt/live/.../privkey.pem" });
+    sslForm.appendChild(el("div", { class: "field checkbox" }, [sslEnabled, el("label", { text: t("proxy.field.ssl_enabled", "Enable HTTPS") })]));
+    sslForm.appendChild(el("div", { class: "field checkbox" }, [forceHttps, el("label", { text: t("proxy.field.force_https", "Redirect HTTP -> HTTPS") })]));
+    sslForm.appendChild(el("div", { class: "field" }, [el("label", { text: t("proxy.field.cert_path", "Certificate path") }), certPathInput]));
+    sslForm.appendChild(el("div", { class: "field" }, [el("label", { text: t("proxy.field.key_path", "Key path") }), keyPathInput]));
+    sslForm.appendChild(el("button", { type: "submit", text: t("proxy.save_ssl", "Save HTTPS settings") }));
+    sslForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await withDelayedSpinner(e.submitter, async () => {
+        await api(`/api/proxy/domains/${domain.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            hostnames: domain.hostnames, rules: domain.rules, enabled: domain.enabled,
+            force_https: forceHttps.checked,
+            ssl: { enabled: sslEnabled.checked, cert_path: certPathInput.value.trim(), key_path: keyPathInput.value.trim() },
+          }),
+        });
+      });
+      refreshAll();
+      showToast(t("toast.saved", "Saved"));
+    });
+    card.appendChild(sslForm);
+
+    const certbotForm = el("form", { class: "inline" });
+    const emailInput = el("input", { type: "email", placeholder: t("proxy.email_ph", "you@example.com") });
+    certbotForm.appendChild(emailInput);
+    certbotForm.appendChild(el("button", { type: "submit", class: "secondary", text: t("proxy.get_certificate", "Get Let's Encrypt certificate") }));
+    certbotForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!emailInput.value.trim()) return;
+      try {
+        await withDelayedSpinner(e.submitter, async () => {
+          await api(`/api/proxy/domains/${domain.id}/certbot`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: emailInput.value.trim() }),
+          });
+        });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+      showToast(t("toast.saved", "Saved"));
+    });
+    card.appendChild(certbotForm);
+
+    const resWrap = el("div", { class: "rule-editor" });
+    resWrap.appendChild(el("div", { class: "title", text: t("proxy.add_rule_title", "Add another rule") }));
+    const ruleForm = el("form", { class: "inline" });
+    const ruleType = document.createElement("select");
+    [["proxy", t("proxy.rule.proxy", "Proxy")], ["redirect", t("proxy.rule.redirect", "Redirect")]].forEach(([v, label]) => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = label;
+      ruleType.appendChild(opt);
+    });
+    const rulePath = el("input", { type: "text", placeholder: "/api", value: "/" });
+    const ruleTarget = el("input", { type: "text", placeholder: "http://127.0.0.1:8080" });
+    const ruleWebsocket = el("input", { type: "checkbox" });
+    const ruleWebsocketLabel = el("label");
+    ruleWebsocketLabel.appendChild(ruleWebsocket);
+    ruleWebsocketLabel.appendChild(document.createTextNode(" " + t("proxy.rule.websocket", "WebSocket support (proxy rules only)")));
+    ruleForm.appendChild(ruleType);
+    ruleForm.appendChild(rulePath);
+    ruleForm.appendChild(ruleTarget);
+    ruleForm.appendChild(ruleWebsocketLabel);
+    ruleForm.appendChild(el("button", { type: "submit", text: t("common.add", "Add") }));
+    ruleForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newRule = ruleType.value === "redirect"
+        ? { type: "redirect", path: rulePath.value.trim() || "/", target: ruleTarget.value.trim(), code: 301 }
+        : { type: "proxy", path: rulePath.value.trim() || "/", upstream: ruleTarget.value.trim(), websocket: ruleWebsocket.checked };
+      const rules = [...(domain.rules || []), newRule];
+      try {
+        await api(`/api/proxy/domains/${domain.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hostnames: domain.hostnames, rules, enabled: domain.enabled, force_https: domain.force_https, ssl: domain.ssl }),
+        });
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+        return;
+      }
+      refreshAll();
+    });
+    resWrap.appendChild(ruleForm);
+    card.appendChild(resWrap);
+
+    container.appendChild(card);
+  });
+}
+
+document.getElementById("add-proxy-domain-btn").addEventListener("click", async () => {
+  const hostnames = splitHostnames(document.getElementById("proxy-new-hostnames").value);
+  const ruleType = document.getElementById("proxy-new-rule-type").value;
+  const path = document.getElementById("proxy-new-path").value.trim() || "/";
+  const target = document.getElementById("proxy-new-target").value.trim();
+  const websocket = document.getElementById("proxy-new-websocket").checked;
+  if (!hostnames.length || !target) {
+    alert(t("proxy.fill_required", "Provide at least one hostname and a target."));
+    return;
+  }
+  const rule = ruleType === "redirect"
+    ? { type: "redirect", path, target, code: 301 }
+    : { type: "proxy", path, upstream: target, websocket };
+  try {
+    await api("/api/proxy/domains", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hostnames, rules: [rule] }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  document.getElementById("add-proxy-domain-form").reset();
+  refreshAll();
+  showToast(t("toast.domain_added", "Domain added"));
+});
+
+document.getElementById("proxy-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/proxy", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: document.getElementById("s-proxy-enabled").checked }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("proxy-reload-btn").addEventListener("click", async (e) => {
+  try {
+    await withSpinner(e.currentTarget, () => api("/api/proxy/reload", { method: "POST" }), t("common.saving", "Saving..."));
+    showToast(t("toast.saved", "Saved"));
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+  }
+  loadProxyStatus();
+});
+
+async function loadProxyStatus() {
+  const statusEl = document.getElementById("proxy-nginx-status");
+  try {
+    const status = await api("/api/proxy/status");
+    statusEl.textContent = status.nginx.ok ? t("proxy.nginx_ok", "nginx OK") : t("proxy.nginx_error", "nginx error");
+    statusEl.className = "tag " + (status.nginx.ok ? "allowed" : "blocked");
+  } catch (err) {
+    statusEl.textContent = "";
+  }
+}
+
+async function loadSettings() {
+  const s = await api("/api/settings");
+
+  document.getElementById("s-dns-listen-address").value = s.dns.listen_address ?? "";
+  document.getElementById("s-dns-listen-port").value = s.dns.listen_port ?? "";
+  document.getElementById("s-dns-upstream-timeout").value = s.dns.upstream_timeout_seconds ?? "";
+  document.getElementById("s-dns-query-acl-enabled").checked = s.dns.query_acl_enabled !== false;
+  document.getElementById("s-dns-query-acl-extra").value = (s.dns.query_acl_extra_networks || []).join(", ");
+  document.getElementById("s-dns-block-mode").value = s.dns.block_mode ?? "nxdomain";
+  document.getElementById("s-dns-blocked-ipv4").value = s.dns.blocked_ipv4 ?? "";
+  document.getElementById("s-dns-blocked-ipv6").value = s.dns.blocked_ipv6 ?? "";
+  document.getElementById("s-dns-block-page-enabled").checked = !!s.dns.block_page_enabled;
+  document.getElementById("s-dns-block-page-port").value = s.dns.block_page_port ?? "";
+  document.getElementById("s-dns-block-ipv6").checked = !!s.dns.block_ipv6;
+  document.getElementById("s-dns-block-non-latin").checked = !!s.dns.block_non_latin;
+  document.getElementById("s-dns-safe-search-enabled").checked = !!s.dns.safe_search_enabled;
+  document.getElementById("s-dns-dnssec-enabled").checked = !!s.dns.dnssec_enabled;
+  document.getElementById("s-dns-dnssec-cache-seconds").value = s.dns.dnssec_cache_seconds ?? 3600;
+  document.getElementById("s-dns-typosquat-enabled").checked = !!s.dns.typosquat_enabled;
+  document.getElementById("s-dns-typosquat-max-distance").value = s.dns.typosquat_max_distance ?? 2;
+  document.getElementById("s-dns-typosquat-cooldown").value = s.dns.typosquat_cooldown_minutes ?? 30;
+  document.getElementById("s-dns-typosquat-action").value = s.dns.typosquat_action || "alert";
+  document.getElementById("s-dns-typosquat-redirect-ip").value = s.dns.typosquat_redirect_ip || "";
+  document.getElementById("s-dns-dot-enabled").checked = !!s.dns.dot_enabled;
+  document.getElementById("s-dns-dot-port").value = s.dns.dot_port ?? 853;
+  document.getElementById("s-dns-rebinding-enabled").checked = !!s.dns.rebinding_protection_enabled;
+  document.getElementById("s-dns-rebinding-action").value = s.dns.rebinding_action || "alert";
+  document.getElementById("s-dns-rebinding-exempt").value = (s.dns.rebinding_exempt_domains || []).join(", ");
+  document.getElementById("s-dns-local-tld-enabled").checked = !!s.dns.local_tld_alert_enabled;
+  document.getElementById("s-dns-local-tld-list").value = (s.dns.local_tld_list || ["local", "lan", "home", "internal"]).join(", ");
+  document.getElementById("s-dns-local-tld-cooldown").value = s.dns.local_tld_cooldown_minutes ?? 30;
+  document.getElementById("s-dns-regex-denylist-enabled").checked = !!s.dns.regex_denylist_enabled;
+  document.getElementById("s-dns-upstream-strategy").value = s.dns.upstream_strategy ?? "in_order";
+  document.getElementById("s-dns-upstream-stats-window").value = s.dns.upstream_stats_window_minutes ?? "";
+  document.getElementById("s-dns-case-randomization-enabled").checked = !!s.dns.query_case_randomization_enabled;
+  document.getElementById("s-dns-cache-enabled").checked = !!s.dns.cache_enabled;
+  document.getElementById("s-dns-cache-max-entries").value = s.dns.cache_max_entries ?? "";
+  document.getElementById("s-dns-cache-min-ttl").value = s.dns.cache_min_ttl_seconds ?? "";
+  document.getElementById("s-dns-cache-max-ttl").value = s.dns.cache_max_ttl_seconds ?? "";
+  document.getElementById("s-dns-cache-serve-stale-enabled").checked = !!s.dns.cache_serve_stale_enabled;
+  document.getElementById("s-dns-cache-stale-grace").value = s.dns.cache_stale_grace_seconds ?? 3600;
+  document.getElementById("s-dns-cache-prefetch-enabled").checked = !!s.dns.cache_prefetch_enabled;
+  document.getElementById("s-dns-cache-prefetch-before").value = s.dns.cache_prefetch_before_expiry_seconds ?? 10;
+  document.getElementById("s-dns-cache-prefetch-min-hits").value = s.dns.cache_prefetch_min_hits ?? 2;
+  document.getElementById("s-dns-resolve-names").checked = !!s.dns.resolve_client_names;
+  document.getElementById("s-dns-name-resolver").value = s.dns.client_name_resolver ?? "";
+  document.getElementById("s-dns-name-cache-seconds").value = s.dns.client_name_cache_seconds ?? "";
+
+  document.getElementById("s-upstreams").value = (s.upstreams || []).join("\n");
+  renderUpstreamRows(s.upstreams || []);
+
+  document.getElementById("s-web-listen-address").value = s.web.listen_address ?? "";
+  document.getElementById("s-web-listen-port").value = s.web.listen_port ?? "";
+  document.getElementById("s-web-theme").value = s.web.theme ?? "navy";
+  document.getElementById("s-web-https-enabled").checked = !!s.web.https_enabled;
+  document.getElementById("s-web-https-cert-path").value = s.web.https_cert_path ?? "";
+  document.getElementById("s-web-https-key-path").value = s.web.https_key_path ?? "";
+  document.getElementById("s-web-https-migrate-field").style.display = s.web.https_enabled ? "none" : "";
+  document.getElementById("s-web-login-max-attempts").value = s.web.login_max_attempts ?? 5;
+  document.getElementById("s-web-public-view-enabled").checked = !!s.web.public_view_enabled;
+  document.getElementById("s-web-public-url").value = s.web.public_url || "";
+  document.getElementById("s-web-login-lockout").value = s.web.login_lockout_minutes ?? 15;
+  document.documentElement.setAttribute("data-theme", s.web.theme ?? "navy");
+
+  document.getElementById("s-retention-days").value = s.logging.retention_days ?? "";
+  document.getElementById("s-refresh-interval").value = s.blocklists_refresh_interval_hours ?? "";
+
+  document.getElementById("s-vt-key").value = "";
+  document.getElementById("s-abuseipdb-key").value = "";
+  document.getElementById("s-otx-key").value = "";
+  document.getElementById("s-greynoise-key").value = "";
+  document.getElementById("s-shodan-key").value = "";
+  document.getElementById("s-urlhaus-key").value = "";
+  document.getElementById("s-enrich-ipinfo-key").value = "";
+  document.getElementById("s-enrich-ai-key").value = "";
+  document.getElementById("s-enrich-local-key").value = "";
+  const enr = s.enrichment || {};
+  const keyStatusText = (set, preview) => (set ? `(configured: ${preview}) ` : "(not set)");
+  document.getElementById("vt-key-status").textContent = keyStatusText(enr.virustotal_api_key_set, enr.virustotal_api_key_preview);
+  document.getElementById("abuseipdb-key-status").textContent = keyStatusText(enr.abuseipdb_api_key_set, enr.abuseipdb_api_key_preview);
+  document.getElementById("otx-key-status").textContent = keyStatusText(enr.otx_api_key_set, enr.otx_api_key_preview);
+  document.getElementById("greynoise-key-status").textContent = keyStatusText(enr.greynoise_api_key_set, enr.greynoise_api_key_preview);
+  document.getElementById("shodan-key-status").textContent = keyStatusText(enr.shodan_api_key_set, enr.shodan_api_key_preview);
+  document.getElementById("urlhaus-key-status").textContent = keyStatusText(enr.urlhaus_api_key_set, enr.urlhaus_api_key_preview);
+  document.getElementById("ipinfo-key-status").textContent = keyStatusText(enr.ipinfo_api_key_set, enr.ipinfo_api_key_preview);
+  document.getElementById("ai-key-status").textContent = keyStatusText(enr.ai_api_key_set, enr.ai_api_key_preview);
+  document.getElementById("local-key-status").textContent = keyStatusText(enr.local_api_key_set, enr.local_api_key_preview);
+  document.getElementById("s-enrich-public-enabled").checked = !!enr.public_enabled;
+  document.getElementById("s-enrich-rdap-enabled").checked = !!enr.rdap_enabled;
+  document.getElementById("s-enrich-crtsh-enabled").checked = !!enr.crtsh_enabled;
+  document.getElementById("s-enrich-ipinfo-enabled").checked = !!enr.ipinfo_enabled;
+  document.getElementById("s-enrich-ai-enabled").checked = !!enr.ai_enabled;
+  document.getElementById("s-enrich-local-enabled").checked = !!enr.local_enabled;
+  document.getElementById("s-enrich-local-url").value = enr.local_url ?? "";
+  document.getElementById("s-enrich-alert-enabled").checked = enr.alert_enabled !== false;
+  document.getElementById("s-enrich-alert-min-severity").value = enr.alert_min_severity ?? "medium";
+  document.getElementById("s-enrich-auto-enabled").checked = !!enr.auto_enrich_enabled;
+  document.getElementById("s-enrich-auto-interval").value = enr.auto_enrich_interval_seconds ?? 30;
+  document.getElementById("s-enrich-auto-max-per-check").value = enr.auto_enrich_max_per_check ?? 5;
+
+  const publicReady = !!enr.public_enabled && (
+    enr.virustotal_api_key_set || enr.abuseipdb_api_key_set || enr.otx_api_key_set ||
+    enr.greynoise_api_key_set || enr.shodan_api_key_set || enr.urlhaus_api_key_set ||
+    enr.rdap_enabled || enr.crtsh_enabled || enr.ipinfo_enabled ||
+    (enr.ai_enabled && enr.ai_api_key_set)
+  );
+  const localReady = !!enr.local_enabled && !!enr.local_url;
+  enrichmentAvailable = publicReady || localReady;
+  updateEnrichButtons();
+
+  const an = s.anomaly || {};
+  document.getElementById("s-anomaly-enabled").checked = !!an.enabled;
+  document.getElementById("s-anomaly-check-interval").value = an.check_interval_minutes ?? "";
+  document.getElementById("s-anomaly-window").value = an.window_minutes ?? "";
+  document.getElementById("s-anomaly-min-queries").value = an.min_queries ?? "";
+  document.getElementById("s-anomaly-blocked-ratio").value = an.blocked_ratio_threshold ?? "";
+  document.getElementById("s-anomaly-domain-burst").value = an.domain_burst_threshold ?? "";
+  document.getElementById("s-anomaly-blocked-domain-burst").value = an.blocked_domain_burst_threshold ?? "";
+  document.getElementById("s-anomaly-cooldown").value = an.cooldown_minutes ?? "";
+  document.getElementById("s-anomaly-entropy-min-length").value = an.domain_burst_min_label_length ?? "";
+  document.getElementById("s-anomaly-entropy-min-bits").value = an.domain_burst_min_entropy ?? "";
+  document.getElementById("s-anomaly-entropy-fraction").value = an.domain_burst_entropy_fraction ?? "";
+  document.getElementById("s-anomaly-tunnel-threshold").value = an.dns_tunneling_threshold ?? "";
+  document.getElementById("s-anomaly-ptr-scan-threshold").value = an.ptr_scan_threshold ?? "";
+  document.getElementById("s-anomaly-tunnel-min-length").value = an.dns_tunneling_min_label_length ?? "";
+  document.getElementById("s-anomaly-tunnel-min-bits").value = an.dns_tunneling_min_entropy ?? "";
+  document.getElementById("s-anomaly-subdomain-count-threshold").value = an.subdomain_count_threshold ?? "";
+
+  const ar = s.alert_rules || {};
+  document.getElementById("s-alert-check-interval").value = ar.check_interval_seconds ?? "";
+  document.getElementById("s-alert-cooldown").value = ar.cooldown_minutes ?? "";
+  document.getElementById("alert-rules-interval-note").textContent = ar.check_interval_seconds ?? "15";
+
+  const notifEmail = (s.notifications || {}).email || {};
+  document.getElementById("s-notif-email-enabled").checked = !!notifEmail.enabled;
+  document.getElementById("s-notif-smtp-host").value = notifEmail.smtp_host ?? "";
+  document.getElementById("s-notif-smtp-port").value = notifEmail.smtp_port ?? "";
+  document.getElementById("s-notif-smtp-security").value = notifEmail.smtp_security ?? "starttls";
+  document.getElementById("s-notif-smtp-username").value = notifEmail.smtp_username ?? "";
+  document.getElementById("s-notif-smtp-password").value = "";
+  document.getElementById("notif-smtp-password-status").textContent = notifEmail.smtp_password_set
+    ? `(configured: ${notifEmail.smtp_password_preview}) ` : "(not set)";
+  document.getElementById("s-notif-from-address").value = notifEmail.from_address ?? "";
+  document.getElementById("s-notif-to-addresses").value = (notifEmail.to_addresses || []).join(", ");
+  document.getElementById("s-notif-min-severity").value = notifEmail.min_severity ?? "medium";
+
+  const urlPing = s.url_ping || {};
+  document.getElementById("s-url-ping-enabled").checked = !!urlPing.enabled;
+  document.getElementById("s-url-ping-url").value = urlPing.url ?? "";
+  document.getElementById("s-url-ping-interval").value = urlPing.interval_minutes ?? "";
+
+  const sso = s.sso || {};
+  document.getElementById("s-sso-enabled").checked = !!sso.enabled;
+  document.getElementById("s-sso-issuer").value = sso.issuer ?? "";
+  document.getElementById("s-sso-client-id").value = sso.client_id ?? "";
+  document.getElementById("s-sso-client-secret").value = "";
+  document.getElementById("sso-client-secret-status").textContent = sso.client_secret_set
+    ? `(configured: ${sso.client_secret_preview}) ` : "(not set)";
+  document.getElementById("s-sso-scopes").value = sso.scopes ?? "openid email profile";
+  document.getElementById("s-sso-button-label").value = sso.button_label ?? "Single Sign-On";
+  document.getElementById("s-sso-username-claim").value = sso.username_claim ?? "preferred_username";
+  document.getElementById("s-sso-auto-provision").checked = sso.auto_provision !== false;
+  document.getElementById("s-sso-default-role").value = sso.default_role ?? "user";
+  document.getElementById("sso-redirect-uri-hint").textContent = `${location.origin}/api/sso/callback`;
+
+  document.getElementById("s-dhcp-enabled").checked = !!(s.dhcp || {}).enabled;
+  document.getElementById("s-proxy-enabled").checked = !!(s.proxy || {}).enabled;
+
+  const rogue = s.rogue_dhcp_detection || {};
+  document.getElementById("s-rogue-dhcp-enabled").checked = !!rogue.enabled;
+  document.getElementById("s-rogue-dhcp-interfaces").value = (rogue.interfaces || []).join(", ");
+  document.getElementById("s-rogue-dhcp-allowed").value = (rogue.allowed_server_ips || []).join(", ");
+  document.getElementById("s-rogue-dhcp-interval").value = rogue.check_interval_minutes ?? 15;
+  document.getElementById("s-rogue-dhcp-cooldown").value = rogue.cooldown_minutes ?? 60;
+
+  const newClient = s.new_client_detection || {};
+  document.getElementById("s-newclient-dns-enabled").checked = !!newClient.dns_enabled;
+  document.getElementById("s-newclient-dns-days").value = newClient.dns_learning_days ?? 7;
+  document.getElementById("s-newclient-dhcp-enabled").checked = !!newClient.dhcp_enabled;
+  document.getElementById("s-newclient-dhcp-days").value = newClient.dhcp_learning_days ?? 7;
+}
+
+async function loadLogIgnore() {
+  const ignore = await api("/api/log-ignore");
+
+  const domainsEditor = buildRuleEditor(
+    t("editor.ignored_domains", "Ignored domains (never logged)"),
+    ignore.domains || [],
+    async (d) => { await api("/api/log-ignore/domains", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+    async (d) => { await api(`/api/log-ignore/domains/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const domainsEl = document.getElementById("log-ignore-domains");
+  domainsEl.innerHTML = "";
+  domainsEl.appendChild(domainsEditor);
+
+  const clientsEditor = buildRuleEditor(
+    t("editor.ignored_clients", "Ignored clients (IP or CIDR, never logged)"),
+    ignore.clients || [],
+    async (v) => { await api("/api/log-ignore/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: v }) }); refreshAll(); },
+    async (v) => { await api(`/api/log-ignore/clients/${encodeURIComponent(v)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const clientsEl = document.getElementById("log-ignore-clients");
+  clientsEl.innerHTML = "";
+  clientsEl.appendChild(clientsEditor);
+}
+
+function renderUpstreamRows(upstreams) {
+  const rows = document.getElementById("upstream-rows");
+  rows.innerHTML = "";
+  upstreams.forEach((entry, i) => {
+    const disabled = entry.trim().startsWith("#");
+    const address = entry.trim().replace(/^#+\s*/, "");
+    const toggleBtn = el("button", { class: "secondary toggle-btn", text: disabled ? "Enable" : "Disable" });
+    toggleBtn.onclick = async () => {
+      try {
+        await withSpinner(toggleBtn, () => api(`/api/settings/upstreams/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+        refreshAll();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    const delBtn = ruleDeleteButton("Remove", `/api/settings/upstreams/${i}`);
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: address, class: "url-cell" }),
+      el("td", {}, [el("span", { class: "tag " + (disabled ? "blocked" : "allowed"), text: disabled ? "disabled" : "enabled" })]),
+      el("td", {}, [el("div", { class: "row-actions" }, [toggleBtn, delBtn])]),
+    ]));
+  });
+}
+
+async function loadUpstreamHealth() {
+  const status = await api("/api/status");
+  const health = status.upstream_stats || {};
+  const rows = document.getElementById("upstream-health-rows");
+  rows.innerHTML = "";
+  for (const [upstream, h] of Object.entries(health)) {
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: upstream }),
+      el("td", { text: h.avg_latency_ms != null ? h.avg_latency_ms + " ms" : "-" }),
+      el("td", { text: (h.success_rate * 100).toFixed(0) + "%" }),
+      el("td", { text: h.samples.toString() }),
+    ]));
+  }
+}
+
+async function loadDomainUpstreams() {
+  const rules = await api("/api/domain-upstreams");
+  const rows = document.getElementById("domain-upstream-rows");
+  rows.innerHTML = "";
+  rules.forEach((r, i) => {
+    const delBtn = ruleDeleteButton("Remove", `/api/domain-upstreams/${refOf(r, i)}`);
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: r.name || "-" }),
+      el("td", { text: (r.domains || []).join(", ") }),
+      el("td", { text: (r.upstreams || []).join(", ") }),
+      el("td", {}, [delBtn]),
+    ]));
+  });
+}
+
+async function loadRewrites() {
+  const rewrites = await api("/api/rewrites");
+  const rows = document.getElementById("rewrite-rows");
+  rows.innerHTML = "";
+  rewrites.forEach((r, i) => {
+    const delBtn = ruleDeleteButton("Remove", `/api/rewrites/${refOf(r, i)}`);
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: r.name }),
+      el("td", { text: r.type }),
+      el("td", { text: r.value }),
+      el("td", { text: r.ttl ?? 300 }),
+      el("td", {}, [delBtn]),
+    ]));
+  });
+}
+
+function webhookTargetFieldsVisibility() {
+  const type = document.getElementById("wh-type").value;
+  document.getElementById("wh-url").style.display = type === "telegram" ? "none" : "";
+  document.getElementById("wh-telegram-token").style.display = type === "telegram" ? "" : "none";
+  document.getElementById("wh-telegram-chat-id").style.display = type === "telegram" ? "" : "none";
+}
+document.getElementById("wh-type").addEventListener("change", webhookTargetFieldsVisibility);
+webhookTargetFieldsVisibility();
+
+async function loadWebhooks() {
+  const s = await api("/api/settings");
+  const webhooks = (s.notifications || {}).webhooks || [];
+  const rows = document.getElementById("webhook-rows");
+  rows.innerHTML = "";
+  webhooks.forEach((w, position) => {
+    const i = refOf(w, position);
+    const target = w.type === "telegram"
+      ? (w.telegram_bot_token_set ? `bot ${w.telegram_bot_token_preview} -> chat ${w.telegram_chat_id}` : "(not configured)")
+      : (w.url_set ? w.url_preview : "(not configured)");
+
+    const toggleBtn = el("button", { class: "secondary", text: w.enabled ? "Disable" : "Enable" });
+    toggleBtn.onclick = async () => {
+      try {
+        await withSpinner(toggleBtn, () => api(`/api/settings/notifications/webhooks/${i}/toggle`, { method: "POST" }), t("common.saving", "Saving..."));
+        loadWebhooks();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+
+    const testBtn = el("button", { class: "secondary", text: "Test" });
+    testBtn.onclick = async () => {
+      testBtn.disabled = true;
+      try {
+        await api(`/api/notifications/test-webhook/${i}`, { method: "POST" });
+        testBtn.textContent = "Sent!";
+      } catch (err) {
+        testBtn.textContent = "Failed";
+        console.error(err);
+      }
+      setTimeout(() => { testBtn.textContent = "Test"; testBtn.disabled = false; }, 2000);
+    };
+
+    const delBtn = ruleDeleteButton("Remove", `/api/settings/notifications/webhooks/${i}`, loadWebhooks);
+
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: w.name || "-" }),
+      el("td", { text: w.type }),
+      el("td", { text: target }),
+      el("td", { text: w.min_severity }),
+      el("td", { text: w.enabled ? "yes" : "no" }),
+      el("td", { class: "inline" }, [toggleBtn, testBtn, delBtn]),
+    ]));
+  });
+}
+
+document.getElementById("add-webhook-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const type = document.getElementById("wh-type").value;
+  const body = {
+    name: document.getElementById("wh-name").value.trim(),
+    type,
+    min_severity: document.getElementById("wh-min-severity").value,
+    enabled: true,
+  };
+  if (type === "telegram") {
+    const token = document.getElementById("wh-telegram-token").value.trim();
+    const chatId = document.getElementById("wh-telegram-chat-id").value.trim();
+    if (!token || !chatId) return;
+    body.telegram_bot_token = token;
+    body.telegram_chat_id = chatId;
+  } else {
+    const url = document.getElementById("wh-url").value.trim();
+    if (!url) return;
+    body.url = url;
+  }
+  await api("/api/settings/notifications/webhooks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  e.target.reset();
+  webhookTargetFieldsVisibility();
+  loadWebhooks();
+});
+
+let queryLogOffset = 0;
+const QUERY_LOG_PAGE_SIZE = 100;
+
+function setCookie(name, value, days) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${days * 24 * 60 * 60}; path=/; samesite=lax`;
+}
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+const QUERY_LOG_FILTER_COOKIE = "dnsshield_query_log_filters";
+const QUERY_LOG_NO_GROUP = "none";
+
+function saveQueryLogFilters() {
+  const state = {
+    domain: document.getElementById("ql-domain").value,
+    group: document.getElementById("ql-group").value,
+    client: document.getElementById("ql-client").value,
+    qtype: document.getElementById("ql-qtype").value,
+    status: document.getElementById("ql-status").value,
+    range: document.getElementById("ql-range").value,
+    showUnblocked: document.getElementById("ql-show-unblocked").checked,
+  };
+  setCookie(QUERY_LOG_FILTER_COOKIE, JSON.stringify(state), 365);
+}
+
+function restoreQueryLogFilters() {
+  const raw = getCookie(QUERY_LOG_FILTER_COOKIE);
+  if (!raw) return;
+  let state;
+  try {
+    state = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  document.getElementById("ql-domain").value = state.domain || "";
+  const groupSelect = document.getElementById("ql-group");
+  groupSelect.value = state.group || "";
+  if (groupSelect.value !== (state.group || "")) groupSelect.value = "";
+  document.getElementById("ql-client").value = state.client || "";
+  document.getElementById("ql-qtype").value = state.qtype || "";
+  document.getElementById("ql-status").value = state.status || "";
+  document.getElementById("ql-range").value = state.range || "";
+  document.getElementById("ql-show-unblocked").checked = !!state.showUnblocked;
+}
+
+function queryLogFilterParams() {
+  const params = new URLSearchParams();
+  const domain = document.getElementById("ql-domain").value.trim();
+  const client = document.getElementById("ql-client").value.trim();
+  const qtype = document.getElementById("ql-qtype").value;
+  const status = document.getElementById("ql-status").value;
+  const range = document.getElementById("ql-range").value;
+  if (domain) params.set("domain", domain);
+  for (const [key, value] of queryLogGroupParams()) params.set(key, value);
+  if (client) params.set("client", client);
+  if (qtype) params.set("qtype", qtype);
+  if (status) params.set("blocked", status);
+  if (range) params.set("since", (Date.now() / 1000 - parseInt(range, 10)).toString());
+  return params;
+}
+
+let queryLogClientGroups = {};
+
+function clientLogCell(client) {
+  const cell = addressCell(clientLabel(client), isIpAddress(client) ? [enrichButton(client, "ip"), clientBlockButton(client)] : [], client, "Client");
+  const group = queryLogClientGroups[client];
+  if (group) cell.appendChild(el("div", { class: "muted", style: "font-size:0.75rem;", text: group }));
+  return cell;
+}
+
+function renderQueryLogRow(q) {
+  const blockBtn = el("button", { class: "secondary", text: q.blocked ? "Unblock" : "Block" });
+  blockBtn.onclick = async () => {
+    try {
+      await withSpinner(blockBtn, async () => {
+        if (q.blocked) {
+          await api(`/api/rules/deny/${encodeURIComponent(q.domain)}`, { method: "DELETE" });
+          if (!isOnAllowlist(q.domain)) {
+            await api("/api/rules/allow", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ domain: q.domain }),
+            });
+          }
+          recentlyUnblockedDomains.add(q.domain.toLowerCase());
+        } else {
+          recentlyUnblockedDomains.delete(q.domain.toLowerCase());
+          await api("/api/rules/deny", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ domain: q.domain }),
+          });
+        }
+      }, t("common.saving", "Saving..."));
+      refreshAll();
+    } catch (err) {
+      alert("Failed to update block state: " + (err && err.message ? err.message : err));
+    }
+  };
+  const hideBtn = el("button", { class: "secondary", text: "Hide" });
+  hideBtn.title = "Stop logging this domain going forward";
+  hideBtn.onclick = async () => {
+    await withSpinner(hideBtn, () => api("/api/log-ignore/domains", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: q.domain }),
+    }), t("common.saving", "Saving..."));
+    document
+      .getElementById("query-log-rows")
+      .querySelectorAll(`tr[data-domain="${CSS.escape(q.domain)}"]`)
+      .forEach((tr) => tr.remove());
+  };
+  const resultCell = [el("span", { class: "tag " + (q.blocked ? "blocked" : "allowed"), text: q.blocked ? "blocked" : "allowed" })];
+  if (q.blocked && q.reason) {
+    resultCell.push(el("span", { class: "info-icon", title: q.reason, text: "i" }));
+  }
+  if (q.alert_rule) {
+    resultCell.push(el("span", {
+      class: "tag", text: "watched",
+      title: `Matched alert rule: ${q.alert_rule}`,
+      style: "margin-left:0.3rem;background:rgba(255,93,117,0.15);color:var(--danger);",
+    }));
+  }
+  return el("tr", { "data-domain": q.domain }, [
+    el("td", { text: fmtTime(q.ts), "data-label": "Time" }),
+    domainCell(q.domain, q.answer_ip),
+    el("td", { text: q.qtype, class: "col-qtype", "data-label": "Type" }),
+    clientLogCell(q.client),
+    el("td", { "data-label": "Result" }, resultCell),
+    el("td", { "data-label": "Actions" }, [blockBtn, hideBtn]),
+  ]);
+}
+
+function queryLogGroupParams() {
+  const group = document.getElementById("ql-group").value;
+  const params = new URLSearchParams();
+  if (group === QUERY_LOG_NO_GROUP) params.set("no_group", "true");
+  else if (group.startsWith("g:")) params.set("group", group.slice(2));
+  return params;
+}
+
+async function loadQueryLogClients() {
+  let result;
+  try {
+    result = await api(`/api/query-log/clients?${queryLogGroupParams().toString()}`);
+  } catch (err) {
+    document.getElementById("ql-group").value = "";
+    result = await api("/api/query-log/clients");
+  }
+  clientNames = { ...clientNames, ...(result.client_names || {}) };
+  const groupSelect = document.getElementById("ql-group");
+  const previousGroup = groupSelect.value;
+  groupSelect.innerHTML = "";
+  groupSelect.appendChild(el("option", { value: "", text: t("logs.all_groups", "All groups") }));
+  const groups = result.groups || [];
+  for (const name of groups) groupSelect.appendChild(el("option", { value: "g:" + name, text: name }));
+  groupSelect.appendChild(el("option", { value: QUERY_LOG_NO_GROUP, text: t("logs.no_group", "No group (default policy)") }));
+  groupSelect.value = previousGroup;
+  if (groupSelect.value !== previousGroup) groupSelect.value = "";
+  const select = document.getElementById("ql-client");
+  const previous = select.value;
+  select.innerHTML = "";
+  select.appendChild(el("option", { value: "", text: t("logs.all_clients", "All clients") }));
+  const clients = [...(result.clients || [])].sort((a, b) => clientLabel(a).localeCompare(clientLabel(b)));
+  for (const ip of clients) {
+    select.appendChild(el("option", { value: ip, text: clientLabel(ip) }));
+  }
+  if (!previous || clients.includes(previous)) {
+    select.value = previous;
+  }
+}
+
+async function loadQueryLog(reset) {
+  if (reset) queryLogOffset = 0;
+  const params = queryLogFilterParams();
+  params.set("limit", QUERY_LOG_PAGE_SIZE.toString());
+  params.set("offset", queryLogOffset.toString());
+
+  const result = await api(`/api/query-log?${params.toString()}`);
+  clientNames = { ...clientNames, ...(result.client_names || {}) };
+  if (reset) queryLogClientGroups = {};
+  queryLogClientGroups = { ...queryLogClientGroups, ...(result.client_groups || {}) };
+
+  const rows = document.getElementById("query-log-rows");
+  if (reset) rows.innerHTML = "";
+  const showUnblocked = document.getElementById("ql-show-unblocked").checked;
+  for (const q of result.rows) {
+    if (!showUnblocked && recentlyUnblockedDomains.has((q.domain || "").toLowerCase())) continue;
+    rows.appendChild(renderQueryLogRow(q));
+  }
+
+  const shown = queryLogOffset + result.rows.length;
+  document.getElementById("query-log-summary").textContent =
+    result.total === 0
+      ? t("logs.no_matching", "No matching queries")
+      : `${t("logs.showing", "Showing")} ${shown} ${t("logs.of", "of")} ${result.total.toLocaleString()} ${t("logs.matching_queries", "matching queries")}`;
+  document.getElementById("query-log-load-more").style.display = shown < result.total ? "" : "none";
+}
+
+function severityTag(severity) {
+  if (severity === "high") {
+    return el("span", { class: "tag blocked", text: "high" });
+  }
+  return el("span", {
+    class: "tag", text: severity,
+    style: "background:rgba(255,180,84,0.15);color:#ffb454;border:1px solid rgba(255,180,84,0.35)",
+  });
+}
+
+function isDomainExcluded(domain, excludedList) {
+  const d = (domain || "").toLowerCase().replace(/\.$/, "");
+  return (excludedList || []).some((e) => {
+    const x = (e || "").toLowerCase().replace(/\.$/, "");
+    return d === x || d.endsWith("." + x);
+  });
+}
+
+function openAnomalyDomainsWindow(a, domains, blockedOnly, enrichAvailable, excludedDomains) {
+  const w = window.open("", "_blank", "width=520,height=580");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the domain list.");
+    return;
+  }
+  const kindLabel = blockedOnly ? "blocked domains" : "domains";
+  const listHtml = domains.length
+    ? `<ul>${domains
+        .map((d) => {
+          const excluded = isDomainExcluded(d, excludedDomains);
+          const excludeBtnHtml = excluded
+            ? `<button type="button" class="exclude-domain-btn" data-domain="${escapeHtml(d)}" disabled>Excluded</button>`
+            : `<button type="button" class="exclude-domain-btn" data-domain="${escapeHtml(d)}" title="Never flag this domain as a watched-domain/typosquat/rebinding/local-TLD alert again">Exclude</button>`;
+          return `<li><code>${escapeHtml(d)}</code><span class="row-actions"><button type="button" class="enrich-domain-btn" data-domain="${escapeHtml(d)}">Enrich</button>${excludeBtnHtml}</span></li>`;
+        })
+        .join("")}</ul>`
+    : `<p class="muted">No domains found for this window - they may have aged out of the query log's retention.</p>`;
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(a.client)} - ${escapeHtml(kindLabel)}</title>
+<style>
+  body { margin:0; padding:clamp(1rem, 4vw, 1.5rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  h1 { font-size:1.05rem; margin:0 0 0.3rem; word-break:break-all; }
+  .muted { color:#8a9ab8; font-size:0.85rem; }
+  ul { list-style:none; margin:1rem 0 0; padding:0; max-height:70vh; overflow-y:auto; }
+  li { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; }
+  li code { word-break:break-all; min-width:0; flex:1 1 auto; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; }
+  .row-actions { display:flex; gap:0.4rem; flex-shrink:0; }
+  button { padding:0.35rem 0.8rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.8rem; white-space:nowrap; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  #copy-domains-btn { margin-top:1rem; }
+  .spinner { display:inline-block; width:0.85em; height:0.85em; margin-right:0.4em; border:2px solid rgba(255,255,255,0.35); border-top-color:currentColor; border-radius:50%; animation: spin 0.7s linear infinite; vertical-align:-0.15em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style></head>
+<body>
+  <h1>${escapeHtml(a.client)}</h1>
+  <p class="muted">${domains.length} ${escapeHtml(kindLabel)} - ${escapeHtml(a.summary)}</p>
+  ${listHtml}
+  ${domains.length ? '<button type="button" id="copy-domains-btn">Copy all</button>' : ""}
+</body></html>`);
+  w.document.close();
+  // The popup inherits this page's CSP (no inline scripts), so its
+  // behaviour is wired up from here, against its window and document.
+  (function (window, document) {
+    const btn = document.getElementById("copy-domains-btn");
+    if (btn) {
+      btn.onclick = () => {
+        window.navigator.clipboard.writeText(domains.join("\n")).then(() => {
+          btn.textContent = "Copied!";
+          window.setTimeout(() => { btn.textContent = "Copy all"; }, 1500);
+        });
+      };
+    }
+
+    document.querySelectorAll(".enrich-domain-btn").forEach((ebtn) => {
+      if (!enrichAvailable) {
+        ebtn.disabled = true;
+        ebtn.title = "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
+        return;
+      }
+      ebtn.onclick = async () => {
+        const domain = ebtn.dataset.domain;
+        ebtn.disabled = true;
+        const original = ebtn.innerHTML;
+        ebtn.innerHTML = '<span class="spinner"></span>Checking...';
+        try {
+          const result = await window.opener.api("/api/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: domain, type: "domain" }),
+          });
+          window.opener.openEnrichmentWindow(result);
+        } catch (err) {
+          window.alert("Enrichment failed: " + (err && err.message ? err.message : err));
+        } finally {
+          ebtn.disabled = false;
+          ebtn.innerHTML = original;
+        }
+      };
+    });
+
+    document.querySelectorAll(".exclude-domain-btn").forEach((xbtn) => {
+      xbtn.onclick = async () => {
+        const domain = xbtn.dataset.domain;
+        xbtn.disabled = true;
+        const original = xbtn.innerHTML;
+        xbtn.innerHTML = '<span class="spinner"></span>Excluding...';
+        try {
+          await window.opener.api("/api/anomaly-exclusions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ domain }),
+          });
+          xbtn.textContent = "Excluded";
+          if (window.opener.refreshAll) window.opener.refreshAll();
+        } catch (err) {
+          xbtn.disabled = false;
+          xbtn.innerHTML = original;
+          window.alert("Failed to exclude domain: " + (err && err.message ? err.message : err));
+        }
+      };
+    });
+  })(w, w.document);
+}
+
+function openSubdomainListWindow(baseDomain, subdomains) {
+  const w = window.open("", "_blank", "width=520,height=580");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the subdomain list.");
+    return;
+  }
+  const listHtml = subdomains.length
+    ? `<ul>${subdomains.map((d) => `<li><code>${escapeHtml(d)}</code></li>`).join("")}</ul>`
+    : `<p class="muted">No subdomains found for this window - they may have aged out of the query log's retention.</p>`;
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(baseDomain)} - subdomains</title>
+<style>
+  body { margin:0; padding:clamp(1rem, 4vw, 1.5rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  h1 { font-size:1.05rem; margin:0 0 0.3rem; word-break:break-all; }
+  .muted { color:#8a9ab8; font-size:0.85rem; }
+  ul { list-style:none; margin:1rem 0 0; padding:0; max-height:70vh; overflow-y:auto; }
+  li { padding:0.4rem 0.6rem; border-bottom:1px solid rgba(255,255,255,0.08); }
+  li code { word-break:break-all; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; }
+  button { padding:0.35rem 0.8rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.8rem; white-space:nowrap; margin-top:1rem; }
+</style></head>
+<body>
+  <h1>${escapeHtml(baseDomain)}</h1>
+  <p class="muted">${subdomains.length} distinct subdomains</p>
+  ${listHtml}
+  ${subdomains.length ? '<button type="button" id="copy-subdomains-btn">Copy all</button>' : ""}
+</body></html>`);
+  w.document.close();
+  // The popup inherits this page's CSP (no inline scripts), so its
+  // behaviour is wired up from here, against its window and document.
+  (function (window, document) {
+    const btn = document.getElementById("copy-subdomains-btn");
+    if (btn) {
+      btn.onclick = () => {
+        window.navigator.clipboard.writeText(subdomains.join("\n")).then(() => {
+          btn.textContent = "Copied!";
+          window.setTimeout(() => { btn.textContent = "Copy all"; }, 1500);
+        });
+      };
+    }
+  })(w, w.document);
+}
+
+function openFindDomainWindow() {
+  const w = window.open("", "_blank", "width=520,height=580");
+  if (!w) {
+    alert("Popup blocked - allow popups for this page to see the domain lookup.");
+    return;
+  }
+  const enrichAvailable = !!enrichmentAvailable;
+  w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Find domain</title>
+<style>
+  body { margin:0; padding:clamp(1rem, 4vw, 1.5rem); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#0b1220; color:#dbe4f5; }
+  h1 { font-size:1.05rem; margin:0 0 0.6rem; }
+  .muted { color:#8a9ab8; font-size:0.85rem; }
+  form { display:flex; gap:0.5rem; margin:1rem 0; flex-wrap:wrap; }
+  input[type=text] { flex:1; min-width:0; padding:0.45rem 0.6rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#131d33; color:#dbe4f5; font-size:16px; box-sizing:border-box; }
+  button { padding:0.45rem 0.9rem; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:#1a2740; color:#dbe4f5; cursor:pointer; font-size:0.85rem; white-space:nowrap; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  button.primary { background:#3b82f6; border-color:#3b82f6; color:#fff; }
+  #result { display:none; }
+  #result.open { display:block; }
+  .row { display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .row:last-of-type { border-bottom:none; }
+  .row .label { color:#8a9ab8; font-size:0.8rem; }
+  .row .value { text-align:right; font-size:0.85rem; min-width:0; overflow-wrap:break-word; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:0.85rem; word-break:break-all; }
+  .badge { display:inline-block; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.75rem; font-weight:600; }
+  .badge.yes { background:rgba(255,93,117,0.15); color:#ff5d75; }
+  .badge.no { background:rgba(45,212,191,0.15); color:#2dd4bf; }
+  .actions { display:flex; gap:0.5rem; margin-top:1rem; }
+  #error { color:#ff5d75; font-size:0.85rem; margin:0.5rem 0; display:none; }
+  .spinner { display:inline-block; width:0.85em; height:0.85em; margin-right:0.4em; border:2px solid rgba(255,255,255,0.35); border-top-color:currentColor; border-radius:50%; animation: spin 0.7s linear infinite; vertical-align:-0.15em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style></head>
+<body>
+  <h1>Find domain</h1>
+  <p class="muted">Check whether a domain is on your blocklists/allowlist, watched by an alert rule, or flagged as a typosquat - then optionally run a full threat-intel enrichment on it.</p>
+  <form id="lookup-form">
+    <input type="text" id="lookup-input" placeholder="example.com" autofocus>
+    <button type="submit" class="primary">Search</button>
+  </form>
+  <p id="error"></p>
+  <div id="result"></div>
+</body></html>`);
+  w.document.close();
+  // The popup inherits this page's CSP (no inline scripts), so its
+  // behaviour is wired up from here, against its window and document.
+  (function (window, document) {
+    const form = document.getElementById("lookup-form");
+    const input = document.getElementById("lookup-input");
+    const resultEl = document.getElementById("result");
+    const errorEl = document.getElementById("error");
+
+    function row(label, valueHtml) {
+      return '<div class="row"><span class="label">' + label + '</span><span class="value">' + valueHtml + '</span></div>';
+    }
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const domain = input.value.trim().toLowerCase().replace(/\.$/, "");
+      if (!domain) return;
+      errorEl.style.display = "none";
+      resultEl.classList.remove("open");
+      const submitBtn = form.querySelector("button[type=submit]");
+      const submitOriginal = submitBtn.innerHTML;
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span>Searching...';
+      try {
+        const r = await window.opener.api("/api/domain-lookup?domain=" + encodeURIComponent(domain));
+        let html = '<h2 style="font-size:0.95rem;margin:0.5rem 0;"><code>' + esc(r.domain) + "</code></h2>";
+        html += row("Blocked", r.blocked ? '<span class="badge yes">Yes</span>' : '<span class="badge no">No</span>');
+        if (r.block_reason) html += row("Reason", esc(r.block_reason));
+        html += row("On allowlist", r.on_allowlist
+          ? '<span class="badge no">Yes</span>'
+          : '<span class="badge" style="background:rgba(255,255,255,0.08);color:#8a9ab8;">No</span>');
+        if (r.alert_rule) html += row("Alert rule", 'Watched via "' + esc(r.alert_rule.domain) + '"' + (r.alert_rule.source ? " (" + esc(r.alert_rule.source) + ")" : ""));
+        if (r.typosquat) html += row("Typosquat", "Looks like " + esc(r.typosquat.kind) + ' of "' + esc(r.typosquat.protected) + '"');
+        if (r.local_tld) html += row("Local TLD", "." + esc(r.local_tld));
+        html += '<div class="actions"><button type="button" id="enrich-btn"' + (enrichAvailable ? "" : " disabled") + '>Enrich</button><button type="button" id="copy-btn">Copy domain</button></div>';
+        resultEl.innerHTML = html;
+        resultEl.classList.add("open");
+
+        document.getElementById("copy-btn").onclick = () => {
+          window.navigator.clipboard.writeText(r.domain);
+        };
+        const enrichBtn = document.getElementById("enrich-btn");
+        if (!enrichAvailable) {
+          enrichBtn.title = "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.";
+        } else {
+          enrichBtn.onclick = async () => {
+            enrichBtn.disabled = true;
+            const original = enrichBtn.innerHTML;
+            enrichBtn.innerHTML = '<span class="spinner"></span>Checking...';
+            try {
+              const enrichResult = await window.opener.api("/api/enrich", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ target: r.domain, type: "domain" }),
+              });
+              window.opener.openEnrichmentWindow(enrichResult);
+            } catch (err) {
+              window.alert("Enrichment failed: " + (err && err.message ? err.message : err));
+            } finally {
+              enrichBtn.disabled = false;
+              enrichBtn.innerHTML = original;
+            }
+          };
+        }
+      } catch (err) {
+        errorEl.textContent = "Lookup failed: " + (err && err.message ? err.message : err);
+        errorEl.style.display = "block";
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = submitOriginal;
+      }
+    });
+  })(w, w.document);
+}
+
+const ALERT_KIND_LABEL_FNS = {
+  high_blocked_ratio: () => t("alerts.kind.high_blocked_ratio", "High blocked-query ratio"),
+  domain_burst: () => t("alerts.kind.domain_burst", "Burst of random-looking domains (possible DGA)"),
+  blocked_domain_burst: () => t("alerts.kind.blocked_domain_burst", "Unusually many distinct blocked domains"),
+  dns_tunneling: () => t("alerts.kind.dns_tunneling", "Many distinct subdomains of one domain (possible DNS tunneling)"),
+  subdomain_count_burst: () => t("alerts.kind.subdomain_count_burst", "Many distinct subdomains of one domain (raw count, no randomness filter)"),
+  ptr_scan: () => t("alerts.kind.ptr_scan", "Many reverse-DNS lookups of local/private IPs (possible internal network scan)"),
+  new_dns_client: () => t("alerts.kind.new_dns_client", "New DNS client detected"),
+  new_dhcp_client: () => t("alerts.kind.new_dhcp_client", "New DHCP client detected"),
+  rogue_dhcp_server: () => t("alerts.kind.rogue_dhcp_server", "Unrecognized DHCP server on the network"),
+};
+
+function alertKindLabel(a) {
+  const kind = a.kind || "";
+  if (kind.startsWith("watched_domain:")) {
+    return t("alerts.kind.watched_domain", "Watched domain: {domain}").replace("{domain}", kind.slice("watched_domain:".length));
+  }
+  if (kind.startsWith("typosquat:")) {
+    return t("alerts.kind.typosquat", "Possible typosquat of {protected}").replace("{protected}", kind.slice("typosquat:".length));
+  }
+  if (kind.startsWith("rebinding:")) {
+    return t("alerts.kind.rebinding", "Possible DNS rebinding: {domain}").replace("{domain}", kind.slice("rebinding:".length));
+  }
+  if (kind.startsWith("local_tld:")) {
+    return t("alerts.kind.local_tld", "Local-TLD query: .{tld}").replace("{tld}", kind.slice("local_tld:".length));
+  }
+  if (kind.startsWith("threat_intel:")) {
+    return t("alerts.kind.threat_intel", "Threat intel: bad reputation for {target}").replace("{target}", kind.slice("threat_intel:".length));
+  }
+  if (ALERT_KIND_LABEL_FNS[kind]) return ALERT_KIND_LABEL_FNS[kind]();
+  return a.kind_label || kind;
+}
+
+function fmtG(n) {
+  if (n === null || n === undefined || n === "") return "";
+  const v = Number(n);
+  if (!Number.isFinite(v)) return String(n);
+  return Number.isInteger(v) ? String(v) : String(parseFloat(v.toPrecision(6)));
+}
+
+function alertSummaryText(a) {
+  const d = a.details || {};
+  const kind = a.kind || "";
+  if (kind === "high_blocked_ratio") {
+    const total = d.total_queries || 0;
+    const blocked = d.blocked_queries || 0;
+    const pct = total ? Math.round((100 * blocked) / total) : 0;
+    return t("alerts.summary.high_blocked_ratio", "{pct}% of {total} queries blocked in the last {window} min")
+      .replace("{pct}", pct).replace("{total}", total).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind === "domain_burst") {
+    return t("alerts.summary.domain_burst", "{distinct} distinct domains queried in the last {window} min, {random} ({pct}%) look randomly generated")
+      .replace("{distinct}", d.distinct_domains).replace("{window}", fmtG(d.window_minutes))
+      .replace("{random}", d.random_looking_domains).replace("{pct}", d.random_looking_percent);
+  }
+  if (kind === "blocked_domain_burst") {
+    return t("alerts.summary.blocked_domain_burst", "{distinct} distinct blocked domains hit in the last {window} min")
+      .replace("{distinct}", d.distinct_blocked_domains).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind === "dns_tunneling") {
+    const avgLen = d.avg_name_length != null ? Math.round(d.avg_name_length) : "";
+    return t("alerts.summary.dns_tunneling", "{count} distinct, long/random-looking subdomains of {base} queried in the last {window} min (avg name length {avglen} chars)")
+      .replace("{count}", d.subdomain_count).replace("{base}", d.base_domain)
+      .replace("{window}", fmtG(d.window_minutes)).replace("{avglen}", avgLen);
+  }
+  if (kind === "subdomain_count_burst") {
+    return t("alerts.summary.subdomain_count_burst", "{count} distinct subdomains of {base} queried in the last {window} min")
+      .replace("{count}", d.subdomain_count).replace("{base}", d.base_domain).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind === "ptr_scan") {
+    return t("alerts.summary.ptr_scan", "{count} distinct reverse-DNS lookups of local/private IPs in the last {window} min")
+      .replace("{count}", d.ptr_scan_count).replace("{window}", fmtG(d.window_minutes));
+  }
+  if (kind === "new_dns_client") {
+    return t("alerts.summary.new_dns_client", "First DNS query ever seen from this client");
+  }
+  if (kind === "new_dhcp_client") {
+    return t("alerts.summary.new_dhcp_client", "First DHCP lease ever issued to {mac} ({ip})")
+      .replace("{mac}", d.mac || "").replace("{ip}", d.ip || "");
+  }
+  if (kind === "rogue_dhcp_server") {
+    return t("alerts.summary.rogue_dhcp_server", "DHCP offer from unrecognized server {server_ip} (expected one of: {allowed})")
+      .replace("{server_ip}", d.server_ip || "").replace("{allowed}", (d.allowed_ips || []).join(", ") || t("alerts.summary.rogue_dhcp_none_configured", "none configured"));
+  }
+  if (kind.startsWith("watched_domain:")) {
+    return t("alerts.summary.watched_domain", 'Queried watched domain "{domain}" (rule: {rule})')
+      .replace("{domain}", d.domain).replace("{rule}", d.alert_rule);
+  }
+  if (kind.startsWith("typosquat:")) {
+    const key = d.match_type === "embedded" ? "alerts.summary.typosquat_embedded" : "alerts.summary.typosquat_typo";
+    const fallback = d.match_type === "embedded" ? 'Domain "{domain}" impersonates "{protected}"' : 'Domain "{domain}" looks like a typo of "{protected}"';
+    return t(key, fallback).replace("{domain}", d.domain).replace("{protected}", d.protected_domain);
+  }
+  if (kind.startsWith("rebinding:")) {
+    return t("alerts.summary.rebinding", 'Domain "{domain}" resolved to a local/private address ({ip}) - possible DNS rebinding')
+      .replace("{domain}", d.domain).replace("{ip}", d.rebinding_ip);
+  }
+  if (kind.startsWith("local_tld:")) {
+    return t("alerts.summary.local_tld", 'Queried local-TLD domain "{domain}" (.{tld})')
+      .replace("{domain}", d.domain).replace("{tld}", d.tld);
+  }
+  if (kind.startsWith("threat_intel:")) {
+    let summary = t("alerts.summary.threat_intel", "{target} flagged {verdict} by threat-intel")
+      .replace("{target}", a.client).replace("{verdict}", d.verdict || "");
+    if (d.flagged_sources && d.flagged_sources.length) {
+      summary += t("alerts.summary.threat_intel_sources", " ({sources})").replace("{sources}", [...d.flagged_sources].sort().join(", "));
+    }
+    if (d.fp_escalated_from) {
+      summary += t("alerts.summary.threat_intel_escalated", ' (previously marked as a false positive at "{old}" - now escalated to "{new}")')
+        .replace("{old}", d.fp_escalated_from).replace("{new}", d.verdict || "");
+    }
+    return summary;
+  }
+  return a.summary;
+}
+
+function markFpButton(a, apiPath, payload, label, title, buttonText, toastPrefix) {
+  const fpBtn = el("button", { class: "secondary", text: buttonText || t("alerts.mark_fp", "Mark as FP") });
+  fpBtn.title = title;
+  fpBtn.onclick = async () => {
+    try {
+      await withSpinner(fpBtn, async () => {
+        await api(apiPath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        await api(`/api/anomalies/${a.id}`, { method: "DELETE" });
+      }, t("common.saving", "Saving..."));
+      showToast((toastPrefix || t("toast.marked_fp", "Marked as false positive")) + `: ${label}`);
+      loadAnomalies();
+    } catch (err) {
+      fpBtn.disabled = false;
+      alert(t("alerts.mark_fp_failed", "Failed to mark as false positive") + ": " + (err && err.message ? err.message : err));
+    }
+  };
+  return fpBtn;
+}
+
+const SEVERITY_RANK = { low: 0, medium: 1, high: 2 };
+
+const selectedAlertIds = new Set();
+let currentAlertIds = [];
+
+function alertSelectCheckbox(id) {
+  const cb = el("input", { type: "checkbox" });
+  cb.checked = selectedAlertIds.has(id);
+  cb.onchange = () => {
+    if (cb.checked) selectedAlertIds.add(id);
+    else selectedAlertIds.delete(id);
+    updateAlertBulkBar();
+  };
+  return cb;
+}
+
+function updateAlertBulkBar() {
+  const bar = document.getElementById("anomaly-bulk-bar");
+  const count = selectedAlertIds.size;
+  bar.style.display = count ? "flex" : "none";
+  document.getElementById("anomaly-bulk-count").textContent = t("alerts.bulk.selected_count", "{n} selected").replace("{n}", count);
+
+  const selectAll = document.getElementById("anomaly-select-all");
+  const visibleSelected = currentAlertIds.filter((id) => selectedAlertIds.has(id)).length;
+  selectAll.checked = currentAlertIds.length > 0 && visibleSelected === currentAlertIds.length;
+  selectAll.indeterminate = visibleSelected > 0 && visibleSelected < currentAlertIds.length;
+}
+
+function groupAnomalies(list) {
+  const order = [];
+  const map = new Map();
+  for (const a of list) {
+    const key = `${a.client}${a.kind}`;
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key).push(a);
+  }
+  return order.map((key) => map.get(key));
+}
+
+const expandedAnomalyGroupKeys = new Set();
+
+function renderAnomalyGroupRows(group) {
+  if (group.length === 1) {
+    return [renderAnomalyRow(group[0])];
+  }
+
+  const latest = group[0];
+  const groupKey = `${latest.client}${latest.kind}`;
+  const maxSeverity = group.reduce(
+    (worst, a) => (SEVERITY_RANK[a.severity] > SEVERITY_RANK[worst] ? a.severity : worst),
+    latest.severity
+  );
+
+  const childRows = group.map((a) => renderAnomalyRow(a));
+  let expanded = expandedAnomalyGroupKeys.has(groupKey);
+  for (const row of childRows) {
+    row.style.display = expanded ? "" : "none";
+    row.classList.add("anomaly-group-child");
+  }
+
+  const groupIds = group.map((a) => a.id);
+  const childCheckboxes = childRows.map((row) => row.querySelector("input[type=checkbox]"));
+  const groupSelectCb = el("input", { type: "checkbox" });
+  const refreshGroupSelectCb = () => {
+    const selectedCount = groupIds.filter((id) => selectedAlertIds.has(id)).length;
+    groupSelectCb.checked = selectedCount === groupIds.length;
+    groupSelectCb.indeterminate = selectedCount > 0 && selectedCount < groupIds.length;
+  };
+  refreshGroupSelectCb();
+  for (const cb of childCheckboxes) cb.addEventListener("change", refreshGroupSelectCb);
+  groupSelectCb.onchange = () => {
+    for (const id of groupIds) {
+      if (groupSelectCb.checked) selectedAlertIds.add(id);
+      else selectedAlertIds.delete(id);
+    }
+    for (const cb of childCheckboxes) cb.checked = groupSelectCb.checked;
+    updateAlertBulkBar();
+  };
+
+  const toggleBtn = el("button", {
+    class: "secondary",
+    text: expanded
+      ? t("alerts.group.collapse", "Hide events")
+      : t("alerts.group.expand", "Show {n} events").replace("{n}", group.length),
+  });
+  toggleBtn.onclick = () => {
+    expanded = !expanded;
+    if (expanded) expandedAnomalyGroupKeys.add(groupKey);
+    else expandedAnomalyGroupKeys.delete(groupKey);
+    for (const row of childRows) row.style.display = expanded ? "" : "none";
+    toggleBtn.textContent = expanded
+      ? t("alerts.group.collapse", "Hide events")
+      : t("alerts.group.expand", "Show {n} events").replace("{n}", group.length);
+  };
+
+  let clientExtra;
+  if (latest.source === "threat_intel") {
+    const targetType = latest.details && latest.details.target_type === "ip" ? "ip" : "domain";
+    clientExtra = [enrichButton(latest.client, targetType)];
+  } else if (isIpAddress(latest.client)) {
+    clientExtra = [enrichButton(latest.client, "ip"), clientBlockButton(latest.client)];
+  } else {
+    clientExtra = [];
+  }
+
+  const headerRow = el("tr", { class: "anomaly-group-header" }, [
+    el("td", {}, [groupSelectCb]),
+    el("td", { text: fmtTime(latest.ts), "data-label": t("col.time", "Time") }),
+    addressCell(clientLabel(latest.client), clientExtra, latest.client, t("col.client", "Client")),
+    el("td", { "data-label": t("col.source", "Source") }, [alertSourceTag(latest.source)]),
+    el("td", { text: alertKindLabel(latest), "data-label": t("col.type", "Type") }),
+    el("td", { "data-label": t("col.severity", "Severity") }, [severityTag(maxSeverity)]),
+    el("td", { "data-label": t("col.details", "Details"), class: "alert-details-cell" }, [
+      el("span", { text: alertSummaryText(latest) }),
+      el("span", { class: "tag anomaly-group-count", text: `×${group.length}` }),
+    ]),
+    el("td", { "data-label": t("col.actions", "Actions") }, [el("div", { class: "row-actions" }, [toggleBtn])]),
+  ]);
+
+  return [headerRow, ...childRows];
+}
+
+function renderAnomalyRow(a) {
+  const delBtn = ruleDeleteButton(t("common.remove", "Remove"), `/api/anomalies/${a.id}`, loadAnomalies);
+
+  const actions = [delBtn];
+  if (a.acknowledged) {
+    const unackBtn = el("button", { class: "secondary", text: t("alerts.unacknowledge", "Unacknowledge") });
+    unackBtn.onclick = async () => {
+      try {
+        await withSpinner(unackBtn, () => api(`/api/anomalies/${a.id}/unacknowledge`, { method: "POST" }), t("common.saving", "Saving..."));
+        loadAnomalies();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    actions.unshift(unackBtn);
+  } else {
+    const ackBtn = el("button", { class: "secondary", text: t("alerts.acknowledge", "Acknowledge") });
+    ackBtn.onclick = async () => {
+      try {
+        await withSpinner(ackBtn, () => api(`/api/anomalies/${a.id}/acknowledge`, { method: "POST" }), t("common.saving", "Saving..."));
+        loadAnomalies();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    actions.unshift(ackBtn);
+  }
+
+  if ((a.kind || "").startsWith("typosquat:") && a.details && a.details.domain && a.details.protected_domain) {
+    actions.unshift(markFpButton(
+      a, "/api/typosquat-fp", { domain: a.details.domain, protected: a.details.protected_domain }, a.details.domain,
+      t("alerts.mark_fp_title.typosquat", "Never alert again for this exact domain against this protected domain")
+    ));
+  }
+  if ((a.kind || "").startsWith("rebinding:") && a.details && a.details.domain && a.details.rebinding_ip) {
+    actions.unshift(markFpButton(
+      a, "/api/rebinding-fp", { domain: a.details.domain, ip: a.details.rebinding_ip }, a.details.domain,
+      t("alerts.mark_fp_title.rebinding", "Never alert again for this exact domain resolving to this exact address")
+    ));
+  }
+  if ((a.kind || "").startsWith("threat_intel:") && a.client && a.details && a.details.verdict) {
+    actions.unshift(markFpButton(
+      a, "/api/threat-intel-fp", { target: a.client, verdict: a.details.verdict }, a.client,
+      t("alerts.mark_fp_title.threat_intel", "Never alert again for this target at this verdict or better - if a later lookup scores it worse, it will still alert (and say so)")
+    ));
+  }
+  if (a.kind === "subdomain_count_burst" && a.details && a.details.base_domain) {
+    actions.unshift(markFpButton(
+      a, "/api/anomaly-subdomain-exclusions", { domain: a.details.base_domain }, a.details.base_domain,
+      t("alerts.exclude_subdomain_title", "Never fire this check again for this base domain - manage the list in Settings -> Anomalies -> Ignored subdomain-count domains"),
+      t("alerts.exclude_subdomain", "Ignore domain"),
+      t("toast.excluded_subdomain", "Domain ignored")
+    ));
+  }
+
+  let detailsActionBtn;
+  if ((a.kind || "").startsWith("threat_intel:") && a.client) {
+    const targetType = a.details && a.details.target_type === "ip" ? "ip" : "domain";
+    detailsActionBtn = el("button", { class: "secondary", text: t("common.enrich", "Enrich") });
+    detailsActionBtn.title = enrichmentAvailable
+      ? t("common.enrich_title", "Check reputation via your configured threat-intel service(s) (manual only)")
+      : t("common.enrich_title_unavailable", "No threat-intel service enabled yet - configure one in Settings -> Threat intelligence.");
+    detailsActionBtn.disabled = !enrichmentAvailable;
+    detailsActionBtn.classList.add("enrich-btn");
+    detailsActionBtn.onclick = async () => {
+      if (!enrichmentAvailable) return;
+      try {
+        const result = await withSpinner(detailsActionBtn, () => api("/api/enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: a.client, type: targetType }),
+        }), t("common.checking", "Checking..."));
+        openEnrichmentWindow(result);
+      } catch (err) {
+        alert(t("common.enrich_failed", "Enrichment failed") + ": " + (err && err.message ? err.message : err));
+      } finally {
+        detailsActionBtn.disabled = !enrichmentAvailable;
+      }
+    };
+  } else {
+    const showDomainsBtn = el("button", { class: "secondary", text: t("alerts.show_domains", "Show domains") });
+    showDomainsBtn.onclick = async () => {
+      try {
+        const [result, excluded] = await withSpinner(showDomainsBtn, () => Promise.all([
+          api(`/api/anomalies/${a.id}/domains`),
+          api("/api/anomaly-exclusions").catch(() => []),
+        ]), t("common.loading", "Loading..."));
+        openAnomalyDomainsWindow(a, result.domains, result.blocked_only, enrichmentAvailable, excluded);
+      } catch (err) {
+        alert(t("alerts.load_domains_failed", "Failed to load domains") + ": " + err.message);
+      }
+    };
+    detailsActionBtn = showDomainsBtn;
+  }
+
+  let clientExtra;
+  if (a.source === "threat_intel") {
+    const targetType = a.details && a.details.target_type === "ip" ? "ip" : "domain";
+    clientExtra = [enrichButton(a.client, targetType)];
+  } else if (isIpAddress(a.client)) {
+    clientExtra = [enrichButton(a.client, "ip"), clientBlockButton(a.client)];
+  } else {
+    clientExtra = [];
+  }
+
+  return el("tr", {}, [
+    el("td", {}, [alertSelectCheckbox(a.id)]),
+    el("td", { text: fmtTime(a.ts), "data-label": t("col.time", "Time") }),
+    addressCell(clientLabel(a.client), clientExtra, a.client, t("col.client", "Client")),
+    el("td", { "data-label": t("col.source", "Source") }, [alertSourceTag(a.source)]),
+    el("td", { text: alertKindLabel(a), "data-label": t("col.type", "Type") }),
+    el("td", { "data-label": t("col.severity", "Severity") }, [severityTag(a.severity)]),
+    el("td", { "data-label": t("col.details", "Details"), class: "alert-details-cell" }, [
+      el("div", { text: alertSummaryText(a) }),
+      el("div", { style: "margin-top:0.3rem;" }, [detailsActionBtn]),
+    ]),
+    el("td", { "data-label": t("col.actions", "Actions") }, [el("div", { class: "row-actions" }, actions)]),
+  ]);
+}
+
+function alertSourceLabel(source) {
+  if (source === "alert_rule") return t("alerts.tag.alert_rule", "Alert rule");
+  if (source === "threat_intel") return t("alerts.tag.threat_intel", "Threat intel");
+  return t("alerts.tag.anomaly", "Anomaly");
+}
+function alertSourceTag(source) {
+  return el("span", { class: "tag tag-" + (source || "anomaly"), text: alertSourceLabel(source) });
+}
+
+const ALERT_SOURCES = ["anomaly", "alert_rule", "threat_intel"];
+
+function activeAlertSourceFilters() {
+  return ALERT_SOURCES.filter((s) => document.getElementById("alert-filter-" + s).checked);
+}
+
+async function loadAnomalies() {
+  const showAcknowledged = document.getElementById("anomaly-show-acknowledged").checked;
+  const anomalies = await api(`/api/anomalies?include_acknowledged=${showAcknowledged}`);
+  const activeSources = new Set(activeAlertSourceFilters());
+  const filtered = anomalies.filter((a) => activeSources.has(a.source || "anomaly"));
+  currentAlertIds = filtered.map((a) => a.id);
+  const currentIdSet = new Set(currentAlertIds);
+  for (const id of [...selectedAlertIds]) {
+    if (!currentIdSet.has(id)) selectedAlertIds.delete(id);
+  }
+  const rows = document.getElementById("anomaly-rows");
+  rows.innerHTML = "";
+  for (const group of groupAnomalies(filtered)) {
+    for (const row of renderAnomalyGroupRows(group)) {
+      rows.appendChild(row);
+    }
+  }
+  document.getElementById("anomaly-empty").style.display = filtered.length ? "none" : "block";
+  updateAlertBulkBar();
+
+  const countInfo = await api("/api/anomalies/count");
+  const badge = document.getElementById("anomaly-count-badge");
+  if (countInfo.unacknowledged > 0) {
+    badge.textContent = countInfo.unacknowledged > 99 ? "99+" : String(countInfo.unacknowledged);
+    badge.style.display = "inline-block";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+async function loadAnomalyExclusions() {
+  const domains = await api("/api/anomaly-exclusions");
+  const editor = buildRuleEditor(
+    t("editor.anomaly_exclusions", "Domains excluded from anomaly detection"),
+    domains,
+    async (d) => { await api("/api/anomaly-exclusions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+    async (d) => { await api(`/api/anomaly-exclusions/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const container = document.getElementById("anomaly-exclusion-domains");
+  container.innerHTML = "";
+  container.appendChild(editor);
+}
+
+async function loadAnomalySubdomainExclusions() {
+  const domains = await api("/api/anomaly-subdomain-exclusions");
+  const editor = buildRuleEditor(
+    t("editor.anomaly_subdomain_exclusions", "Base domains ignored by the subdomain-count-burst check"),
+    domains,
+    async (d) => { await api("/api/anomaly-subdomain-exclusions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+    async (d) => { await api(`/api/anomaly-subdomain-exclusions/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const container = document.getElementById("anomaly-subdomain-exclusion-domains");
+  container.innerHTML = "";
+  container.appendChild(editor);
+}
+
+function buildFpPairEditor(pairs, apiPath, keys, titleText, emptyText, deleteKeys) {
+  deleteKeys = deleteKeys || keys;
+  const wrap = el("div", { class: "rule-editor" });
+  wrap.appendChild(el("div", { class: "title", text: titleText }));
+  const tags = el("div", { class: "rule-tags" });
+  for (const p of pairs) {
+    const tag = el("span", { class: "tag allowed rule-tag" }, [document.createTextNode(`${p[keys[0]]} → ${p[keys[1]]}`)]);
+    const rm = el("button", { type: "button", text: "×" });
+    rm.onclick = async () => {
+      const path = deleteKeys.map((k) => encodeURIComponent(p[k])).join("/");
+      try {
+        await withSpinner(rm, () => api(`${apiPath}/${path}`, { method: "DELETE" }), t("common.saving", "Saving..."));
+        refreshAll();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    tag.appendChild(rm);
+    tags.appendChild(tag);
+  }
+  wrap.appendChild(tags);
+  if (!pairs.length) {
+    wrap.appendChild(el("p", { class: "muted", style: "font-size:0.8rem;margin:0.3rem 0 0;", text: emptyText }));
+  }
+  return wrap;
+}
+
+async function loadTyposquatFpPairs() {
+  const pairs = await api("/api/typosquat-fp");
+  const wrap = buildFpPairEditor(
+    pairs, "/api/typosquat-fp", ["domain", "protected"],
+    t("editor.typosquat_fp", "Domain pairs excluded from typosquat detection"),
+    t("editor.typosquat_fp_empty", 'None yet - use "Mark as FP" on a typosquat alert in the Alerts tab.')
+  );
+  const container = document.getElementById("typosquat-fp-pairs");
+  container.innerHTML = "";
+  container.appendChild(wrap);
+}
+
+async function loadRebindingFpPairs() {
+  const pairs = await api("/api/rebinding-fp");
+  const wrap = buildFpPairEditor(
+    pairs, "/api/rebinding-fp", ["domain", "ip"],
+    t("editor.rebinding_fp", "Domain/address pairs excluded from DNS rebinding detection"),
+    t("editor.rebinding_fp_empty", 'None yet - use "Mark as FP" on a DNS rebinding alert in the Alerts tab.')
+  );
+  const container = document.getElementById("rebinding-fp-pairs");
+  container.innerHTML = "";
+  container.appendChild(wrap);
+}
+
+async function loadThreatIntelFpTargets() {
+  const entries = await api("/api/threat-intel-fp");
+  const wrap = buildFpPairEditor(
+    entries, "/api/threat-intel-fp", ["target", "verdict"],
+    t("editor.threat_intel_fp", "Targets excluded from threat-intel alerts (at this verdict or better)"),
+    t("editor.threat_intel_fp_empty", 'None yet - use "Mark as FP" on a threat-intel alert in the Alerts tab.'),
+    ["target"]
+  );
+  const container = document.getElementById("threat-intel-fp-targets");
+  container.innerHTML = "";
+  container.appendChild(wrap);
+}
+
+async function loadAlertDomains() {
+  const domains = await api("/api/alert-rules/domains");
+  const editor = buildRuleEditor(
+    t("editor.watched_domains", "Watched domains (always alert, whether or not blocked)"),
+    domains,
+    async (d) => { await api("/api/alert-rules/domains", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain: d }) }); refreshAll(); },
+    async (d) => { await api(`/api/alert-rules/domains/${encodeURIComponent(d)}`, { method: "DELETE" }); refreshAll(); }
+  );
+  const container = document.getElementById("alert-domains");
+  container.innerHTML = "";
+  container.appendChild(editor);
+}
+
+async function loadAlertSources() {
+  await loadSourceTable("/api/alert-rules/sources", "alert-source-rows", "alert_sources", "alert_source_formats");
+  await loadAlertSourcePicker();
+}
+
+async function loadAlertSourcePicker() {
+  const [blocklists, watched] = await Promise.all([
+    api("/api/blocklists"),
+    api("/api/alert-rules/sources"),
+  ]);
+  const watchedUrls = new Set(watched.map((s) => s.url));
+  const select = document.getElementById("alert-source-from-blocklist");
+  const previous = select.value;
+  select.innerHTML = "";
+  select.appendChild(el("option", { value: "", text: "-- add a list already in Blocklists --" }));
+  for (const source of blocklists) {
+    if (watchedUrls.has(source.url)) continue;
+    const opt = el("option", { value: source.url, text: source.name });
+    opt.dataset.name = source.name;
+    select.appendChild(opt);
+  }
+  if ([...select.options].some((o) => o.value === previous)) select.value = previous;
+}
+
+document.getElementById("anomaly-show-acknowledged").addEventListener("change", loadAnomalies);
+
+document.getElementById("anomaly-select-all").addEventListener("change", (e) => {
+  if (e.target.checked) {
+    for (const id of currentAlertIds) selectedAlertIds.add(id);
+  } else {
+    for (const id of currentAlertIds) selectedAlertIds.delete(id);
+  }
+  loadAnomalies();
+});
+
+document.getElementById("anomaly-bulk-deselect").addEventListener("click", () => {
+  selectedAlertIds.clear();
+  loadAnomalies();
+});
+
+document.getElementById("anomaly-bulk-acknowledge").addEventListener("click", async (e) => {
+  const ids = [...selectedAlertIds];
+  if (!ids.length) return;
+  try {
+    await withSpinner(e.target, () => Promise.all(
+      ids.map((id) => api(`/api/anomalies/${id}/acknowledge`, { method: "POST" }))
+    ), t("common.saving", "Saving..."));
+    selectedAlertIds.clear();
+    loadAnomalies();
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    loadAnomalies();
+  }
+});
+
+document.getElementById("anomaly-bulk-delete").addEventListener("click", async (e) => {
+  const ids = [...selectedAlertIds];
+  if (!ids.length) return;
+  if (!confirm(t("alerts.bulk.delete_confirm", "Delete {n} selected alert(s)? This can't be undone.").replace("{n}", ids.length))) return;
+  try {
+    await withSpinner(e.target, () => Promise.all(
+      ids.map((id) => api(`/api/anomalies/${id}`, { method: "DELETE" }))
+    ), t("common.saving", "Saving..."));
+    selectedAlertIds.clear();
+    loadAnomalies();
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    loadAnomalies();
+  }
+});
+
+(() => {
+  let saved;
+  try {
+    saved = JSON.parse(localStorage.getItem("dnsshield-alert-source-filters") || "null");
+  } catch { saved = null; }
+  for (const s of ALERT_SOURCES) {
+    const cb = document.getElementById("alert-filter-" + s);
+    if (saved && Array.isArray(saved)) cb.checked = saved.includes(s);
+    cb.addEventListener("change", () => {
+      try { localStorage.setItem("dnsshield-alert-source-filters", JSON.stringify(activeAlertSourceFilters())); } catch {}
+      loadAnomalies();
+    });
+  }
+})();
+
+document.getElementById("anomaly-check-now").addEventListener("click", async () => {
+  await api("/api/anomalies/check-now", { method: "POST" });
+  loadAnomalies();
+});
+
+document.getElementById("reanalyze-btn").addEventListener("click", async () => {
+  const select = document.getElementById("reanalyze-range");
+  const hours = parseFloat(select.value);
+  const label = select.options[select.selectedIndex].text.toLowerCase();
+  if (hours >= 168) {
+    if (!confirm(`Reanalyse ${label}? Scanning that much history can take a while - the page will stay usable, but this may take a minute or more.`)) return;
+  }
+  const btn = document.getElementById("reanalyze-btn");
+  const status = document.getElementById("reanalyze-status");
+  btn.disabled = true;
+  status.textContent = `Reanalysing ${label}...`;
+  try {
+    const found = await api("/api/anomalies/reanalyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours }),
+    });
+    status.textContent = found.length
+      ? `Reanalysis of ${label} found ${found.length} anomal${found.length === 1 ? "y" : "ies"}.`
+      : `Reanalysis of ${label} found nothing new.`;
+    loadAnomalies();
+  } catch (err) {
+    status.textContent = "Reanalysis failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderSubdomainAnalysisRow(r, hours) {
+  const showBtn = el("button", { type: "button", class: "secondary", text: t("anom.show_subdomains", "Show subdomains") });
+  showBtn.onclick = async () => {
+    try {
+      const subdomains = await withSpinner(showBtn, () =>
+        api(`/api/anomalies/subdomain-analysis/domains?base_domain=${encodeURIComponent(r.base_domain)}&hours=${hours}`)
+      );
+      openSubdomainListWindow(r.base_domain, subdomains);
+    } catch (err) {
+      alert(t("alerts.load_domains_failed", "Failed to load domains") + ": " + err.message);
+    }
+  };
+
+  const ignoreBtn = el("button", { type: "button", class: "danger", text: t("anom.ignore_subdomain", "Ignore") });
+  ignoreBtn.title = t("anom.ignore_subdomain_title", "Stop counting this domain in this check going forward and remove it from this list. Manage ignored domains in Settings -> Anomalies -> Ignored subdomain-count domains.");
+
+  const row = el("tr", {}, [
+    el("td", { text: r.base_domain }),
+    el("td", { text: String(r.subdomain_count) }),
+    el("td", {}, [el("div", { class: "row-actions" }, [showBtn, ignoreBtn])]),
+  ]);
+
+  ignoreBtn.onclick = async () => {
+    ignoreBtn.disabled = true;
+    try {
+      await api("/api/anomaly-subdomain-exclusions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: r.base_domain }),
+      });
+      row.remove();
+    } catch (err) {
+      ignoreBtn.disabled = false;
+      alert(t("common.action_failed", "Action failed") + ": " + err.message);
+    }
+  };
+
+  return row;
+}
+
+document.getElementById("subdomain-analysis-btn").addEventListener("click", async () => {
+  const hours = parseFloat(document.getElementById("subdomain-analysis-range").value);
+  const btn = document.getElementById("subdomain-analysis-btn");
+  const status = document.getElementById("subdomain-analysis-status");
+  const table = document.getElementById("subdomain-analysis-table");
+  const rows = document.getElementById("subdomain-analysis-rows");
+  btn.disabled = true;
+  status.textContent = "";
+  try {
+    const ranked = await api(`/api/anomalies/subdomain-analysis?hours=${hours}&limit=20`);
+    if (!ranked.length) {
+      table.style.display = "none";
+      status.textContent = t("anom.no_domains_in_window", "No domains queried in that window.");
+    } else {
+      rows.innerHTML = "";
+      for (const r of ranked) rows.appendChild(renderSubdomainAnalysisRow(r, hours));
+      table.style.display = "";
+      status.textContent = "";
+    }
+  } catch (err) {
+    status.textContent = t("common.analysis_failed", "Analysis failed") + ": " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("anomaly-clear-all").addEventListener("click", async () => {
+  if (!confirm("Remove all detected anomalies? This can't be undone.")) return;
+  await api("/api/anomalies", { method: "DELETE" });
+  loadAnomalies();
+});
+
+document.getElementById("anomaly-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/anomaly", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: document.getElementById("s-anomaly-enabled").checked,
+        check_interval_minutes: floatField("s-anomaly-check-interval"),
+        window_minutes: floatField("s-anomaly-window"),
+        min_queries: intField("s-anomaly-min-queries"),
+        blocked_ratio_threshold: floatField("s-anomaly-blocked-ratio"),
+        domain_burst_threshold: intField("s-anomaly-domain-burst"),
+        domain_burst_min_label_length: intField("s-anomaly-entropy-min-length"),
+        domain_burst_min_entropy: floatField("s-anomaly-entropy-min-bits"),
+        domain_burst_entropy_fraction: floatField("s-anomaly-entropy-fraction"),
+        blocked_domain_burst_threshold: intField("s-anomaly-blocked-domain-burst"),
+        dns_tunneling_threshold: intField("s-anomaly-tunnel-threshold"),
+        ptr_scan_threshold: intField("s-anomaly-ptr-scan-threshold"),
+        dns_tunneling_min_label_length: intField("s-anomaly-tunnel-min-length"),
+        dns_tunneling_min_entropy: floatField("s-anomaly-tunnel-min-bits"),
+        subdomain_count_threshold: intField("s-anomaly-subdomain-count-threshold"),
+        cooldown_minutes: floatField("s-anomaly-cooldown"),
+      }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("alert-source-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("alert-source-name").value.trim();
+  const url = document.getElementById("alert-source-url").value.trim();
+  if (!name || !url) return;
+  await withSpinner(e.submitter, async () => {
+    await api("/api/alert-rules/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url }),
+    });
+  });
+  refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
+});
+
+document.getElementById("alert-source-from-blocklist-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const select = document.getElementById("alert-source-from-blocklist");
+  const url = select.value;
+  if (!url) return;
+  const name = select.selectedOptions[0].dataset.name || select.selectedOptions[0].textContent;
+  await withSpinner(e.submitter, async () => {
+    await api("/api/alert-rules/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url }),
+    });
+  });
+  refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
+});
+
+document.getElementById("alert-rules-settings-save").addEventListener("click", async (e) => {
+  await withDelayedSpinner(e.currentTarget, async () => {
+    await api("/api/settings/alert-rules", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        check_interval_seconds: floatField("s-alert-check-interval"),
+        cooldown_minutes: floatField("s-alert-cooldown"),
+      }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("notifications-email-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const password = document.getElementById("s-notif-smtp-password").value;
+  const body = {
+    enabled: document.getElementById("s-notif-email-enabled").checked,
+    smtp_host: document.getElementById("s-notif-smtp-host").value.trim(),
+    smtp_port: intField("s-notif-smtp-port"),
+    smtp_security: document.getElementById("s-notif-smtp-security").value,
+    smtp_username: document.getElementById("s-notif-smtp-username").value.trim(),
+    from_address: document.getElementById("s-notif-from-address").value.trim(),
+    to_addresses: document.getElementById("s-notif-to-addresses").value.split(",").map((s) => s.trim()).filter(Boolean),
+    min_severity: document.getElementById("s-notif-min-severity").value,
+  };
+  if (password) body.smtp_password = password;
+  document.getElementById("notif-test-email-result").textContent = "";
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/notifications/email", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("url-ping-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    enabled: document.getElementById("s-url-ping-enabled").checked,
+    url: document.getElementById("s-url-ping-url").value.trim(),
+    interval_minutes: floatField("s-url-ping-interval"),
+  };
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/url-ping", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("sso-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const secret = document.getElementById("s-sso-client-secret").value;
+  const body = {
+    enabled: document.getElementById("s-sso-enabled").checked,
+    issuer: document.getElementById("s-sso-issuer").value.trim(),
+    client_id: document.getElementById("s-sso-client-id").value.trim(),
+    scopes: document.getElementById("s-sso-scopes").value.trim() || "openid email profile",
+    button_label: document.getElementById("s-sso-button-label").value.trim() || "Single Sign-On",
+    username_claim: document.getElementById("s-sso-username-claim").value.trim() || "preferred_username",
+    auto_provision: document.getElementById("s-sso-auto-provision").checked,
+    default_role: document.getElementById("s-sso-default-role").value,
+  };
+  if (secret) body.client_secret = secret;
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/sso", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("notif-send-test-email").addEventListener("click", async () => {
+  const btn = document.getElementById("notif-send-test-email");
+  const result = document.getElementById("notif-test-email-result");
+  btn.disabled = true;
+  result.textContent = "Sending...";
+  try {
+    await api("/api/notifications/test-email", { method: "POST" });
+    result.textContent = "Test email sent - check your inbox.";
+  } catch (err) {
+    result.textContent = "Failed to send test email: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+const BROWSER_NOTIF_KEY = "dnsshield-browser-notifications";
+let lastKnownAnomalyCount = null;
+
+function browserNotifSupported() {
+  return typeof window !== "undefined" && "Notification" in window && window.isSecureContext;
+}
+
+function updateBrowserNotifStatus() {
+  const statusEl = document.getElementById("notif-browser-status");
+  const checkbox = document.getElementById("s-notif-browser-enabled");
+  if (typeof window !== "undefined" && "Notification" in window && !window.isSecureContext) {
+    statusEl.textContent = "Browser notifications need HTTPS (or opening this dashboard via localhost) - not available over a plain-HTTP LAN address like this one. Put a reverse proxy with TLS in front if you want this.";
+    checkbox.disabled = true;
+    checkbox.checked = false;
+    return;
+  }
+  if (!browserNotifSupported()) {
+    statusEl.textContent = "Your browser doesn't support notifications.";
+    checkbox.disabled = true;
+    return;
+  }
+  const wantsIt = localStorage.getItem(BROWSER_NOTIF_KEY) === "1";
+  const permission = Notification.permission;
+  checkbox.checked = wantsIt && permission === "granted";
+  if (permission === "denied") {
+    statusEl.textContent = "Blocked at the browser level - allow notifications for this site in your browser's settings to use this.";
+  } else if (wantsIt && permission === "granted") {
+    statusEl.textContent = "Enabled in this browser.";
+  } else {
+    statusEl.textContent = "Off in this browser. Enabling asks your browser to allow popups from this page.";
+  }
+}
+
+document.getElementById("s-notif-browser-enabled").addEventListener("change", async (e) => {
+  if (!browserNotifSupported()) return;
+  if (e.target.checked) {
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      localStorage.setItem(BROWSER_NOTIF_KEY, "1");
+    } else {
+      localStorage.removeItem(BROWSER_NOTIF_KEY);
+    }
+  } else {
+    localStorage.removeItem(BROWSER_NOTIF_KEY);
+  }
+  updateBrowserNotifStatus();
+});
+
+async function pollBrowserAnomalyNotifications() {
+  if (!browserNotifSupported() || Notification.permission !== "granted" || localStorage.getItem(BROWSER_NOTIF_KEY) !== "1") {
+    return;
+  }
+  try {
+    const info = await api("/api/anomalies/count");
+    if (lastKnownAnomalyCount !== null && info.unacknowledged > lastKnownAnomalyCount) {
+      const delta = info.unacknowledged - lastKnownAnomalyCount;
+      new Notification("DNS-shield: new anomaly detected", {
+        body: `${delta} new anomal${delta === 1 ? "y" : "ies"} detected - open the dashboard's Anomalies tab for details.`,
+      });
+    }
+    lastKnownAnomalyCount = info.unacknowledged;
+  } catch (err) {
+  }
+}
+
+updateBrowserNotifStatus();
+pollBrowserAnomalyNotifications();
+setInterval(pollBrowserAnomalyNotifications, 30000);
+
+async function refreshAll() {
+  if (!currentUser) return;
+  await loadStatusAndStats();
+  await loadTrend();
+  await loadQueryLogClients();
+  await loadQueryLog(true);
+  const canViewAnomalies = isAdmin || (currentUser.permissions && currentUser.permissions.view_anomalies);
+  if (canViewAnomalies) await loadAnomalies();
+  if (!isAdmin) return;
+  await loadBlockedTlds();
+  await loadBlocklists();
+  await loadAllowSources();
+  await loadBlocklistCatalog();
+  await loadRules();
+  await loadClientGroups();
+  await loadDhcpScopes();
+  await loadDhcpLeases();
+  await loadProxyDomains();
+  await loadProxyStatus();
+  await loadSettings();
+  await loadLogIgnore();
+  await loadUpstreamHealth();
+  await loadDomainUpstreams();
+  await loadRewrites();
+  await loadAnomalyExclusions();
+  await loadAnomalySubdomainExclusions();
+  await loadTyposquatFpPairs();
+  await loadRebindingFpPairs();
+  await loadThreatIntelFpTargets();
+  await loadAlertDomains();
+  await loadAlertSources();
+  await loadWebhooks();
+  await loadUsers();
+  await loadPasskeys();
+  await loadTokens();
+  await loadAuditLog(true);
+}
+
+document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/dns", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        listen_address: document.getElementById("s-dns-listen-address").value.trim(),
+        listen_port: intField("s-dns-listen-port"),
+        upstream_timeout_seconds: floatField("s-dns-upstream-timeout"),
+        query_acl_enabled: document.getElementById("s-dns-query-acl-enabled").checked,
+        query_acl_extra_networks: document.getElementById("s-dns-query-acl-extra").value.split(",").map((s) => s.trim()).filter(Boolean),
+        block_mode: document.getElementById("s-dns-block-mode").value,
+        blocked_ipv4: document.getElementById("s-dns-blocked-ipv4").value.trim(),
+        blocked_ipv6: document.getElementById("s-dns-blocked-ipv6").value.trim(),
+        block_page_enabled: document.getElementById("s-dns-block-page-enabled").checked,
+        block_page_port: intField("s-dns-block-page-port"),
+        block_ipv6: document.getElementById("s-dns-block-ipv6").checked,
+        block_non_latin: document.getElementById("s-dns-block-non-latin").checked,
+        safe_search_enabled: document.getElementById("s-dns-safe-search-enabled").checked,
+        dnssec_enabled: document.getElementById("s-dns-dnssec-enabled").checked,
+        dnssec_cache_seconds: Number(document.getElementById("s-dns-dnssec-cache-seconds").value) || 3600,
+        typosquat_enabled: document.getElementById("s-dns-typosquat-enabled").checked,
+        typosquat_max_distance: intField("s-dns-typosquat-max-distance"),
+        typosquat_cooldown_minutes: floatField("s-dns-typosquat-cooldown"),
+        typosquat_action: document.getElementById("s-dns-typosquat-action").value,
+        typosquat_redirect_ip: document.getElementById("s-dns-typosquat-redirect-ip").value.trim(),
+        dot_enabled: document.getElementById("s-dns-dot-enabled").checked,
+        dot_port: intField("s-dns-dot-port"),
+        rebinding_protection_enabled: document.getElementById("s-dns-rebinding-enabled").checked,
+        rebinding_action: document.getElementById("s-dns-rebinding-action").value,
+        rebinding_exempt_domains: document.getElementById("s-dns-rebinding-exempt").value.split(",").map((s) => s.trim()).filter(Boolean),
+        local_tld_alert_enabled: document.getElementById("s-dns-local-tld-enabled").checked,
+        local_tld_list: document.getElementById("s-dns-local-tld-list").value.split(",").map((s) => s.trim()).filter(Boolean),
+        local_tld_cooldown_minutes: floatField("s-dns-local-tld-cooldown"),
+        regex_denylist_enabled: document.getElementById("s-dns-regex-denylist-enabled").checked,
+        upstream_strategy: document.getElementById("s-dns-upstream-strategy").value,
+        upstream_stats_window_minutes: floatField("s-dns-upstream-stats-window"),
+        query_case_randomization_enabled: document.getElementById("s-dns-case-randomization-enabled").checked,
+        cache_enabled: document.getElementById("s-dns-cache-enabled").checked,
+        cache_max_entries: intField("s-dns-cache-max-entries"),
+        cache_min_ttl_seconds: intField("s-dns-cache-min-ttl"),
+        cache_max_ttl_seconds: intField("s-dns-cache-max-ttl"),
+        cache_serve_stale_enabled: document.getElementById("s-dns-cache-serve-stale-enabled").checked,
+        cache_stale_grace_seconds: intField("s-dns-cache-stale-grace"),
+        cache_prefetch_enabled: document.getElementById("s-dns-cache-prefetch-enabled").checked,
+        cache_prefetch_before_expiry_seconds: intField("s-dns-cache-prefetch-before"),
+        cache_prefetch_min_hits: intField("s-dns-cache-prefetch-min-hits"),
+        resolve_client_names: document.getElementById("s-dns-resolve-names").checked,
+        client_name_resolver: document.getElementById("s-dns-name-resolver").value.trim(),
+        client_name_cache_seconds: intField("s-dns-name-cache-seconds"),
+      }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("upstreams-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const upstreams = document.getElementById("s-upstreams").value.split("\n").map((s) => s.trim()).filter(Boolean);
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/upstreams", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ upstreams }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("web-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const theme = document.getElementById("s-web-theme").value;
+  const body = {
+    listen_address: document.getElementById("s-web-listen-address").value.trim(),
+    listen_port: intField("s-web-listen-port"),
+    theme,
+    https_enabled: document.getElementById("s-web-https-enabled").checked,
+    https_cert_path: document.getElementById("s-web-https-cert-path").value.trim(),
+    https_key_path: document.getElementById("s-web-https-key-path").value.trim(),
+    login_max_attempts: intField("s-web-login-max-attempts"),
+    login_lockout_minutes: floatField("s-web-login-lockout"),
+    public_view_enabled: document.getElementById("s-web-public-view-enabled").checked,
+    public_url: document.getElementById("s-web-public-url").value.trim(),
+  };
+  document.documentElement.setAttribute("data-theme", theme);
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/web", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("s-web-https-migrate-btn").addEventListener("click", async (evt) => {
+  const button = evt.currentTarget;
+  try {
+    await withSpinner(button, () => api("/api/settings/web/migrate-https", { method: "POST" }), t("common.saving", "Saving..."));
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  document.getElementById("s-web-https-enabled").checked = true;
+  document.getElementById("s-web-https-migrate-field").style.display = "none";
+  showToast(t("toast.https_migrated", "HTTPS enabled - restart the container for it to take effect"));
+});
+
+document.querySelectorAll(".clear-key-btn").forEach((btn) => {
+  btn.addEventListener("click", async (evt) => {
+    const button = evt.currentTarget;
+    const path = button.dataset.path;
+    if (!confirm(t("common.confirm_clear_key", "Clear this saved key? This can't be undone."))) return;
+    try {
+      await withSpinner(button, () => api("/api/settings/clear-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      }), t("common.saving", "Saving..."));
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      return;
+    }
+    document.getElementById(button.dataset.statusId).textContent = "(not set)";
+    document.getElementById(button.dataset.inputId).value = "";
+    showToast(t("toast.key_cleared", "Key cleared"));
+  });
+});
+
+document.getElementById("password-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const current_password = document.getElementById("s-current-password").value;
+  const new_password = document.getElementById("s-new-password").value;
+  if (!new_password) return;
+  try {
+    await withDelayedSpinner(e.submitter, async () => {
+      await api("/api/account/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password, new_password }),
+      });
+    });
+    document.getElementById("s-current-password").value = "";
+    document.getElementById("s-new-password").value = "";
+    alert("Password changed.");
+  } catch (err) {
+    alert("Failed to change password: " + (err && err.message ? err.message : err));
+  }
+});
+
+function splitCsv(value) {
+  return value.split(",").map((v) => v.trim()).filter(Boolean);
+}
+
+function permissionSummary(u) {
+  if (u.role === "admin") return t("users.summary.everything", "everything");
+  const perms = u.permissions || {};
+  const parts = [];
+  if (perms.view_threat_intel) parts.push(t("users.summary.threat_intel", "threat-intel"));
+  if (perms.view_anomalies) parts.push(t("users.summary.anomalies", "anomalies"));
+  if (perms.view_graph) parts.push(t("users.summary.graph", "graph"));
+  if (perms.can_block) parts.push(t("users.summary.can_block", "can block"));
+  if (perms.can_whitelist) parts.push(t("users.summary.can_whitelist", "can whitelist"));
+  if (perms.can_manage_proxy) parts.push(t("users.summary.can_manage_proxy", "can manage reverse proxy"));
+  return parts.length ? parts.join(", ") : t("users.summary.read_only", "read-only");
+}
+
+function allowedSummary(u) {
+  if (u.role === "admin") return t("users.summary.everything", "everything");
+  const perms = u.permissions || {};
+  const parts = [...(perms.allowed_clients || []), ...(perms.allowed_groups || []), ...(perms.allowed_domains || [])];
+  return parts.length ? parts.join(", ") : t("users.summary.nothing_yet", "nothing yet");
+}
+
+function renderTotpStatus() {
+  const enabled = !!(currentUser && currentUser.totp_enabled);
+  document.getElementById("totp-status-text").textContent = enabled
+    ? t("general.2fa_currently_enabled", "Two-factor authentication is currently enabled.")
+    : t("general.2fa_off_hint", "Off by default - adds a second step (an authenticator app code) to signing in.");
+  document.getElementById("totp-disabled-view").style.display = enabled ? "none" : "";
+  document.getElementById("totp-enabled-view").style.display = enabled ? "" : "none";
+  document.getElementById("totp-setup-view").style.display = "none";
+  document.getElementById("totp-backup-codes-view").style.display = "none";
+}
+
+document.getElementById("totp-start-btn").addEventListener("click", async () => {
+  const result = await api("/api/account/totp/setup", { method: "POST" });
+  document.getElementById("totp-qr").innerHTML = result.qr_svg;
+  document.getElementById("totp-manual-secret").textContent = result.secret;
+  document.getElementById("totp-confirm-code").value = "";
+  document.getElementById("totp-confirm-error").textContent = "";
+  document.getElementById("totp-disabled-view").style.display = "none";
+  document.getElementById("totp-setup-view").style.display = "";
+});
+
+document.getElementById("totp-cancel-btn").addEventListener("click", () => {
+  renderTotpStatus();
+});
+
+document.getElementById("totp-confirm-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const code = document.getElementById("totp-confirm-code").value.trim();
+  const errBox = document.getElementById("totp-confirm-error");
+  errBox.textContent = "";
+  try {
+    const result = await api("/api/account/totp/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    currentUser.totp_enabled = true;
+    document.getElementById("totp-setup-view").style.display = "none";
+    document.getElementById("totp-backup-codes-list").textContent = result.backup_codes.join("\n");
+    document.getElementById("totp-backup-codes-view").style.display = "";
+  } catch (err) {
+    errBox.textContent = err.message || "Incorrect code";
+  }
+});
+
+document.getElementById("totp-backup-done-btn").addEventListener("click", () => {
+  renderTotpStatus();
+});
+
+document.getElementById("totp-disable-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const password = document.getElementById("totp-disable-password").value;
+  const errBox = document.getElementById("totp-disable-error");
+  errBox.textContent = "";
+  try {
+    await api("/api/account/totp/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    currentUser.totp_enabled = false;
+    document.getElementById("totp-disable-password").value = "";
+    renderTotpStatus();
+  } catch (err) {
+    errBox.textContent = err.message || "Incorrect password";
+  }
+});
+
+let auditLogRows = [];
+let auditLogLoading = false;
+
+async function loadAuditLog(reset) {
+  if (reset) {
+    auditLogRows = [];
+    document.getElementById("audit-log-rows").innerHTML = "";
+  }
+  if (auditLogLoading) return;
+  auditLogLoading = true;
+  try {
+    const params = new URLSearchParams({ limit: "100" });
+    if (auditLogRows.length) params.set("before_id", auditLogRows[auditLogRows.length - 1].id);
+    const rows = await api(`/api/audit-log?${params}`);
+    auditLogRows = auditLogRows.concat(rows);
+    const tbody = document.getElementById("audit-log-rows");
+    for (const r of rows) {
+      tbody.appendChild(el("tr", {}, [
+        el("td", { text: new Date(r.ts * 1000).toLocaleString() }),
+        el("td", { text: r.username }),
+        el("td", { text: r.action }),
+        el("td", { text: r.client_ip || "-" }),
+      ]));
+    }
+    document.getElementById("audit-log-load-more").style.display = rows.length === 100 ? "" : "none";
+  } finally {
+    auditLogLoading = false;
+  }
+}
+
+document.getElementById("audit-log-load-more").addEventListener("click", () => loadAuditLog(false));
+
+function bufferToBase64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let str = "";
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlToBuffer(base64url) {
+  const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
+  const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const buffer = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) buffer[i] = raw.charCodeAt(i);
+  return buffer.buffer;
+}
+
+async function loadPasskeys() {
+  const passkeys = await api("/api/account/passkeys");
+  const rows = document.getElementById("passkey-rows");
+  rows.innerHTML = "";
+  passkeys.forEach((p) => {
+    const delBtn = ruleDeleteButton("Remove", `/api/account/passkeys/${p.id}`, loadPasskeys);
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: p.name || "-" }),
+      el("td", { text: new Date(p.created_at * 1000).toLocaleString() }),
+      el("td", { text: p.last_used_at ? new Date(p.last_used_at * 1000).toLocaleString() : "never" }),
+      el("td", {}, [delBtn]),
+    ]));
+  });
+}
+
+document.getElementById("passkey-register-btn").addEventListener("click", async () => {
+  const errBox = document.getElementById("passkey-register-error");
+  errBox.textContent = "";
+  if (!window.PublicKeyCredential) {
+    errBox.textContent = "This browser doesn't support passkeys/WebAuthn.";
+    return;
+  }
+  const name = prompt('Name this passkey (e.g. "YubiKey", "Laptop Touch ID")');
+  if (!name) return;
+  const btn = document.getElementById("passkey-register-btn");
+  btn.disabled = true;
+  btn.textContent = "Waiting for your passkey...";
+  try {
+    const { token, options } = await api("/api/account/passkeys/register/options", { method: "POST" });
+    const opts = JSON.parse(options);
+    opts.challenge = base64urlToBuffer(opts.challenge);
+    opts.user.id = base64urlToBuffer(opts.user.id);
+    if (opts.excludeCredentials) {
+      for (const c of opts.excludeCredentials) c.id = base64urlToBuffer(c.id);
+    }
+    const credential = await navigator.credentials.create({ publicKey: opts });
+    const credentialJson = {
+      id: credential.id,
+      rawId: bufferToBase64url(credential.rawId),
+      type: credential.type,
+      response: {
+        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+        attestationObject: bufferToBase64url(credential.response.attestationObject),
+      },
+    };
+    await api("/api/account/passkeys/register/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, name, credential: credentialJson }),
+    });
+    loadPasskeys();
+  } catch (err) {
+    errBox.textContent = err.message || "Could not register passkey";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Add a passkey";
+  }
+});
+
+async function loadTokens() {
+  const tokens = await api("/api/account/tokens");
+  const rows = document.getElementById("token-rows");
+  rows.innerHTML = "";
+  tokens.forEach((t) => {
+    const revokeBtn = el("button", { class: "danger", text: "Revoke" });
+    revokeBtn.onclick = async () => {
+      if (!confirm(`Revoke the token "${t.name}"? Anything using it will stop working immediately.`)) return;
+      try {
+        await withSpinner(revokeBtn, () => api(`/api/account/tokens/${t.id}`, { method: "DELETE" }), t("common.saving", "Saving..."));
+        loadTokens();
+      } catch (err) {
+        alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+      }
+    };
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: t.name }),
+      el("td", { text: new Date(t.created_at * 1000).toLocaleString() }),
+      el("td", { text: t.last_used_at ? new Date(t.last_used_at * 1000).toLocaleString() : "never" }),
+      el("td", {}, [revokeBtn]),
+    ]));
+  });
+}
+
+document.getElementById("add-token-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("token-name").value.trim();
+  if (!name) return;
+  const result = await api("/api/account/tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  e.target.reset();
+  const box = document.getElementById("new-token-box");
+  box.style.display = "";
+  box.innerHTML = "";
+  box.appendChild(el("strong", { text: "Copy this token now - it won't be shown again: " }));
+  const code = el("code", { text: result.token });
+  box.appendChild(code);
+  box.appendChild(copyButton(result.token));
+  loadTokens();
+});
+
+async function loadUsers() {
+  const tbody = document.getElementById("users-rows");
+  if (!tbody) return;
+  let list;
+  try {
+    list = await api("/api/users");
+  } catch (err) {
+    return;
+  }
+  tbody.innerHTML = "";
+  for (const u of list) {
+    const tr = el("tr", {}, [
+      el("td", { text: u.username + (u.sso ? " (SSO)" : "") }),
+      el("td", { text: u.role }),
+      el("td", { text: allowedSummary(u) }),
+      el("td", { text: permissionSummary(u) }),
+    ]);
+    const actions = el("td");
+    const delBtn = el("button", { type: "button", class: "secondary", text: "Delete" });
+    delBtn.onclick = async () => {
+      if (!confirm(`Delete user "${u.username}"?`)) return;
+      try {
+        await withSpinner(delBtn, () => api("/api/users/" + encodeURIComponent(u.username), { method: "DELETE" }), t("common.saving", "Saving..."));
+        loadUsers();
+      } catch (err) {
+        alert("Failed to delete user: " + (err && err.message ? err.message : err));
+      }
+    };
+    actions.appendChild(delBtn);
+    tr.appendChild(actions);
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById("user-create-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    username: document.getElementById("u-username").value.trim(),
+    password: document.getElementById("u-password").value,
+    role: document.getElementById("u-role").value,
+    permissions: {
+      allowed_clients: splitCsv(document.getElementById("u-allowed-clients").value),
+      allowed_groups: splitCsv(document.getElementById("u-allowed-groups").value),
+      allowed_domains: splitCsv(document.getElementById("u-allowed-domains").value),
+      view_threat_intel: document.getElementById("u-view-threat-intel").checked,
+      view_anomalies: document.getElementById("u-view-anomalies").checked,
+      view_graph: document.getElementById("u-view-graph").checked,
+      can_block: document.getElementById("u-can-block").checked,
+      can_whitelist: document.getElementById("u-can-whitelist").checked,
+      can_manage_proxy: document.getElementById("u-can-manage-proxy").checked,
+    },
+  };
+  try {
+    await api("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    e.target.reset();
+    loadUsers();
+  } catch (err) {
+    alert("Failed to add user: " + (err && err.message ? err.message : err));
+  }
+});
+
+document.getElementById("logging-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/logging", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ retention_days: floatField("s-retention-days") }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("blocklist-refresh-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/blocklists", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_interval_hours: floatField("s-refresh-interval") }),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("enrichment-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    public_enabled: document.getElementById("s-enrich-public-enabled").checked,
+    rdap_enabled: document.getElementById("s-enrich-rdap-enabled").checked,
+    crtsh_enabled: document.getElementById("s-enrich-crtsh-enabled").checked,
+    ipinfo_enabled: document.getElementById("s-enrich-ipinfo-enabled").checked,
+    ai_enabled: document.getElementById("s-enrich-ai-enabled").checked,
+    local_enabled: document.getElementById("s-enrich-local-enabled").checked,
+    local_url: document.getElementById("s-enrich-local-url").value.trim(),
+    alert_enabled: document.getElementById("s-enrich-alert-enabled").checked,
+    alert_min_severity: document.getElementById("s-enrich-alert-min-severity").value,
+    auto_enrich_enabled: document.getElementById("s-enrich-auto-enabled").checked,
+    auto_enrich_interval_seconds: floatField("s-enrich-auto-interval"),
+    auto_enrich_max_per_check: intField("s-enrich-auto-max-per-check"),
+  };
+  const vt = document.getElementById("s-vt-key").value.trim();
+  const abuse = document.getElementById("s-abuseipdb-key").value.trim();
+  const otx = document.getElementById("s-otx-key").value.trim();
+  const greynoise = document.getElementById("s-greynoise-key").value.trim();
+  const shodan = document.getElementById("s-shodan-key").value.trim();
+  const urlhaus = document.getElementById("s-urlhaus-key").value.trim();
+  const ipinfoKey = document.getElementById("s-enrich-ipinfo-key").value.trim();
+  const aiKey = document.getElementById("s-enrich-ai-key").value.trim();
+  const localKey = document.getElementById("s-enrich-local-key").value.trim();
+  if (vt) body.virustotal_api_key = vt;
+  if (abuse) body.abuseipdb_api_key = abuse;
+  if (otx) body.otx_api_key = otx;
+  if (greynoise) body.greynoise_api_key = greynoise;
+  if (shodan) body.shodan_api_key = shodan;
+  if (urlhaus) body.urlhaus_api_key = urlhaus;
+  if (ipinfoKey) body.ipinfo_api_key = ipinfoKey;
+  if (aiKey) body.ai_api_key = aiKey;
+  if (localKey) body.local_api_key = localKey;
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/enrichment", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  });
+  refreshAll();
+});
+
+document.getElementById("add-allow-source-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("as-name").value.trim();
+  const url = document.getElementById("as-url").value.trim();
+  if (!name || !url) return;
+  await withSpinner(e.submitter, async () => {
+    await api("/api/allow-sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, enabled: true }),
+    });
+  });
+  e.target.reset();
+  refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
+});
+
+document.getElementById("add-domain-upstream-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("du-name").value.trim();
+  const domains = document.getElementById("du-domains").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const upstreams = document.getElementById("du-upstreams").value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!domains.length || !upstreams.length) return;
+  await api("/api/domain-upstreams", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: name || domains[0], domains, upstreams }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-rewrite-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("rw-name").value.trim();
+  const type = document.getElementById("rw-type").value;
+  const value = document.getElementById("rw-value").value.trim();
+  const ttl = document.getElementById("rw-ttl").value;
+  if (!name || !value) return;
+  await api("/api/rewrites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, type, value, ttl: ttl ? parseInt(ttl, 10) : null }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("import-backup-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById("backup-file");
+  const resultEl = document.getElementById("import-backup-result");
+  if (!fileInput.files.length) return;
+  if (!confirm("Replace your ENTIRE current configuration with this backup? This cannot be undone.")) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  resultEl.innerHTML = "";
+  resultEl.appendChild(el("p", { class: "muted", text: "Restoring..." }));
+
+  try {
+    const res = await fetch("/api/import/backup", { method: "POST", body: formData, headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
+    if (res.status === 401) {
+      document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+      return;
+    }
+    const data = await res.json();
+    resultEl.innerHTML = "";
+    if (!res.ok) {
+      resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Restore failed" }), document.createTextNode(" " + (data.detail || "unknown error"))]));
+      return;
+    }
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag allowed", text: "Restored" })]));
+    fileInput.value = "";
+    refreshAll();
+  } catch (err) {
+    resultEl.innerHTML = "";
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Restore failed" }), document.createTextNode(" " + err.message)]));
+  }
+});
+
+document.getElementById("import-adguard-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById("adguard-file");
+  const resultEl = document.getElementById("import-adguard-result");
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  resultEl.innerHTML = "";
+  resultEl.appendChild(el("p", { class: "muted", text: "Importing..." }));
+
+  try {
+    const res = await fetch("/api/import/adguard", { method: "POST", body: formData, headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
+    if (res.status === 401) {
+      document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+      return;
+    }
+    const data = await res.json();
+    resultEl.innerHTML = "";
+    if (!res.ok) {
+      resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + (data.detail || "unknown error"))]));
+      return;
+    }
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag allowed", text: "Imported" })]));
+    if (data.warnings && data.warnings.length) {
+      const list = document.createElement("ul");
+      for (const w of data.warnings) {
+        const li = document.createElement("li");
+        li.textContent = w;
+        list.appendChild(li);
+      }
+      resultEl.appendChild(list);
+    }
+    fileInput.value = "";
+    refreshAll();
+  } catch (err) {
+    resultEl.innerHTML = "";
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + err.message)]));
+  }
+});
+
+document.getElementById("import-pihole-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById("pihole-file");
+  const resultEl = document.getElementById("import-pihole-result");
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  resultEl.innerHTML = "";
+  resultEl.appendChild(el("p", { class: "muted", text: "Importing..." }));
+
+  try {
+    const res = await fetch("/api/import/pihole", { method: "POST", body: formData, headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
+    if (res.status === 401) {
+      document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+      return;
+    }
+    const data = await res.json();
+    resultEl.innerHTML = "";
+    if (!res.ok) {
+      resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + (data.detail || "unknown error"))]));
+      return;
+    }
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag allowed", text: "Imported" })]));
+    if (data.warnings && data.warnings.length) {
+      const list = document.createElement("ul");
+      for (const w of data.warnings) {
+        const li = document.createElement("li");
+        li.textContent = w;
+        list.appendChild(li);
+      }
+      resultEl.appendChild(list);
+    }
+    fileInput.value = "";
+    refreshAll();
+  } catch (err) {
+    resultEl.innerHTML = "";
+    resultEl.appendChild(el("p", {}, [el("span", { class: "tag blocked", text: "Import failed" }), document.createTextNode(" " + err.message)]));
+  }
+});
+
+document.getElementById("export-config-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("export-config-btn");
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Preparing...";
+  try {
+    const res = await fetch("/api/export");
+    if (res.status === 401) {
+      document.body.innerHTML = "<p style='padding:2rem'>Unauthorized. Reload and re-enter credentials.</p>";
+      return;
+    }
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : "dnsshield-backup.zip";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert("Backup failed: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
+document.getElementById("add-group-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("group-name").value.trim();
+  const match = document.getElementById("group-match").value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+  const enabled = document.getElementById("group-enabled").checked;
+  if (!name || !match.length) return;
+  try {
+    await api("/api/client-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, match, enabled, allowlist: [], denylist: [] }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("clear-cache").addEventListener("click", async () => {
+  await api("/api/cache/clear", { method: "POST" });
+  refreshAll();
+});
+
+document.getElementById("add-blocklist-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("bl-name").value.trim();
+  const url = document.getElementById("bl-url").value.trim();
+  if (!name || !url) return;
+  await withSpinner(e.submitter, async () => {
+    await api("/api/blocklists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, enabled: true }),
+    });
+  });
+  e.target.reset();
+  refreshAll();
+  showToast(t("toast.list_added", "List added") + `: ${name}`);
+});
+
+document.getElementById("refresh-blocklists").addEventListener("click", async () => {
+  await api("/api/blocklists/refresh", { method: "POST" });
+  refreshAll();
+});
+
+document.getElementById("add-allow-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = document.getElementById("allow-domain").value.trim();
+  if (!domain) return;
+  await api("/api/rules/allow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-blocked-tld-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = document.getElementById("blocked-tld").value.trim();
+  if (!value) return;
+  try {
+    await api("/api/blocked-tlds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-deny-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = document.getElementById("deny-domain").value.trim();
+  if (!domain) return;
+  await api("/api/rules/deny", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-deny-regex-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const pattern = document.getElementById("deny-regex").value.trim();
+  if (!pattern) return;
+  try {
+    await api("/api/rules/deny-regex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pattern }),
+    });
+  } catch (err) {
+    alert("Could not add pattern: " + err.message);
+    return;
+  }
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-blocked-client-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = document.getElementById("blocked-client-value").value.trim();
+  if (!value) return;
+  await api("/api/rules/deny-client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-deny-answer-ip-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = document.getElementById("deny-answer-ip").value.trim();
+  if (!value) return;
+  await api("/api/rules/deny-answer-ip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-answer-ip-source-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("answer-ip-source-name").value.trim();
+  const url = document.getElementById("answer-ip-source-url").value.trim();
+  if (!name || !url) return;
+  await api("/api/answer-ip-sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, url }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-typosquat-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = document.getElementById("typosquat-domain").value.trim();
+  if (!domain) return;
+  await api("/api/typosquat-domains", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain }),
+  });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("query-log-filter-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  saveQueryLogFilters();
+  loadQueryLog(true);
+});
+
+document.getElementById("query-log-clear").addEventListener("click", () => {
+  document.getElementById("query-log-filter-form").reset();
+  saveQueryLogFilters();
+  loadQueryLogClients();
+  loadQueryLog(true);
+});
+
+document.getElementById("ql-group").addEventListener("change", () => loadQueryLogClients());
+
+document.getElementById("query-log-load-more").addEventListener("click", () => {
+  queryLogOffset += QUERY_LOG_PAGE_SIZE;
+  loadQueryLog(false);
+});
+
+document.getElementById("ql-show-unblocked").addEventListener("change", () => {
+  saveQueryLogFilters();
+  loadQueryLog(true);
+});
+
+document.getElementById("query-log-purge").addEventListener("click", async () => {
+  if (!confirm("Delete every logged query from stats.db? This cannot be undone.")) return;
+  await api("/api/query-log", { method: "DELETE" });
+  document.getElementById("query-log-filter-form").reset();
+  loadQueryLog(true);
+});
+
+document.getElementById("pause-btn").addEventListener("click", async () => {
+  const raw = document.getElementById("pause-duration").value;
+  const seconds = raw ? parseInt(raw, 10) : null;
+  await api("/api/pause", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ seconds }),
+  });
+  loadStatusAndStats();
+});
+
+document.getElementById("resume-btn").addEventListener("click", async () => {
+  await api("/api/resume", { method: "POST" });
+  loadStatusAndStats();
+});
+
+const TAB_NAMES = ["logs", "anomalies", "stats", "graph", "settings"];
+
+function setActiveTab(tab) {
+  if (!TAB_NAMES.includes(tab)) tab = "logs";
+  for (const btn of document.querySelectorAll(".tab-btn")) {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  }
+  for (const name of TAB_NAMES) {
+    document.getElementById("tab-" + name).classList.toggle("active", name === tab);
+  }
+  localStorage.setItem("dnsshield-tab", tab);
+  if (tab === "graph" && currentUser) loadGraph();
+}
+
+for (const btn of document.querySelectorAll(".tab-btn")) {
+  btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+}
+
+document.getElementById("find-domain-btn").addEventListener("click", openFindDomainWindow);
+
+const SUBTAB_NAMES = ["general", "users", "sso", "auditlog", "dns", "logging", "threat-intel", "anomalies", "notifications", "import", "blocklists", "ownlists", "clients", "cleans", "dhcp", "proxy"];
+
+function setActiveSubtab(subtab) {
+  if (!SUBTAB_NAMES.includes(subtab)) subtab = "dns";
+  for (const btn of document.querySelectorAll(".subtab-btn")) {
+    btn.classList.toggle("active", btn.dataset.subtab === subtab);
+  }
+  for (const name of SUBTAB_NAMES) {
+    document.getElementById("subtab-" + name).classList.toggle("active", name === subtab);
+  }
+  localStorage.setItem("dnsshield-settings-subtab", subtab);
+}
+
+for (const btn of document.querySelectorAll(".subtab-btn")) {
+  btn.addEventListener("click", () => setActiveSubtab(btn.dataset.subtab));
+}
+
+function buildSettingsSearchIndex() {
+  const index = [];
+  for (const subtabName of SUBTAB_NAMES) {
+    const panel = document.getElementById("subtab-" + subtabName);
+    if (!panel) continue;
+    const btn = document.querySelector(`.subtab-btn[data-subtab="${subtabName}"]`);
+    const subtabLabel = btn ? btn.textContent.trim() : subtabName;
+    for (const lbl of panel.querySelectorAll("label, h2, h3, legend")) {
+      const text = lbl.textContent.trim();
+      if (!text) continue;
+      const target = lbl.tagName === "LABEL" ? (lbl.closest(".field") || lbl.parentElement) : lbl;
+      index.push({ subtab: subtabName, subtabLabel, text, target });
+    }
+  }
+  return index;
+}
+
+function renderSettingsSearchResults(query) {
+  const resultsEl = document.getElementById("settings-search-results");
+  resultsEl.innerHTML = "";
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    resultsEl.classList.remove("open");
+    return;
+  }
+  const matches = buildSettingsSearchIndex()
+    .filter((item) => item.text.toLowerCase().includes(q))
+    .slice(0, 10);
+  if (matches.length === 0) {
+    resultsEl.appendChild(el("div", { class: "settings-search-empty", text: t("settings.search_no_results", "No matching settings") }));
+    resultsEl.classList.add("open");
+    return;
+  }
+  for (const m of matches) {
+    const item = el("div", { class: "settings-search-result" }, [
+      el("span", { text: m.text }),
+      el("span", { class: "settings-search-result-subtab", text: m.subtabLabel }),
+    ]);
+    item.onclick = () => {
+      setActiveSubtab(m.subtab);
+      resultsEl.classList.remove("open");
+      const input = document.getElementById("settings-search");
+      input.value = "";
+      setTimeout(() => {
+        m.target.scrollIntoView({ behavior: "smooth", block: "center" });
+        m.target.classList.add("settings-search-highlight");
+        setTimeout(() => m.target.classList.remove("settings-search-highlight"), 1600);
+      }, 60);
+    };
+    resultsEl.appendChild(item);
+  }
+  resultsEl.classList.add("open");
+}
+
+const settingsSearchInput = document.getElementById("settings-search");
+if (settingsSearchInput) {
+  settingsSearchInput.addEventListener("input", (e) => renderSettingsSearchResults(e.target.value));
+  settingsSearchInput.addEventListener("focus", (e) => {
+    if (e.target.value.trim()) renderSettingsSearchResults(e.target.value);
+  });
+  settingsSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      settingsSearchInput.value = "";
+      document.getElementById("settings-search-results").classList.remove("open");
+      settingsSearchInput.blur();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#settings-search-wrap")) {
+      document.getElementById("settings-search-results").classList.remove("open");
+    }
+  });
+}
+
+document.getElementById("stats-range").value = trendRange;
+document.getElementById("stats-range").addEventListener("change", (e) => {
+  trendRange = e.target.value;
+  localStorage.setItem("dnsshield-trend-range", trendRange);
+  loadTrend();
+});
+
+async function renderPublicView() {
+  document.getElementById("tabs").style.display = "none";
+  document.getElementById("pause-bar").style.display = "none";
+  document.getElementById("cards").style.display = "none";
+  for (const id of ["top-domains-rows", "top-clients-rows", "qtype-rows", "block-reason-rows"]) {
+    const table = document.getElementById(id).closest("section");
+    if (table) table.style.display = "none";
+  }
+  document.getElementById("tab-stats").classList.add("active");
+
+  const res = await fetch("/api/public/summary");
+  if (res.status === 404) {
+    // Public view switched off (the default): go straight to sign-in.
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+    return;
+  }
+  const data = await res.json();
+  renderTrendLegend();
+  renderTrendChart(data.timeseries);
+
+  const rows = document.getElementById("top-blocked-rows");
+  rows.innerHTML = "";
+  for (const [domain, count] of data.top_blocked_domains) {
+    rows.appendChild(el("tr", {}, [
+      el("td", { text: domain, "data-label": "Domain" }),
+      el("td", { text: count, "data-label": "Count" }),
+    ]));
+  }
+}
+
+function renderAuthStatus() {
+  const el2 = document.getElementById("auth-status");
+  el2.innerHTML = "";
+  if (!currentUser) {
+    const link = el("a", { href: "/login", text: t("auth.sign-in", "Sign in") });
+    link.style.color = "var(--accent)";
+    el2.appendChild(link);
+    return;
+  }
+  el2.appendChild(document.createTextNode(`${currentUser.username} (${currentUser.role}) `));
+  const logoutBtn = el("button", { type: "button", class: "secondary", text: t("auth.sign-out", "Sign out"), style: "margin-left:0.5rem;" });
+  logoutBtn.onclick = async () => {
+    await fetch("/api/logout", { method: "POST", headers: { "X-CSRF-Token": getCookie("dnsshield_csrf") || "" } });
+    location.reload();
+  };
+  el2.appendChild(logoutBtn);
+}
+
+function applyRoleVisibility() {
+  if (isAdmin) return;
+  document.querySelector('.tab-btn[data-tab="settings"]').style.display = "none";
+  const canViewAnomalies = currentUser.permissions && currentUser.permissions.view_anomalies;
+  document.querySelector('.tab-btn[data-tab="anomalies"]').style.display = canViewAnomalies ? "" : "none";
+  const canViewGraph = currentUser.permissions && currentUser.permissions.view_graph;
+  document.querySelector('.tab-btn[data-tab="graph"]').style.display = canViewGraph ? "" : "none";
+  document.getElementById("pause-bar").style.display = "none";
+  const savedTab = localStorage.getItem("dnsshield-tab");
+  if (
+    savedTab === "settings" ||
+    (savedTab === "anomalies" && !canViewAnomalies) ||
+    (savedTab === "graph" && !canViewGraph)
+  ) {
+    localStorage.setItem("dnsshield-tab", "logs");
+  }
+}
+
+async function loadLanguageOptions() {
+  let languages;
+  try {
+    languages = await fetch("/api/languages").then((r) => r.json());
+  } catch (err) {
+    return;
+  }
+  const select = document.getElementById("s-account-language");
+  const current = select.value;
+  select.querySelectorAll("option:not([value=\"\"])").forEach((opt) => opt.remove());
+  for (const lang of languages) {
+    const opt = document.createElement("option");
+    opt.value = lang.code;
+    opt.textContent = lang.name;
+    select.appendChild(opt);
+  }
+  select.value = current;
+}
+
+async function boot() {
+  let whoami;
+  try {
+    whoami = await fetch("/api/whoami").then((r) => r.json());
+  } catch (err) {
+    whoami = { user: null, enrichment_available: false };
+  }
+  currentUser = whoami.user;
+  isAdmin = !!currentUser && currentUser.role === "admin";
+  currentLang = currentUser && currentUser.language ? currentUser.language : detectBrowserLang();
+  await loadLanguageDict(currentLang);
+  applyI18n();
+  renderAuthStatus();
+  loadLanguageOptions();
+
+  if (!currentUser) {
+    await renderPublicView();
+    setInterval(renderPublicView, 30000);
+    return;
+  }
+
+  if (currentUser.must_change_password) {
+    showForcedPasswordChange();
+    return;
+  }
+
+  enrichmentAvailable = !!whoami.enrichment_available && (isAdmin || (currentUser.permissions && currentUser.permissions.view_threat_intel));
+  applyRoleVisibility();
+  setActiveTab(localStorage.getItem("dnsshield-tab"));
+  setActiveSubtab(localStorage.getItem("dnsshield-settings-subtab"));
+  document.getElementById("my-username").textContent = currentUser.username;
+  document.getElementById("s-account-language").value = currentUser.language || "";
+  renderTotpStatus();
+  await loadQueryLogClients();
+  restoreQueryLogFilters();
+  if (document.getElementById("ql-group").value) await loadQueryLogClients();
+
+  await refreshAll();
+  setInterval(() => { loadStatusAndStats(); loadTrend(); loadQueryLog(true); }, 10000);
+}
+
+document.getElementById("language-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const language = document.getElementById("s-account-language").value;
+  const updated = await withDelayedSpinner(e.submitter, async () => {
+    return await api("/api/account/language", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language }),
+    });
+  });
+  currentUser = updated;
+  currentLang = currentUser.language ? currentUser.language : detectBrowserLang();
+  await loadLanguageDict(currentLang);
+  applyI18n();
+  renderAuthStatus();
+});
+
+boot();
