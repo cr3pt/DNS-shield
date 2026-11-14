@@ -51,6 +51,7 @@ class ConfigStore:
 
         self._init_schema()
         self._data = self._load_initial()
+        self._version = 0
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=10)
@@ -115,14 +116,32 @@ class ConfigStore:
             return default if node is None else node
 
     def mutate(self, fn) -> Any:
+        """Apply `fn` to a private copy of the config, save it, then swap it in.
+
+        Copy-on-write: readers on other threads (every DNS query reads the
+        config) only ever see a complete old or a complete new version - never
+        a list or dict that's being changed under them - and a failing `fn`
+        leaves the live config untouched."""
         with self._lock:
-            result = fn(self._data)
-            self._save_to_db(self._data)
+            data = copy.deepcopy(self._data)
+            result = fn(data)
+            self._save_to_db(data)
+            self._data = data
+            self._version += 1
             return result
+
+    @property
+    def version(self) -> int:
+        """Increases on every change (local mutate, or a reload that found a
+        different config), so callers can cache values derived from it."""
+        return self._version
 
     def reload(self) -> None:
         with self._lock:
-            self._data = self._load_initial()
+            data = self._load_initial()
+            if data != self._data:
+                self._data = data
+                self._version += 1
 
     def start_reload_thread(self, interval_seconds: float = 5.0) -> None:
         def _loop() -> None:
