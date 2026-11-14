@@ -20,7 +20,7 @@ import regex
 import requests
 
 from app.netmatch import best_matching_group, client_matches
-from app.schedule import is_schedule_blocked
+from app.schedule import group_access_override, is_schedule_blocked
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
 from app.upstream import matches_domain_or_parent, protected_hostnames
 from app.url_safety import check_public_url, public_dns_guard
@@ -335,7 +335,10 @@ class BlocklistManager:
         # their internet back.
         if self._is_client_blocked(client_ip):
             return "Client blocked (manually)"
-        if group is not None and is_schedule_blocked(group.get("schedule")):
+        override = group_access_override(group)
+        if override == "off":
+            return f'Internet off (client group "{group.get("name", "")}")'
+        if override is None and group is not None and is_schedule_blocked(group.get("schedule")):
             return f'Scheduled block (client group "{group.get("name", "")}")'
         if self.is_paused():
             return None

@@ -753,5 +753,17 @@
   "dns.doq": "클라이언트용 DNS-over-QUIC(DoQ)",
   "dns.doq_accept": "아래 UDP 포트에서 클라이언트의 DNS-over-QUIC(DoQ) 허용 (재시작 필요)",
   "dns.doq_port": "DoQ 리슨 포트 (UDP)",
-  "dns.hint.doq": "RFC 9250, AdGuard 앱과 dnsproxy 등에서 사용합니다. DoT 및 대시보드 HTTPS와 같은 인증서를 사용하므로 자체 서명 인증서에 대한 같은 주의 사항이 적용됩니다. DoT는 TCP, DoQ는 UDP이므로 853 포트를 DoT와 함께 쓸 수 있습니다. 메인 프로세스에서만 실행됩니다."
+  "dns.hint.doq": "RFC 9250, AdGuard 앱과 dnsproxy 등에서 사용합니다. DoT 및 대시보드 HTTPS와 같은 인증서를 사용하므로 자체 서명 인증서에 대한 같은 주의 사항이 적용됩니다. DoT는 TCP, DoQ는 UDP이므로 853 포트를 DoT와 함께 쓸 수 있습니다. 메인 프로세스에서만 실행됩니다.",
+  "groups.access_normal": "인터넷: 정상 (일정과 필터링 적용)",
+  "groups.access_off_indef": "인터넷: 다시 켤 때까지 꺼짐",
+  "groups.access_off_until": "인터넷: 꺼짐, 종료 시각",
+  "groups.access_on_until": "인터넷: 허용됨 (일정 일시 해제), 종료 시각",
+  "groups.access_off_for": "인터넷 끄기 시간",
+  "groups.access_until_on": "다시 켤 때까지",
+  "groups.access_off_btn": "인터넷 끄기",
+  "groups.access_allow_for": "인터넷 허용 시간",
+  "groups.access_allow_btn": "지금 허용",
+  "groups.access_on_btn": "인터넷 다시 켜기",
+  "groups.access_end_btn": "예외 종료",
+  "groups.access_hint": "인터넷 끄기는 필터링이 일시 중지된 동안에도 이 그룹 기기의 모든 조회를 차단합니다. '지금 허용'은 선택한 시간 동안 취침 일정(및 인터넷 끄기)을 해제합니다. 기기는 이미 확인된 주소를 1~2분 더 사용할 수 있습니다."
 }

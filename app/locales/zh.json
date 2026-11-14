@@ -753,5 +753,17 @@
   "dns.doq": "面向客户端的 DNS-over-QUIC (DoQ)",
   "dns.doq_accept": "在下方 UDP 端口接受客户端的 DNS-over-QUIC (DoQ)(需要重启)",
   "dns.doq_port": "DoQ 监听端口 (UDP)",
-  "dns.hint.doq": "RFC 9250,AdGuard 应用和 dnsproxy 等会使用。与 DoT 和仪表盘 HTTPS 使用同一证书,因此关于自签名证书的提醒同样适用。由于 DoT 使用 TCP、DoQ 使用 UDP,二者可共用 853 端口。仅在主进程中运行。"
+  "dns.hint.doq": "RFC 9250,AdGuard 应用和 dnsproxy 等会使用。与 DoT 和仪表盘 HTTPS 使用同一证书,因此关于自签名证书的提醒同样适用。由于 DoT 使用 TCP、DoQ 使用 UDP,二者可共用 853 端口。仅在主进程中运行。",
+  "groups.access_normal": "网络:正常(计划和过滤生效)",
+  "groups.access_off_indef": "网络:已关闭,直到重新开启",
+  "groups.access_off_until": "网络:已关闭,直到",
+  "groups.access_on_until": "网络:已允许(计划暂停),直到",
+  "groups.access_off_for": "关闭网络时长",
+  "groups.access_until_on": "直到重新开启",
+  "groups.access_off_btn": "关闭网络",
+  "groups.access_allow_for": "允许网络时长",
+  "groups.access_allow_btn": "立即允许",
+  "groups.access_on_btn": "重新开启网络",
+  "groups.access_end_btn": "结束例外",
+  "groups.access_hint": "关闭网络会拦截该组设备的所有查询,即使过滤已暂停。“立即允许”会在所选时间内暂停就寝计划(以及关闭网络)。设备可能还会在一两分钟内使用已解析的地址。"
 }

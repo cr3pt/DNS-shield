@@ -754,5 +754,17 @@
   "dns.doq": "DNS-over-QUIC (DoQ) for clients",
   "dns.doq_accept": "Accept DNS-over-QUIC (DoQ) from clients on the UDP port below (requires restart)",
   "dns.doq_port": "DoQ listen port (UDP)",
-  "dns.hint.doq": "RFC 9250, used by e.g. AdGuard apps and dnsproxy. Uses the same certificate as DoT and the dashboard's HTTPS, so the same caveat about self-signed certificates applies. It can share port 853 with DoT, since DoT is TCP and DoQ is UDP. Runs only in the main process."
+  "dns.hint.doq": "RFC 9250, used by e.g. AdGuard apps and dnsproxy. Uses the same certificate as DoT and the dashboard's HTTPS, so the same caveat about self-signed certificates applies. It can share port 853 with DoT, since DoT is TCP and DoQ is UDP. Runs only in the main process.",
+  "groups.access_normal": "Internet: normal (schedule and filtering apply)",
+  "groups.access_off_indef": "Internet: OFF until turned back on",
+  "groups.access_off_until": "Internet: OFF until",
+  "groups.access_on_until": "Internet: allowed (schedule lifted) until",
+  "groups.access_off_for": "Turn internet off for",
+  "groups.access_until_on": "until turned back on",
+  "groups.access_off_btn": "Turn internet off",
+  "groups.access_allow_for": "Allow internet for",
+  "groups.access_allow_btn": "Allow now",
+  "groups.access_on_btn": "Turn internet back on",
+  "groups.access_end_btn": "End override",
+  "groups.access_hint": "Internet off blocks every lookup from this group's devices, even while filtering is paused. Allow now lifts the bedtime schedule (and an internet-off) for the chosen time. Devices may keep already-resolved addresses for a minute or two."
 }
