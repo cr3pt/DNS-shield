@@ -202,6 +202,7 @@ dns:
   cache_max_entries: 10000
   cache_min_ttl_seconds: 0        # floor applied to cached TTLs
   cache_max_ttl_seconds: 3600     # cap applied to cached TTLs
+  cache_negative_max_ttl_seconds: 300  # cap for cached "no such name/record" answers; 0 = don't cache them
   resolve_client_names: false    # reverse-DNS client IPs for display (see below)
   client_name_resolver: ""       # e.g. "192.168.1.1:53" - your router, not an upstream
   client_name_cache_seconds: 3600
@@ -895,7 +896,11 @@ if you need a specific exception. Off by default.
 keyed by domain+record type, for as long as their own TTL says they're
 valid - clamped between `cache_min_ttl_seconds` and `cache_max_ttl_seconds`
 (handy if some upstream returns unusually short/long TTLs you don't
-trust) and bounded to `cache_max_entries` with LRU eviction. A repeat
+trust) and bounded to `cache_max_entries` with LRU eviction. "No such
+name" (NXDOMAIN) and "no record of this type" (NODATA) answers are cached
+too, for as long as the zone's SOA allows (RFC 2308), at most
+`cache_negative_max_ttl_seconds` (default 300; 0 turns this off) - so the
+AAAA lookups that IPv4-only names fail, and typos, don't go upstream each time. A repeat
 lookup for anything still cached is answered immediately, without
 forwarding to an upstream at all - lower latency and less outbound query
 volume for the CDN/ad/tracker hostnames that make up most repeat

@@ -16,11 +16,15 @@ from dnslib import QTYPE, RCODE, RR, DNSBuffer, DNSError, DNSRecord
 # client profile (SafeSearch, client-group upstreams), so one client's answer is
 # never served to a client with a different policy. "" = the default profile.
 CacheKey = tuple[str, int, int, str]
-CacheEntry = tuple[float, list[RR], int]
+# (expires_at, answers, hits, negative). negative is None for a normal answer,
+# or (rcode, authority records) for a cached NXDOMAIN / NODATA (RFC 2308).
+Negative = tuple[int, list[RR]]
+CacheEntry = tuple[float, list[RR], int, Negative | None]
 
 _DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
 _EDNS_DO_BIT = 1 << 15
 _PERSIST_VERSION = 2
+DEFAULT_NEGATIVE_MAX_TTL = 300
 
 
 class DNSCache:
@@ -61,21 +65,29 @@ class DNSCache:
             if entry is None:
                 self._misses += 1
                 return None
-            expires_at, answers, hits = entry
+            expires_at, answers, hits, negative = entry
             remaining = expires_at - time.time()
             if remaining <= 0:
                 self._misses += 1
                 return None
-            self._store[key] = (expires_at, answers, hits + 1)
+            self._store[key] = (expires_at, answers, hits + 1, negative)
             self._store.move_to_end(key)
             self._hits += 1
             ttl = max(1, int(remaining))
 
+        return self._reply(request, answers, negative, ttl)
+
+    def _reply(self, request: DNSRecord, answers: list[RR], negative: Negative | None, ttl: int) -> DNSRecord:
         reply = request.reply(aa=0)
         for rr in self._matching_answers(request, answers):
             reply.add_answer(
                 RR(self._match_case(request, rr.rname), rr.rtype, rclass=rr.rclass, ttl=ttl, rdata=rr.rdata)
             )
+        if negative is not None:
+            rcode, authority = negative
+            reply.header.rcode = rcode
+            for rr in self._matching_answers(request, authority):
+                reply.add_auth(RR(rr.rname, rr.rtype, rclass=rr.rclass, ttl=min(ttl, rr.ttl), rdata=rr.rdata))
         return reply
 
     def get_stale(self, request: DNSRecord, grace_seconds: float, variant: str = "") -> DNSRecord | None:
@@ -84,17 +96,12 @@ class DNSCache:
             entry = self._store.get(key)
             if entry is None:
                 return None
-            expires_at, answers, _hits = entry
+            expires_at, answers, _hits, negative = entry
             if time.time() - expires_at > grace_seconds:
                 return None
             self._stale_hits += 1
 
-        reply = request.reply(aa=0)
-        for rr in self._matching_answers(request, answers):
-            reply.add_answer(
-                RR(self._match_case(request, rr.rname), rr.rtype, rclass=rr.rclass, ttl=1, rdata=rr.rdata)
-            )
-        return reply
+        return self._reply(request, answers, negative, 1)
 
     @classmethod
     def _matching_answers(cls, request: DNSRecord, answers: list[RR]) -> list[RR]:
@@ -119,16 +126,22 @@ class DNSCache:
     def put(self, request: DNSRecord, response: DNSRecord, variant: str = "") -> None:
         if not self._enabled():
             return
-        if response.header.rcode != RCODE.NOERROR or response.header.tc:
+        if response.header.tc or response.header.rcode not in (RCODE.NOERROR, RCODE.NXDOMAIN):
             return
         answers = list(response.rr)
-        if not answers:
-            return
-
-        min_ttl = int(self._config.get("dns", "cache_min_ttl_seconds", default=0))
-        max_ttl = int(self._config.get("dns", "cache_max_ttl_seconds", default=3600))
-        ttl = min(rr.ttl for rr in answers)
-        ttl = max(min_ttl, min(ttl, max_ttl))
+        negative: Negative | None = None
+        if response.header.rcode == RCODE.NOERROR and answers:
+            min_ttl = int(self._config.get("dns", "cache_min_ttl_seconds", default=0))
+            max_ttl = int(self._config.get("dns", "cache_max_ttl_seconds", default=3600))
+            ttl = min(rr.ttl for rr in answers)
+            ttl = max(min_ttl, min(ttl, max_ttl))
+        else:
+            # NXDOMAIN, or NOERROR with no answer of the asked type (NODATA).
+            negative_ttl = self._negative_ttl(response)
+            if negative_ttl is None:
+                return
+            ttl = negative_ttl
+            negative = (response.header.rcode, list(response.auth))
         if ttl <= 0:
             return
 
@@ -136,17 +149,30 @@ class DNSCache:
         key = self._key(request, variant)
         with self._lock:
             previous_hits = self._store[key][2] if key in self._store else 0
-            self._store[key] = (time.time() + ttl, answers, previous_hits)
+            self._store[key] = (time.time() + ttl, answers, previous_hits, negative)
             self._store.move_to_end(key)
             self._prefetch_inflight.discard(key)
             while len(self._store) > max_entries:
                 self._store.popitem(last=False)
 
+    def _negative_ttl(self, response: DNSRecord) -> int | None:
+        """How long a "no such name / no such record" answer may be cached:
+        the SOA's TTL capped by its MINIMUM field (RFC 2308 s5), and by
+        dns.cache_negative_max_ttl_seconds (0 turns negative caching off).
+        Without a SOA the answer isn't cached at all."""
+        cap = int(self._config.get("dns", "cache_negative_max_ttl_seconds", default=DEFAULT_NEGATIVE_MAX_TTL))
+        if cap <= 0:
+            return None
+        for rr in response.auth:
+            if rr.rtype == QTYPE.SOA:
+                return min(rr.ttl, rr.rdata.times[4], cap)
+        return None
+
     def expiring_soon(self, threshold_seconds: float, min_hits: int) -> list[CacheKey]:
         now = time.time()
         due = []
         with self._lock:
-            for key, (expires_at, _answers, hits) in self._store.items():
+            for key, (expires_at, _answers, hits, _negative) in self._store.items():
                 remaining = expires_at - now
                 if 0 < remaining <= threshold_seconds and hits >= min_hits and key not in self._prefetch_inflight:
                     due.append(key)
@@ -163,7 +189,7 @@ class DNSCache:
     def purge_expired(self, grace_seconds: float) -> None:
         now = time.time()
         with self._lock:
-            stale_keys = [key for key, (expires_at, _a, _h) in self._store.items() if now - expires_at > grace_seconds]
+            stale_keys = [key for key, entry in self._store.items() if now - entry[0] > grace_seconds]
             for key in stale_keys:
                 del self._store[key]
                 self._prefetch_inflight.discard(key)
@@ -216,25 +242,32 @@ class DNSCache:
                     expires_at = float(entry["expires_at"])
                     hits = int(entry["hits"])
                     answers = [self._decode_rr(blob) for blob in entry["answers"]]
+                    negative = None
+                    if entry.get("rcode") is not None:
+                        negative = (int(entry["rcode"]), [self._decode_rr(blob) for blob in entry.get("authority", [])])
                 except (KeyError, TypeError, ValueError, DNSError):
                     continue
-                if expires_at > now and answers:
-                    self._store[(str(qname), int(qtype), int(qclass), str(variant))] = (expires_at, answers, hits)
+                if expires_at > now and (answers or negative is not None):
+                    key = (str(qname), int(qtype), int(qclass), str(variant))
+                    self._store[key] = (expires_at, answers, hits, negative)
 
     def save(self) -> None:
         if self._persist_path is None:
             return
         with self._lock:
             snapshot = list(self._store.items())
-        entries = [
-            {
+        entries = []
+        for key, (expires_at, answers, hits, negative) in snapshot:
+            entry = {
                 "key": list(key),
                 "expires_at": expires_at,
                 "hits": hits,
                 "answers": [self._encode_rr(rr) for rr in answers],
             }
-            for key, (expires_at, answers, hits) in snapshot
-        ]
+            if negative is not None:
+                entry["rcode"] = negative[0]
+                entry["authority"] = [self._encode_rr(rr) for rr in negative[1]]
+            entries.append(entry)
         try:
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self._persist_path.with_suffix(".tmp")
