@@ -52,7 +52,7 @@ def _run_dns_worker(worker_id: int, num_workers: int, data_dir: Path, log_level:
     config_store = ConfigStore(db_path=data_dir / "config.db", backup_path=data_dir / "config.backup.yaml")
     config_store.start_reload_thread(interval_seconds=5)
 
-    client_names = ClientNameResolver(config_store)
+    client_names = ClientNameResolver(config_store, leases_db=data_dir / "dhcp_leases.db")
     mac_resolver = MacResolver()
     mac_resolver.start()
 
@@ -161,7 +161,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_term)
     signal.signal(signal.SIGINT, _handle_term)
 
-    client_names = ClientNameResolver(config_store)
+    client_names = ClientNameResolver(config_store, leases_db=DATA_DIR / "dhcp_leases.db")
     mac_resolver = MacResolver()
     mac_resolver.start()
 

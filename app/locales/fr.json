@@ -445,6 +445,7 @@
   "dns.cache_prefetch_min_hits": "Nombre minimal de correspondances avant rafraîchissement",
   "dns.client_hostnames": "Noms d'hôtes des clients (DNS inverse)",
   "dns.resolve_hostnames": "Résoudre les noms d'hôtes des clients",
+  "dns.names_from_dhcp": "Utiliser les noms d'hôtes des baux DHCP",
   "dns.name_resolver": "Résolveur de noms (votre routeur)",
   "dns.name_cache": "Cache des noms (secondes)",
   "dns.save": "Enregistrer les paramètres DNS",

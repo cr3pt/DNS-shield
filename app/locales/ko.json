@@ -445,6 +445,7 @@
   "dns.cache_prefetch_min_hits": "갱신 전에 필요한 최소 히트 수",
   "dns.client_hostnames": "클라이언트 호스트 이름(역방향 DNS)",
   "dns.resolve_hostnames": "클라이언트 호스트 이름 확인",
+  "dns.names_from_dhcp": "DHCP 임대의 호스트 이름 사용",
   "dns.name_resolver": "이름 해석 서버(사용자의 라우터)",
   "dns.name_cache": "이름 캐시(초)",
   "dns.save": "DNS 설정 저장",

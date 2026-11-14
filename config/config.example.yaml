@@ -40,6 +40,7 @@ dns:
   cache_prefetch_before_expiry_seconds: 10
   cache_prefetch_min_hits: 2
   resolve_client_names: false
+  client_names_from_dhcp: true
   client_name_resolver: ""
   client_name_cache_seconds: 3600
   dot_enabled: false
