@@ -222,3 +222,11 @@ proxy:
 graph:
   suspicious_zscore: 2.5
   suspicious_min_degree: 15
+
+# Copy the filtering config from a primary DNS-shield (see README, "Primary/secondary sync").
+sync:
+  enabled: false
+  primary_url: ""
+  token: ""
+  interval_seconds: 300
+  verify_tls: true

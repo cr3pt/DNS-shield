@@ -2311,6 +2311,34 @@ effect after a restart, the same as when you change them by hand. API:
 `GET /api/config-history`, `GET /api/config-history/{id}` (diff),
 `POST /api/config-history/{id}/restore`.
 
+### Primary/secondary sync
+
+Two resolvers (say, DNS 1 and DNS 2 handed out by DHCP) can share one
+filtering config. Leave one as the primary. On the other, under Settings →
+General → **Sync from a primary**, enter the primary's dashboard URL and an
+API token of an admin user on the primary (Settings → API tokens there). The
+secondary then fetches `GET /api/sync/config` from the primary every
+`sync.interval_seconds` (default 300, at least 30) and takes over the
+synced sections. By default those are blocklists, allow/deny lists and
+regexes, blocked services, TLDs, clients and answer IPs, DNS rewrites,
+per-domain upstreams, client groups and `dns`. `sync.sections` can change
+the list. Never synced: accounts and single sign-on, the web UI, DHCP (two
+DHCP servers on one network would fight), the reverse proxy, the sync
+settings themselves, and this machine's DNS listen addresses, ports and
+thread counts. Make changes on the primary, because a synced section on the
+secondary gets overwritten. `sync.verify_tls: false` accepts a primary with
+a self-signed certificate. **Sync now** runs it straight away, and the
+section shows the last successful sync and the last error.
+
+```yaml
+sync:
+  enabled: true
+  primary_url: "https://192.168.1.2:3000"
+  token: "dnss_..."          # admin API token from the primary
+  interval_seconds: 300
+  verify_tls: true
+```
+
 ### Downloading a backup
 
 Settings -> General -> **Download backup (.zip)** gives you the same full

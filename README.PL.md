@@ -2549,6 +2549,35 @@ hasła ani usuniętego konta. Porty, adresy i ustawienia TLS działają po
 restarcie, tak samo jak przy ręcznej zmianie. API: `GET /api/config-history`,
 `GET /api/config-history/{id}` (diff), `POST /api/config-history/{id}/restore`.
 
+### Synchronizacja primary/secondary
+
+Dwa resolwery (np. DNS 1 i DNS 2 rozdawane przez DHCP) mogą mieć wspólną
+konfigurację filtrowania. Jeden zostaw jako główny. Na drugim, w
+Ustawienia → Ogólne → **Synchronizacja z serwerem głównym**, podaj adres
+panelu serwera głównego i token API administratora z serwera głównego
+(tam: Ustawienia → Tokeny API). Serwer zapasowy co `sync.interval_seconds`
+(domyślnie 300, co najmniej 30) pobiera `GET /api/sync/config` z głównego i
+przejmuje synchronizowane sekcje. Domyślnie są to listy blokad, listy i
+regexy allow/deny, blokowane usługi, TLD, klienci i adresy IP odpowiedzi,
+przepisania DNS, serwery nadrzędne per domena, grupy klientów i `dns`. Listę
+można zmienić w `sync.sections`. Nigdy nie są synchronizowane: konta i
+logowanie SSO, panel WWW, DHCP (dwa serwery DHCP w jednej sieci by się
+gryzły), reverse proxy, same ustawienia synchronizacji oraz adresy, porty i
+liczba wątków DNS tej maszyny. Zmiany rób na serwerze głównym, bo
+synchronizowana sekcja na zapasowym zostanie nadpisana. `sync.verify_tls:
+false` akceptuje serwer główny z certyfikatem self-signed. **Synchronizuj
+teraz** uruchamia ją od razu, a sekcja pokazuje ostatnią udaną
+synchronizację i ostatni błąd.
+
+```yaml
+sync:
+  enabled: true
+  primary_url: "https://192.168.1.2:3000"
+  token: "dnss_..."          # token API administratora z serwera głównego
+  interval_seconds: 300
+  verify_tls: true
+```
+
 ### Pobieranie kopii zapasowej
 
 Settings -> General -> **Download backup (.zip)** daje dokładnie ten sam,

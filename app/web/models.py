@@ -567,3 +567,37 @@ class SSOSettingsIn(BaseModel):
     username_claim: str | None = None
     auto_provision: bool | None = None
     default_role: str | None = None
+
+
+class SyncSettingsIn(BaseModel):
+    enabled: bool | None = None
+    primary_url: str | None = Field(default=None, max_length=2048)
+    token: str | None = Field(default=None, max_length=512)
+    interval_seconds: float | None = Field(default=None, ge=30, le=86400)
+    verify_tls: bool | None = None
+    sections: list[str] | None = None
+
+    @field_validator("primary_url")
+    @classmethod
+    def _validate_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().rstrip("/")
+        if value and urlparse(value).scheme not in ("http", "https"):
+            raise ValueError("the primary's URL must start with http:// or https://")
+        if value and not urlparse(value).hostname:
+            raise ValueError("the primary's URL has no host name")
+        return value
+
+    @field_validator("sections")
+    @classmethod
+    def _validate_sections(cls, value: list[str] | None) -> list[str] | None:
+        from app.sync import NEVER_SYNCED
+
+        if value is None:
+            return None
+        cleaned = [str(v).strip() for v in value if str(v).strip()]
+        bad = sorted(set(cleaned) & NEVER_SYNCED)
+        if bad:
+            raise ValueError(f"these sections are never synced: {', '.join(bad)}")
+        return list(dict.fromkeys(cleaned))

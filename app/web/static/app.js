@@ -4839,6 +4839,59 @@ async function loadConfigHistory() {
   }
 }
 
+async function loadSyncStatus() {
+  const target = document.getElementById("sync-status");
+  if (!target) return;
+  let data;
+  try {
+    data = await api("/api/sync/status");
+  } catch (err) {
+    return;
+  }
+  const cfg = data.settings || {};
+  document.getElementById("s-sync-enabled").checked = !!cfg.enabled;
+  document.getElementById("s-sync-url").value = cfg.primary_url || "";
+  document.getElementById("s-sync-token").value = "";
+  document.getElementById("s-sync-token").placeholder = cfg.token_set ? t("sync.token_saved", "(saved - leave empty to keep)") : "";
+  document.getElementById("s-sync-interval").value = cfg.interval_seconds ?? "";
+  document.getElementById("s-sync-verify").checked = cfg.verify_tls !== false;
+  const status = data.status || {};
+  const when = (ts) => (ts ? new Date(ts * 1000).toLocaleString() : "-");
+  let text = status.enabled
+    ? `${t("sync.last_success", "Last successful sync")}: ${when(status.last_success)}`
+    : t("sync.off", "Sync is off.");
+  if (status.enabled && status.last_error) text += ` - ${t("sync.last_error", "last attempt failed")}: ${status.last_error}`;
+  target.textContent = text;
+}
+
+document.getElementById("sync-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    enabled: document.getElementById("s-sync-enabled").checked,
+    primary_url: document.getElementById("s-sync-url").value.trim(),
+    interval_seconds: floatField("s-sync-interval"),
+    verify_tls: document.getElementById("s-sync-verify").checked,
+  };
+  const token = document.getElementById("s-sync-token").value.trim();
+  if (token) body.token = token;
+  await withDelayedSpinner(e.submitter, async () => {
+    await api("/api/settings/sync", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  });
+  loadSyncStatus();
+});
+
+document.getElementById("sync-now-btn").addEventListener("click", async (e) => {
+  try {
+    const result = await withSpinner(e.currentTarget, () => api("/api/sync/now", { method: "POST" }), t("sync.running", "Syncing..."));
+    const changed = (result.changed || []).join(", ");
+    alert(changed ? `${t("sync.updated", "Updated from the primary")}: ${changed}` : t("sync.no_changes", "Already in sync - nothing changed."));
+    refreshAll();
+  } catch (err) {
+    alert(err && err.message ? err.message : String(err));
+    loadSyncStatus();
+  }
+});
+
 async function refreshAll() {
   if (!currentUser) return;
   await loadStatusAndStats();
@@ -4877,6 +4930,7 @@ async function refreshAll() {
   await loadTokens();
   await loadAuditLog(true);
   await loadConfigHistory();
+  await loadSyncStatus();
 }
 
 document.getElementById("dns-settings-form").addEventListener("submit", async (e) => {

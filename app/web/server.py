@@ -71,6 +71,7 @@ def create_app(
     proxy_manager=None,
     client_domain_graph=None,
     data_dir: Path | None = None,
+    sync_client=None,
 ) -> FastAPI:
     app = FastAPI(title="DNS-shield", docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", _DashboardAssets(directory=STATIC_DIR), name="static")
@@ -253,8 +254,14 @@ def create_app(
                 headers={"Retry-After": str(wait_seconds)},
             )
 
+    if sync_client is None:
+        from app.sync import SyncClient
+
+        sync_client = SyncClient(config_store, blocklist)
+
     ctx = AppContext(
         NO_CACHE=NO_CACHE,
+        sync_client=sync_client,
         _allowed_client_ips=_allowed_client_ips,
         _clear_auth_cookies=_clear_auth_cookies,
         _client_ip=_client_ip,

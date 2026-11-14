@@ -403,6 +403,25 @@
         <tbody id="config-history-rows"></tbody>
       </table>
     </section>
+
+    <section>
+      <h2 data-i18n="sync.title">Sync from a primary</h2>
+      <p class="muted" data-i18n="sync.hint">Turn this instance into a secondary: it copies blocklists, allow/deny rules, blocked services, client groups, DNS rewrites and DNS settings from the primary at a regular interval. Make changes on the primary; the synced sections here get overwritten. Accounts, single sign-on, the web UI, DHCP, the reverse proxy and this machine's listen addresses and ports are never copied. On the primary, create an API token for an admin user (Settings, API tokens) and paste it below.</p>
+      <form id="sync-settings-form">
+        <div class="field checkbox"><input type="checkbox" id="s-sync-enabled"><label for="s-sync-enabled" data-i18n="sync.enabled">Sync this instance from a primary</label></div>
+        <div class="field-grid">
+          <div class="field"><label data-i18n="sync.primary_url">Primary's dashboard URL</label><input type="url" id="s-sync-url" placeholder="https://192.168.1.2:3000"></div>
+          <div class="field"><label data-i18n="sync.token">Admin API token from the primary</label><input type="password" id="s-sync-token" autocomplete="off"></div>
+          <div class="field"><label data-i18n="sync.interval">Interval (seconds)</label><input type="number" min="30" id="s-sync-interval" placeholder="300"></div>
+        </div>
+        <div class="field checkbox"><input type="checkbox" id="s-sync-verify"><label for="s-sync-verify" data-i18n="sync.verify_tls">Verify the primary's TLS certificate (turn off for a self-signed one)</label></div>
+        <div class="btn-row">
+          <button type="submit" data-i18n="common.save">Save</button>
+          <button type="button" class="secondary" id="sync-now-btn" data-i18n="sync.now">Sync now</button>
+        </div>
+      </form>
+      <p class="muted" id="sync-status"></p>
+    </section>
   </div>
 
   <div id="subtab-users" class="subtab-panel">

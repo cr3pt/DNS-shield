@@ -39,9 +39,9 @@ CREATE TABLE IF NOT EXISTS config_history (
 """
 
 # Sections config history never stores or restores: accounts and sign-in
-# secrets. Rolling the config back must not bring back an old password, a
-# revoked API token or a removed user.
-HISTORY_EXCLUDED_KEYS = frozenset({"users", "sso"})
+# secrets (and this node's sync link). Rolling the config back must not bring
+# back an old password, a revoked API token or a removed user.
+HISTORY_EXCLUDED_KEYS = frozenset({"users", "sso", "sync"})
 HISTORY_MAX_VERSIONS = 200
 
 # Who is changing the config, for the history ("admin: PUT /api/rules/deny");
