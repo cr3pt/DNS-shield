@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.config import config_actor
 from app.login_throttle import LoginThrottle
 from app.netmatch import ip_matches
 from app.passkeys import PendingChallengeStore
@@ -208,7 +209,16 @@ def create_app(
 
     @app.middleware("http")
     async def audit_middleware(request: Request, call_next):
-        response = await call_next(request)
+        actor_token = None
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            acting_user = _current_user(request)
+            if acting_user is not None:
+                actor_token = config_actor.set(f"{acting_user['username']}: {request.method} {request.url.path}")
+        try:
+            response = await call_next(request)
+        finally:
+            if actor_token is not None:
+                config_actor.reset(actor_token)
         if (
             audit_log is not None
             and request.method in ("POST", "PUT", "PATCH", "DELETE")

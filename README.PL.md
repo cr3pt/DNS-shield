@@ -2536,6 +2536,19 @@ YAML: zatrzymaj kontener, zedytuj (albo podmień) plik
 `./data/config.backup.yaml`, usuń `./data/config.db` (i towarzyszące mu
 pliki `-wal`/`-shm`, jeśli istnieją), i uruchom kontener ponownie.
 
+### Historia konfiguracji i cofanie zmian
+
+Każda zmiana ustawień, z panelu, przez API albo przez import, jest
+zapisywana w `config.db` jako wersja. DNS-shield trzyma 200 najnowszych,
+każdą z czasem, autorem (`admin: PUT /api/client-groups/...`) i listą
+zmienionych sekcji. Ustawienia → Ogólne → **Historia konfiguracji** pokazuje
+zmiany wersji jako diff, a **Przywróć** ustawia tę wersję z powrotem.
+Użytkownicy, hasła, tokeny API, passkeys i logowanie SSO nigdy nie trafiają
+do historii i nigdy nie są cofane, więc przywrócenie nie wskrzesi starego
+hasła ani usuniętego konta. Porty, adresy i ustawienia TLS działają po
+restarcie, tak samo jak przy ręcznej zmianie. API: `GET /api/config-history`,
+`GET /api/config-history/{id}` (diff), `POST /api/config-history/{id}/restore`.
+
 ### Pobieranie kopii zapasowej
 
 Settings -> General -> **Download backup (.zip)** daje dokładnie ten sam,

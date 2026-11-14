@@ -394,6 +394,15 @@
       </p>
       <button type="button" class="secondary" id="export-config-btn" data-i18n="general.download_backup">Download backup (.zip)</button>
     </section>
+
+    <section>
+      <h2 data-i18n="history.title">Configuration history</h2>
+      <p class="muted" data-i18n="history.hint">Every change to the settings is saved as a version (the newest 200), with who made it and which sections changed. Restore puts a version back as it was; users, passwords and single sign-on stay as they are now. Ports, addresses and TLS settings take effect after a restart.</p>
+      <table class="card-table">
+        <thead><tr><th data-i18n="col.time">Time</th><th data-i18n="history.who">Changed by</th><th data-i18n="history.sections">Sections</th><th></th></tr></thead>
+        <tbody id="config-history-rows"></tbody>
+      </table>
+    </section>
   </div>
 
   <div id="subtab-users" class="subtab-panel">

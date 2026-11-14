@@ -5,15 +5,19 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import secrets
 import sqlite3
 import threading
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger("dnsshield.config")
 
 APP_DIR = Path(__file__).resolve().parent
 REPO_DIR = APP_DIR.parent
@@ -25,7 +29,28 @@ CREATE TABLE IF NOT EXISTS config (
     data TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS config_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    actor TEXT,
+    changed TEXT NOT NULL,
+    data TEXT NOT NULL
+);
 """
+
+# Sections config history never stores or restores: accounts and sign-in
+# secrets. Rolling the config back must not bring back an old password, a
+# revoked API token or a removed user.
+HISTORY_EXCLUDED_KEYS = frozenset({"users", "sso"})
+HISTORY_MAX_VERSIONS = 200
+
+# Who is changing the config, for the history ("admin: PUT /api/rules/deny");
+# the web app sets it per request.
+config_actor: ContextVar[str | None] = ContextVar("config_actor", default=None)
+
+
+def _history_view(data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if key not in HISTORY_EXCLUDED_KEYS}
 
 
 def _default_db_path() -> Path:
@@ -99,6 +124,7 @@ class ConfigStore:
         self._data = self._load_initial()
         if ensure_item_ids(self._data):
             self._save_to_db(self._data)
+        self._record_history(self._data, actor="startup")
         self._version = 0
 
     def _connect(self) -> sqlite3.Connection:
@@ -150,6 +176,85 @@ class ConfigStore:
             finally:
                 conn.close()
 
+    def _record_history(self, data: dict[str, Any], actor: str | None = None) -> None:
+        """Store this version of the config if it differs from the newest
+        stored one (ignoring accounts, see HISTORY_EXCLUDED_KEYS)."""
+        view = _history_view(data)
+        payload = json.dumps(view, sort_keys=True)
+        with self._db_lock:
+            conn = self._connect()
+            try:
+                row = conn.execute("SELECT data FROM config_history ORDER BY id DESC LIMIT 1").fetchone()
+                if row is not None and row[0] == payload:
+                    return
+                previous = json.loads(row[0]) if row is not None else {}
+                changed = sorted(key for key in set(previous) | set(view) if previous.get(key) != view.get(key))
+                conn.execute(
+                    "INSERT INTO config_history (ts, actor, changed, data) VALUES (?, ?, ?, ?)",
+                    (time.time(), actor or config_actor.get() or "system", json.dumps(changed), payload),
+                )
+                conn.execute(
+                    "DELETE FROM config_history WHERE id <= "
+                    "(SELECT id FROM config_history ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                    (HISTORY_MAX_VERSIONS,),
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                logger.warning("could not record config history: %s", exc)
+            finally:
+                conn.close()
+
+    def history(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Stored versions, newest first, without their data."""
+        with self._db_lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT id, ts, actor, changed FROM config_history ORDER BY id DESC LIMIT ?", (limit,)
+                ).fetchall()
+            finally:
+                conn.close()
+        return [{"id": r[0], "ts": r[1], "actor": r[2], "changed": json.loads(r[3])} for r in rows]
+
+    def history_version(self, version_id: int) -> tuple[dict[str, Any], dict[str, Any] | None] | None:
+        """(that version's config, the version before it or None)."""
+        with self._db_lock:
+            conn = self._connect()
+            try:
+                row = conn.execute("SELECT data FROM config_history WHERE id = ?", (version_id,)).fetchone()
+                before = conn.execute(
+                    "SELECT data FROM config_history WHERE id < ? ORDER BY id DESC LIMIT 1", (version_id,)
+                ).fetchone()
+            finally:
+                conn.close()
+        if row is None:
+            return None
+        return json.loads(row[0]), (json.loads(before[0]) if before is not None else None)
+
+    def restore_version(self, version_id: int) -> list[str] | None:
+        """Make a stored version the live config again (accounts are kept as
+        they are now); returns the sections that changed, or None if there's
+        no such version."""
+        found = self.history_version(version_id)
+        if found is None:
+            return None
+        target = found[0]
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            current = _history_view(data)
+            changed = sorted(key for key in set(current) | set(target) if current.get(key) != target.get(key))
+            for key in list(data):
+                if key not in HISTORY_EXCLUDED_KEYS:
+                    del data[key]
+            data.update(copy.deepcopy(target))
+            return changed
+
+        token = config_actor.set(f"{config_actor.get() or 'system'} (restore of version {version_id})")
+        try:
+            return self.mutate(_mutate)
+        finally:
+            config_actor.reset(token)
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return copy.deepcopy(self._data)
@@ -175,6 +280,7 @@ class ConfigStore:
             result = fn(data)
             ensure_item_ids(data)
             self._save_to_db(data)
+            self._record_history(data)
             self._data = data
             self._version += 1
             return result

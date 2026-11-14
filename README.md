@@ -2297,6 +2297,20 @@ fresh database (an empty data volume's first boot, or after you delete
 edit (or replace) `./data/config.backup.yaml`, delete `./data/config.db`
 (and its `-wal`/`-shm` files, if present), and start it again.
 
+### Configuration history and rollback
+
+Every change to the settings, made in the dashboard, through the API or by an
+import, is saved in `config.db` as a version. DNS-shield keeps the newest
+200, each with the time, who made it (`admin: PUT /api/client-groups/...`)
+and which sections changed. Settings → General → **Configuration history**
+shows a version's changes as a diff, and **Restore** puts that version back.
+Users, passwords, API tokens, passkeys and single sign-on are never stored
+in the history and never rolled back, so a restore can't bring back an old
+password or a removed account. Ports, addresses and TLS settings take
+effect after a restart, the same as when you change them by hand. API:
+`GET /api/config-history`, `GET /api/config-history/{id}` (diff),
+`POST /api/config-history/{id}/restore`.
+
 ### Downloading a backup
 
 Settings -> General -> **Download backup (.zip)** gives you the same full

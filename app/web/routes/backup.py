@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import difflib
 import io
 import sqlite3
 import tempfile
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 
 from app.import_adguard import import_config
@@ -90,6 +91,46 @@ To restore into an EXISTING instance (data/config.db already exists):
   rm <your data volume>/config.db <your data volume>/config.db-wal <your data volume>/config.db-shm
   docker compose up -d
 """
+
+    @app.get("/api/config-history")
+    def get_config_history(
+        limit: int = Query(50, ge=1, le=200), _: dict[str, Any] = Depends(require_admin)
+    ) -> list[dict[str, Any]]:
+        """Saved versions of the config (newest first): when, who/what changed
+        it, and which sections."""
+        versions = config_store.history(limit)
+        if versions:
+            versions[0]["current"] = True
+        return versions
+
+    @app.get("/api/config-history/{version_id}")
+    def get_config_version(version_id: int, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        """What this version changed, as a unified diff of the YAML against the version before it."""
+        found = config_store.history_version(version_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such config version (only the newest 200 are kept)")
+        data, before = found
+
+        def _yaml(value: dict[str, Any] | None) -> list[str]:
+            if value is None:
+                return []
+            return yaml.safe_dump(value, sort_keys=True, allow_unicode=True).splitlines(keepends=True)
+
+        diff = "".join(
+            difflib.unified_diff(_yaml(before), _yaml(data), fromfile="before", tofile=f"version {version_id}", n=2)
+        )
+        return {"id": version_id, "diff": diff}
+
+    @app.post("/api/config-history/{version_id}/restore")
+    def restore_config_version(version_id: int, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        """Roll the config back to this version. Users and single sign-on are
+        left as they are now; ports, addresses and TLS need a restart."""
+        changed = config_store.restore_version(version_id)
+        if changed is None:
+            raise HTTPException(status_code=404, detail="No such config version (only the newest 200 are kept)")
+        blocklist.request_refresh()
+        users.ensure_default_admin()
+        return {"ok": True, "changed": changed}
 
     @app.get("/api/export")
     def export_config(_: dict[str, Any] = Depends(require_admin)) -> Response:
