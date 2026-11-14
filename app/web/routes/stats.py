@@ -5,13 +5,42 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
+from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.graph import GRAPH_VIEWS
 from app.web.context import AppContext
 from app.web.models import GraphSettingsIn
+
+_CSV_COLUMNS = ("time", "domain", "type", "client", "client_name", "group", "blocked", "reason", "answer_ip")
+
+
+def _csv_cell(value: Any) -> Any:
+    """Keep spreadsheet apps from running a cell as a formula: a domain or
+    reason is attacker-influenced text (CSV injection)."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def _csv_lines(rows: Iterable[dict[str, Any]]) -> Iterator[str]:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_CSV_COLUMNS)
+    for row in rows:
+        writer.writerow([_csv_cell(row[column]) for column in _CSV_COLUMNS])
+        if buffer.tell() > 65536:
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate()
+    yield buffer.getvalue()
 
 
 def register(app: FastAPI, ctx: AppContext) -> None:
@@ -147,6 +176,81 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             "client_names": client_names.snapshot() if client_names is not None else {},
         }
 
+    def _log_filters(user, domain, client, qtype, blocked, since, until, group, no_group) -> dict[str, Any]:
+        restrict = _clients_in_group_scope(user, group, no_group)
+        blocked_bool: bool | None = None
+        if blocked == "true":
+            blocked_bool = True
+        elif blocked == "false":
+            blocked_bool = False
+
+        client_ips: list[str] | None = None
+        if client and client_names is not None:
+            names = client_names.snapshot()
+            matches = [ip for ip, name in names.items() if client.lower() in name.lower()]
+            client_ips = matches or None
+        return {
+            "domain": domain,
+            "client_like": client,
+            "client_ips": client_ips,
+            "qtype": qtype,
+            "blocked": blocked_bool,
+            "since": since,
+            "until": until,
+            "restrict_client_ips": restrict,
+        }
+
+    @app.get("/api/query-log/export")
+    def export_query_log(
+        format: str = Query("csv", pattern="^(csv|jsonl)$"),
+        domain: str | None = None,
+        client: str | None = None,
+        qtype: str | None = None,
+        blocked: str | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        limit: int = Query(100000, ge=1, le=1000000),
+        group: str | None = None,
+        no_group: bool = False,
+        user: dict[str, Any] = Depends(require_auth),
+    ) -> StreamingResponse:
+        """The filtered query log as a download (CSV or JSON lines), newest first."""
+        filters = _log_filters(user, domain, client, qtype, blocked, since, until, group, no_group)
+        names = client_names.snapshot() if client_names is not None else {}
+        groups: dict[str, str | None] = {}
+
+        def group_of(ip: str) -> str:
+            if ip not in groups:
+                groups[ip] = blocklist.group_name_for(ip)
+            return groups[ip] or ""
+
+        def rows():
+            for row in stats.iter_query_log(max_rows=limit, **filters):
+                yield {
+                    "time": datetime.fromtimestamp(row["ts"], tz=UTC).isoformat(timespec="seconds"),
+                    "domain": row["domain"],
+                    "type": row["qtype"],
+                    "client": row["client"],
+                    "client_name": names.get(row["client"], ""),
+                    "group": group_of(row["client"]),
+                    "blocked": row["blocked"],
+                    "reason": row["reason"] or "",
+                    "answer_ip": row["answer_ip"] or "",
+                }
+
+        stamp = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
+        if format == "jsonl":
+            body = (json.dumps(row, ensure_ascii=False) + "\n" for row in rows())
+            media_type, ext = "application/x-ndjson", "jsonl"
+        else:
+            body = _csv_lines(rows())
+            media_type, ext = "text/csv; charset=utf-8", "csv"
+        return StreamingResponse(
+            body,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="dns-shield-queries-{stamp}.{ext}"'},
+        )
+
     @app.get("/api/query-log")
     def get_query_log(
         domain: str | None = None,
@@ -161,31 +265,8 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         no_group: bool = False,
         user: dict[str, Any] = Depends(require_auth),
     ) -> dict[str, Any]:
-        restrict = _clients_in_group_scope(user, group, no_group)
-        blocked_bool: bool | None = None
-        if blocked == "true":
-            blocked_bool = True
-        elif blocked == "false":
-            blocked_bool = False
-
-        client_ips: list[str] | None = None
-        if client and client_names is not None:
-            names = client_names.snapshot()
-            matches = [ip for ip, name in names.items() if client.lower() in name.lower()]
-            client_ips = matches or None
-
-        rows, total = stats.query_log(
-            domain=domain,
-            client_like=client,
-            client_ips=client_ips,
-            qtype=qtype,
-            blocked=blocked_bool,
-            since=since,
-            until=until,
-            limit=max(1, min(limit, 1000)),
-            offset=max(0, offset),
-            restrict_client_ips=restrict,
-        )
+        filters = _log_filters(user, domain, client, qtype, blocked, since, until, group, no_group)
+        rows, total = stats.query_log(limit=max(1, min(limit, 1000)), offset=max(0, offset), **filters)
         client_groups = {}
         for ip in {row["client"] for row in rows}:
             name = blocklist.group_name_for(ip)

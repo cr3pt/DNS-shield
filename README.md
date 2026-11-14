@@ -2214,6 +2214,26 @@ can hit "Resume blocking" early. Only Administrator accounts can see or
 use this bar - see **Multi-user accounts, roles, and the public view**
 above.
 
+### Exporting the query log and forwarding it to syslog
+
+**Export CSV** / **Export JSON** next to the query log filters download the
+rows the current filters match, newest first, up to 100 000 by default
+(`GET /api/query-log/export?format=csv|jsonl&limit=...`, which takes the same
+filters as `/api/query-log`). The columns are time (UTC), domain, type,
+client, client name, group, blocked, reason and answer IP. A cell that
+starts with `=`, `+`, `-` or `@` gets a leading `'`, so a spreadsheet won't
+run a crafted domain name as a formula.
+
+Settings → Logging → **Forward to syslog / SIEM** sends every logged query
+to a syslog server (rsyslog, Graylog, Wazuh, Splunk...). Messages are
+RFC 5424 with facility local0, severity notice for a blocked query and info
+for the rest. They go over UDP, or over TCP with octet-counting framing,
+and the body is either `key="value"` pairs or JSON (`logging.syslog_enabled`,
+`syslog_host`, `syslog_port`, `syslog_protocol`, `syslog_format`,
+`syslog_only_blocked`). Sending runs on a background thread, so it never
+delays an answer: if the server is down or can't keep up, messages are
+dropped. Domains and clients excluded from the log aren't sent.
+
 ### Excluding domains/clients from the log
 
 `logging.ignored_domains` / `logging.ignored_clients` (dashboard: Settings

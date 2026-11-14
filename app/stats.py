@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app.netmatch import ip_matches
+from app.syslog_export import SyslogForwarder
 from app.upstream import matches_domain_or_parent, protected_hostnames
 
 logger = logging.getLogger("dnsshield.stats")
@@ -76,6 +77,7 @@ class Stats:
         self._started_at = time.time()
         self._stop_event = threading.Event()
         self._dropped = 0
+        self.syslog = SyslogForwarder(config_store)
 
         self._init_schema()
 
@@ -158,6 +160,10 @@ class Stats:
     ) -> None:
         if self._is_ignored(qname, client_ip):
             return
+        now = time.time()
+        self.syslog.submit(
+            {"ts": now, "client": client_ip, "domain": qname, "qtype": qtype, "blocked": blocked, "reason": reason}
+        )
         if self._queue.qsize() >= _MAX_QUEUE:
             # The writer is far behind (or the disk is gone): drop rather than
             # let memory grow until the process is killed.
@@ -167,7 +173,7 @@ class Stats:
             return
         self._queue.put(
             (
-                time.time(),
+                now,
                 qname,
                 qtype,
                 client_ip,
@@ -419,7 +425,7 @@ class Stats:
             ],
         }
 
-    def query_log(
+    def _query_log_where(
         self,
         domain: str | None = None,
         client_like: str | None = None,
@@ -428,10 +434,8 @@ class Stats:
         blocked: bool | None = None,
         since: float | None = None,
         until: float | None = None,
-        limit: int = 200,
-        offset: int = 0,
         restrict_client_ips: list[str] | None = None,
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[str, list[Any]]:
         where: list[str] = []
         params: list[Any] = []
 
@@ -471,6 +475,69 @@ class Stats:
             params.extend(params_client)
 
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        return where_sql, params
+
+    def iter_query_log(self, max_rows: int = 100000, batch: int = 2000, **filters: Any):
+        """Matching query-log rows, newest first, in batches (for exports):
+        holds no connection between batches, so a slow download doesn't keep
+        a read transaction open."""
+        where_sql, params = self._query_log_where(**filters)
+        last_id: int | None = None
+        sent = 0
+        while sent < max_rows:
+            clause = where_sql
+            extra: list[Any] = []
+            if last_id is not None:
+                clause = f"{where_sql} AND id < ?" if where_sql else "WHERE id < ?"
+                extra = [last_id]
+            conn = self._connect()
+            try:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    f"SELECT id, ts, domain, qtype, client, blocked, reason, answer_ip FROM queries {clause} "
+                    "ORDER BY id DESC LIMIT ?",
+                    params + extra + [min(batch, max_rows - sent)],
+                ).fetchall()
+            finally:
+                conn.close()
+            if not rows:
+                return
+            for row in rows:
+                yield {
+                    "ts": row["ts"],
+                    "domain": row["domain"],
+                    "qtype": row["qtype"],
+                    "client": row["client"],
+                    "blocked": bool(row["blocked"]),
+                    "reason": row["reason"],
+                    "answer_ip": row["answer_ip"],
+                }
+            sent += len(rows)
+            last_id = rows[-1]["id"]
+
+    def query_log(
+        self,
+        domain: str | None = None,
+        client_like: str | None = None,
+        client_ips: list[str] | None = None,
+        qtype: str | None = None,
+        blocked: bool | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        limit: int = 200,
+        offset: int = 0,
+        restrict_client_ips: list[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        where_sql, params = self._query_log_where(
+            domain=domain,
+            client_like=client_like,
+            client_ips=client_ips,
+            qtype=qtype,
+            blocked=blocked,
+            since=since,
+            until=until,
+            restrict_client_ips=restrict_client_ips,
+        )
 
         conn = self._connect()
         try:

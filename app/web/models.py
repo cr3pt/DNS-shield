@@ -451,6 +451,17 @@ class PasskeyRegisterVerifyIn(BaseModel):
 
 class LoggingSettingsIn(BaseModel):
     retention_days: float | None = None
+    syslog_enabled: bool | None = None
+    syslog_host: str | None = Field(default=None, max_length=253, pattern=r"^[A-Za-z0-9.:_\-\[\]]*$")
+    syslog_port: int | None = Field(default=None, ge=1, le=65535)
+    syslog_protocol: str | None = Field(default=None, pattern="^(udp|tcp)$")
+    syslog_format: str | None = Field(default=None, pattern="^(text|json)$")
+    syslog_only_blocked: bool | None = None
+
+    @field_validator("syslog_host")
+    @classmethod
+    def _strip_brackets(cls, value: str | None) -> str | None:
+        return value.strip().strip("[]") if value is not None else None
 
 
 class BlocklistSettingsIn(BaseModel):
