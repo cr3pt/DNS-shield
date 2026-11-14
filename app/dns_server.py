@@ -410,22 +410,27 @@ class FilteringResolver:
                 resp = upstream_transport.forward(data, upstream, timeout)
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
-                parsed = DNSRecord.parse(resp)
-                self._restore_query_case(request, parsed)
-                self._record_dnssec(qname, parsed)
-                self._sanitize_dnssec(request, parsed)
-                return parsed
+                return self._finish_upstream_response(request, resp, qname)
             except Exception as exc:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, False)
                 logger.warning("upstream %s failed: %s", upstream, exc)
                 continue
 
+        return self._upstream_failure_reply(request, qname, variant)
+
+    def _finish_upstream_response(self, request: DNSRecord, resp: bytes, qname: str) -> DNSRecord:
+        parsed = DNSRecord.parse(resp)
+        self._restore_query_case(request, parsed)
+        self._record_dnssec(qname, parsed)
+        self._sanitize_dnssec(request, parsed)
+        return parsed
+
+    def _upstream_failure_reply(self, request: DNSRecord, qname: str, variant: str) -> DNSRecord:
         stale = self._stale_fallback(request, variant)
         if stale is not None:
             logger.info("serving stale cache entry for %s after upstream failure", qname)
             return stale
-
         reply = request.reply(aa=0)
         reply.header.rcode = RCODE.SERVFAIL
         return reply
@@ -467,21 +472,10 @@ class FilteringResolver:
         for _ in upstreams:
             upstream, resp, exc = results.get()
             if resp is not None:
-                parsed = DNSRecord.parse(resp)
-                self._restore_query_case(request, parsed)
-                self._record_dnssec(qname, parsed)
-                self._sanitize_dnssec(request, parsed)
-                return parsed
+                return self._finish_upstream_response(request, resp, qname)
             logger.warning("upstream %s failed (race mode): %s", upstream, exc)
 
-        stale = self._stale_fallback(request, variant)
-        if stale is not None:
-            logger.info("serving stale cache entry for %s after upstream failure (race mode)", qname)
-            return stale
-
-        reply = request.reply(aa=0)
-        reply.header.rcode = RCODE.SERVFAIL
-        return reply
+        return self._upstream_failure_reply(request, qname, variant)
 
     def save_cache(self) -> None:
         if self._cache is not None:
