@@ -1,0 +1,14 @@
+# Lint settings used by CI (.github/workflows/ci.yml) and `ruff check .` locally.
+target-version = "py313"
+line-length = 120
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",   # long strings (HTML, metrics help, SQL) read better unwrapped; not enforced
+    "B008",   # FastAPI's Depends()/Query()/File() defaults are the intended pattern
+    "UP031",  # %-built SQL placeholder lists are clearer as they are
+]
+
+[lint.isort]
+known-first-party = ["app", "tests"]

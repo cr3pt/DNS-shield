@@ -100,7 +100,7 @@ def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise socket.timeout(f"no matching response from {upstream}")
+                raise TimeoutError(f"no matching response from {upstream}")
             sock.settimeout(remaining)
             resp = sock.recv(65535)
             verdict = _check_response(query, resp)

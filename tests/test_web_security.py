@@ -5,8 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.blocklist import BlocklistManager
 from app.stats import Stats
-from app.web.server import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
-from app.web.server import create_app
+from app.web.server import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, create_app
 
 
 def _client(config_store, tmp_path, data_dir=None) -> TestClient:

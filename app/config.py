@@ -131,9 +131,9 @@ class ConfigStore:
     def _seed_data(self) -> dict[str, Any]:
         for path in (self.backup_path, _default_legacy_yaml_path()):
             if path.exists():
-                with open(path, "r", encoding="utf-8") as fh:
+                with open(path, encoding="utf-8") as fh:
                     return yaml.safe_load(fh) or {}
-        with open(EXAMPLE_CONFIG, "r", encoding="utf-8") as fh:
+        with open(EXAMPLE_CONFIG, encoding="utf-8") as fh:
             return yaml.safe_load(fh) or {}
 
     def _save_to_db(self, data: dict[str, Any]) -> None:

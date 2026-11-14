@@ -218,7 +218,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             try:
                 ensure_self_signed_cert(data_dir / "tls" / "cert.pem", data_dir / "tls" / "key.pem")
             except OSError as exc:
-                raise HTTPException(status_code=500, detail=f"Could not generate a self-signed certificate: {exc}")
+                raise HTTPException(status_code=500, detail=f"Could not generate a self-signed certificate: {exc}") from exc
 
         def _mutate(data: dict[str, Any]) -> None:
             data.setdefault("web", {})["https_enabled"] = True

@@ -33,7 +33,7 @@ def _query_whois_server(server: str, query: str, timeout: float = 8.0) -> str:
         while True:
             try:
                 chunk = sock.recv(4096)
-            except socket.timeout:
+            except TimeoutError:
                 break
             if not chunk:
                 break

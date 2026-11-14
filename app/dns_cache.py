@@ -199,7 +199,7 @@ class DNSCache:
 
     def _load(self) -> None:
         try:
-            with open(self._persist_path, "r", encoding="utf-8") as f:
+            with open(self._persist_path, encoding="utf-8") as f:
                 saved = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
             return

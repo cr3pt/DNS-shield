@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from app.enrichment import enrich as run_enrichment
 from app.enrichment import maybe_alert_on_verdict

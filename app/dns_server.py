@@ -7,11 +7,10 @@ import ipaddress
 import logging
 import queue
 import random
+import socket
 import ssl
 import threading
 import time
-
-import socket
 
 from dnslib import AAAA, CNAME, EDNS0, QTYPE, RCODE, RR, TXT, A, DNSHeader, DNSQuestion, DNSRecord
 from dnslib.server import DNSServer

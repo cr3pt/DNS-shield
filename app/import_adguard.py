@@ -272,11 +272,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    with open(args.adguard_config, "r", encoding="utf-8") as fh:
+    with open(args.adguard_config, encoding="utf-8") as fh:
         adguard = yaml.safe_load(fh) or {}
 
     base_path = args.base or (Path(__file__).resolve().parent.parent / "config" / "config.example.yaml")
-    with open(base_path, "r", encoding="utf-8") as fh:
+    with open(base_path, encoding="utf-8") as fh:
         base = yaml.safe_load(fh) or {}
 
     result, warnings = import_config(adguard, base)

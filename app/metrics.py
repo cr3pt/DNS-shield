@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import time
-from typing import Any
 
 
 def _line(buf: list[str], name: str, help_text: str, metric_type: str, value: float) -> None:

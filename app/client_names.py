@@ -22,7 +22,7 @@ class ClientNameResolver:
         self._lock = threading.Lock()
         self._cache: dict[str, tuple[str | None, float]] = {}
         self._pending: set[str] = set()
-        self._queue: "queue.Queue[str]" = queue.Queue()
+        self._queue: queue.Queue[str] = queue.Queue()
 
         threading.Thread(target=self._worker, name="client-name-resolver", daemon=True).start()
 
