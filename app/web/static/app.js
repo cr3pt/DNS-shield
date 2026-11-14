@@ -2995,6 +2995,7 @@ async function loadSettings() {
   document.getElementById("s-dns-safe-search-enabled").checked = !!s.dns.safe_search_enabled;
   document.getElementById("s-dns-dnssec-enabled").checked = !!s.dns.dnssec_enabled;
   document.getElementById("s-dns-dnssec-cache-seconds").value = s.dns.dnssec_cache_seconds ?? 3600;
+  document.getElementById("s-dns-dnssec-validation").value = s.dns.dnssec_validation === "local" ? "local" : "upstream";
   document.getElementById("s-dns-typosquat-enabled").checked = !!s.dns.typosquat_enabled;
   document.getElementById("s-dns-typosquat-max-distance").value = s.dns.typosquat_max_distance ?? 2;
   document.getElementById("s-dns-typosquat-cooldown").value = s.dns.typosquat_cooldown_minutes ?? 30;
@@ -4960,6 +4961,7 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
         safe_search_enabled: document.getElementById("s-dns-safe-search-enabled").checked,
         dnssec_enabled: document.getElementById("s-dns-dnssec-enabled").checked,
         dnssec_cache_seconds: Number(document.getElementById("s-dns-dnssec-cache-seconds").value) || 3600,
+        dnssec_validation: document.getElementById("s-dns-dnssec-validation").value,
         typosquat_enabled: document.getElementById("s-dns-typosquat-enabled").checked,
         typosquat_max_distance: intField("s-dns-typosquat-max-distance"),
         typosquat_cooldown_minutes: floatField("s-dns-typosquat-cooldown"),

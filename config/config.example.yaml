@@ -23,6 +23,8 @@ dns:
   block_non_latin: false
   safe_search_enabled: false
   dnssec_enabled: false
+  dnssec_validation: "upstream"     # or "local": check signatures in DNS-shield itself
+  dnssec_trust_anchors: []         # empty = the built-in IANA root KSKs
   dnssec_cache_seconds: 3600
   typosquat_enabled: false
   typosquat_max_distance: 2

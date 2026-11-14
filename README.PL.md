@@ -395,10 +395,34 @@ walidujący serwer nadrzędny i tak sam odmówi (SERVFAIL) zwrócenia
 odpowiedzi, której podpis nie przechodzi weryfikacji, zanim jeszcze
 DNS-shield ją zobaczy.
 
+**Walidacja lokalna.** Z `dns.dnssec_validation: "local"` (Settings -> DNS
+-> "Kto sprawdza podpisy", wymaga `dns.dnssec_enabled`) DNS-shield sam
+sprawdza podpisy, zamiast wierzyć fladze `AD`:
+
+- Każdy zestaw rekordów w odpowiedzi, który ma RRSIG, jest weryfikowany
+  kluczami DNSKEY strefy, która go podpisała.
+- Te klucze są zaufane, gdy jeden z nich pasuje do rekordu DS podpisanego
+  zaufanymi kluczami strefy nadrzędnej, aż do korzenia. Klucze korzenia są
+  sprawdzane względem kotwic zaufania IANA (KSK-2017 i KSK-2024), które
+  można zastąpić własnymi liniami DS w `dns.dnssec_trust_anchors`.
+- Zestaw rekordów bez podpisów w strefie, która jest podpisana, jest
+  bogus, bo tak wyglądają usunięte podpisy.
+
+Odpowiedź bogus dostaje `SERVFAIL` z Extended DNS Error 6 (DNSSEC Bogus) i
+nie trafia do cache. Bezpieczna dostaje `AD` dla klientów, którzy pytali z
+`DO`. Sprawdzanie kosztuje kilka dodatkowych zapytań (DNSKEY, DS, SOA) przy
+pierwszym spotkaniu strefy; potem wyniki są w cache przez
+`dns.dnssec_cache_seconds`. Ograniczenia: dowody nieistnienia (NSEC/NSEC3)
+nie są sprawdzane, więc serwer nadrzędny, który twierdzi, że strefa nie ma
+DS, jest uznawany za wiarygodny, a strefa traktowana jako niepodpisana.
+Odpowiedzi negatywne mają sprawdzane podpisy, ale nie sam dowód. Jeśli
+łańcucha nie da się w ogóle zbudować (brak danych DNSSEC od serwera
+nadrzędnego albo klucze korzenia niezgodne z kotwicami), odpowiedź
+przechodzi jak dotąd, z ostrzeżeniem w logu, zamiast psuć każde zapytanie.
+
 Wyłączenie tej opcji z powrotem (albo pozostawienie jej wyłączonej)
-przywraca dokładnie wcześniejsze zachowanie - zapytania są pakowane i
-przekazywane bez dodatkowego rekordu EDNS0, bez żadnego dodatkowego
-kosztu.
+przywraca wcześniejsze zachowanie - DNS-shield nie dodaje własnego bitu
+DO, bez żadnego dodatkowego kosztu.
 
 ### Nazwy hostów serwerów nadrzędnych i list blokad są zawsze rozwiązywalne i nigdy nie trafiają do logu
 

@@ -643,7 +643,15 @@
               <label data-i18n="dns.dnssec_cache">DNSSEC status cache (seconds)</label>
               <input type="number" id="s-dns-dnssec-cache-seconds" min="1">
             </div>
+            <div class="field">
+              <label data-i18n="dns.dnssec_validation">Who checks the signatures</label>
+              <select id="s-dns-dnssec-validation">
+                <option value="upstream" data-i18n="dns.dnssec_validation_upstream">The upstream resolver (AD flag)</option>
+                <option value="local" data-i18n="dns.dnssec_validation_local">DNS-shield itself (local validation)</option>
+              </select>
+            </div>
           </div>
+          <p class="hint" data-i18n="dns.hint.dnssec_validation">Local validation checks RRSIG signatures from the root trust anchor down and answers SERVFAIL when a signed zone's data doesn't verify, even if the upstream doesn't validate or tampers with answers. It costs a few extra lookups the first time a zone is seen (DNSKEY, DS, SOA; then cached). Denial proofs (NSEC/NSEC3) are not checked.</p>
         </div>
 
         <div class="settings-group">
