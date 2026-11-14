@@ -16,6 +16,7 @@ from app.web.common import _ref_index
 from app.web.context import AppContext
 from app.web.models import (
     AllowNowIn,
+    BlockedServicesIn,
     BlocklistSourceIn,
     ClientGroupIn,
     DomainIn,
@@ -212,6 +213,16 @@ def register(app: FastAPI, ctx: AppContext) -> None:
     ) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["safe_search"] = body.safe_search
+            return group
+
+        return _group_mutate(index, _fn)
+
+    @app.put("/api/client-groups/{index}/blocked-services")
+    def set_group_blocked_services(
+        index: str, body: BlockedServicesIn, _: dict[str, Any] = Depends(require_admin)
+    ) -> dict[str, Any]:
+        def _fn(group: dict[str, Any]) -> dict[str, Any]:
+            group["blocked_services"] = body.services
             return group
 
         return _group_mutate(index, _fn)

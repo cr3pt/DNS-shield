@@ -2258,6 +2258,60 @@ function buildGroupBlocklistEditor(groupIndex, sources, counts, formats, totalDo
   return wrap;
 }
 
+// Blocked services (one switch per app/site), globally and per client group.
+let servicesCatalog = [];
+
+function buildServiceToggles(selected, onSave, hint) {
+  const chosen = new Set(selected || []);
+  const wrap = el("div", { class: "service-toggles" });
+  if (hint) wrap.appendChild(el("div", { class: "muted", style: "font-size:0.78rem;margin-bottom:0.4rem;", text: hint }));
+  const grid = el("div", { class: "service-grid" });
+  const boxes = [];
+  for (const service of servicesCatalog) {
+    const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: chosen.has(service.id), value: service.id });
+    boxes.push(box);
+    grid.appendChild(el("label", { class: "service-toggle", title: service.domains.join(", ") }, [box, document.createTextNode(service.name)]));
+  }
+  wrap.appendChild(grid);
+  const save = el("button", { type: "button", text: t("common.save", "Save") });
+  save.onclick = async () => {
+    const services = boxes.filter((b) => b.checked).map((b) => b.value);
+    try {
+      await withSpinner(save, () => onSave(services), t("common.saving", "Saving..."));
+      refreshAll();
+    } catch (err) {
+      alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    }
+  };
+  wrap.appendChild(el("div", { class: "btn-row", style: "margin-top:0.4rem;" }, [save]));
+  return wrap;
+}
+
+async function loadServices() {
+  const data = await api("/api/services");
+  servicesCatalog = data.services || [];
+  const target = document.getElementById("blocked-services");
+  if (!target) return;
+  target.innerHTML = "";
+  target.appendChild(buildServiceToggles(data.blocked || [], (services) => api("/api/blocked-services", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ services }),
+  })));
+}
+
+function buildGroupServicesEditor(index, group) {
+  const editor = el("details", { class: "rule-editor" });
+  const count = (group.blocked_services || []).length;
+  editor.appendChild(el("summary", { class: "title", text: t("services.group_title", "Blocked services") + (count ? ` (${count})` : "") }));
+  editor.appendChild(buildServiceToggles(group.blocked_services || [], (services) => api(`/api/client-groups/${index}/blocked-services`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ services }),
+  }), t("services.group_hint", "Blocked for this group's devices, on top of the services blocked for everyone.")));
+  return editor;
+}
+
 async function loadClientGroups() {
   const groups = await api("/api/client-groups");
   const status = await api("/api/status");
@@ -2272,6 +2326,7 @@ async function loadClientGroups() {
     const header = buildGroupHeader(i, g, delBtn);
     const filterSwitch = buildGroupFilterSwitch(i, g);
     const accessControls = buildGroupAccessControls(i, g);
+    const servicesEditor = buildGroupServicesEditor(i, g);
     const matchEditor = buildGroupMatchEditor(i, g.match || []);
 
     const allowEditor = buildRuleEditor(
@@ -2387,7 +2442,7 @@ async function loadClientGroups() {
       refreshAll();
     });
 
-    container.appendChild(el("div", { class: "group-card" }, [header, filterSwitch, accessControls, matchEditor, allowEditor, denyEditor, upstreamsForm, safeSearchForm, scheduleForm, groupBlocklistEditor]));
+    container.appendChild(el("div", { class: "group-card" }, [header, filterSwitch, accessControls, matchEditor, allowEditor, denyEditor, servicesEditor, upstreamsForm, safeSearchForm, scheduleForm, groupBlocklistEditor]));
   });
 }
 
@@ -4736,6 +4791,7 @@ async function refreshAll() {
   await loadAllowSources();
   await loadBlocklistCatalog();
   await loadRules();
+  await loadServices();
   await loadClientGroups();
   await loadDhcpScopes();
   await loadDhcpLeases();

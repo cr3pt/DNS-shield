@@ -628,6 +628,18 @@ needed: the hostname each device sent with its DHCP request (and the
 answer. PTR lookups work for IPv6 clients too (`ip6.arpa`), and the
 resolver can be given as `[fd00::1]:53`.
 
+### Blocked services
+
+Settings → Own lists → **Blocked services** blocks a whole app or site with
+one switch: every domain it needs (YouTube is `youtube.com`, `youtu.be`,
+`ytimg.com`, `googlevideo.com` and more). A client group can block more
+services for its own devices from its card (`client_groups[].blocked_services`),
+on top of the global list (`blocked_services`). Like the denylist, a blocked
+service wins over the allowlists; pausing filtering lifts it. AdGuard Home
+imports bring their blocked services along.
+
+Available: `youtube`, `tiktok`, `instagram`, `facebook`, `whatsapp`, `snapchat`, `twitter`, `reddit`, `pinterest`, `discord`, `telegram`, `twitch`, `netflix`, `disneyplus`, `primevideo`, `spotify`, `roblox`, `fortnite`, `minecraft`, `steam`, `xbox`, `playstation`, `tinder`, `chatgpt`, `kick`, `9gag`.
+
 ### Per-client/group policies
 
 `client_groups` lets you override the global policy for specific clients -

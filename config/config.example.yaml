@@ -71,6 +71,10 @@ allowlist: []
 
 denylist: []
 
+# Whole services blocked for everyone, e.g. [youtube, tiktok]; client groups
+# can add their own under client_groups[].blocked_services.
+blocked_services: []
+
 blocked_tlds: []
 
 denylist_regex: []
