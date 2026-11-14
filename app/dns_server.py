@@ -11,6 +11,7 @@ import socket
 import ssl
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from dnslib import AAAA, CNAME, EDNS0, QTYPE, RCODE, RR, TXT, A, DNSHeader, DNSQuestion, DNSRecord
 from dnslib.server import DNSServer
@@ -23,6 +24,11 @@ from app.netmatch import ip_matches
 from app.safe_search import find_safe_search_target
 
 logger = logging.getLogger("dnsshield.dns")
+
+# Shared by all queries: race mode asks every upstream at once (the losers
+# finish in the background), prefetch refreshes popular cache entries.
+_RACE_POOL = ThreadPoolExecutor(max_workers=32, thread_name_prefix="dns-race")
+_PREFETCH_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dns-prefetch")
 
 _DNSSEC_UDP_SIZE = 1232
 _DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
@@ -466,7 +472,7 @@ class FilteringResolver:
                 results.put((upstream, None, exc))
 
         for upstream in upstreams:
-            threading.Thread(target=worker, args=(upstream,), daemon=True).start()
+            _RACE_POOL.submit(worker, upstream)
 
         for _ in upstreams:
             upstream, resp, exc = results.get()
@@ -492,7 +498,7 @@ class FilteringResolver:
         min_hits = int(self._config.get("dns", "cache_prefetch_min_hits", default=2))
         for key in self._cache.expiring_soon(threshold, min_hits):
             self._cache.mark_prefetching(key)
-            threading.Thread(target=self._prefetch_one, args=(key,), daemon=True).start()
+            _PREFETCH_POOL.submit(self._prefetch_one, key)
 
     def _prefetch_one(self, key: tuple[str, int, int, str]) -> None:
         qname, qtype, _qclass, variant = key
@@ -546,16 +552,89 @@ class QuietLogger:
         pass
 
 
-class _ReusePortUDPServer(_DNSLibUDPServer):
+DEFAULT_SERVER_THREADS = 64
+# Requests waiting for a free thread, per server; past that a UDP query is
+# dropped (the client retries) and a TCP connection is closed.
+_SERVER_QUEUE_PER_THREAD = 16
+
+
+class _BoundedPoolMixIn:
+    """Handle requests on a fixed pool of threads instead of dnslib's one new
+    thread per packet, so a flood of queries (or a slow upstream piling them
+    up) can't spawn thousands of threads and exhaust memory."""
+
+    pool_size = DEFAULT_SERVER_THREADS
+    dropped = 0
+
+    def _pool(self) -> tuple[ThreadPoolExecutor, threading.BoundedSemaphore]:
+        pool = getattr(self, "_request_pool", None)
+        if pool is None:
+            pool = (
+                ThreadPoolExecutor(max_workers=self.pool_size, thread_name_prefix="dns-request"),
+                threading.BoundedSemaphore(self.pool_size * (1 + _SERVER_QUEUE_PER_THREAD)),
+            )
+            self._request_pool = pool
+        return pool
+
+    def process_request(self, request, client_address):
+        executor, slots = self._pool()
+        if not slots.acquire(blocking=False):
+            self.dropped += 1
+            if self.dropped % 1000 == 1:
+                logger.warning("DNS server busy - dropped %d request(s) so far", self.dropped)
+            self.shutdown_request(request)
+            return
+        try:
+            executor.submit(self._handle_pooled, request, client_address, slots)
+        except RuntimeError:  # shutting down
+            slots.release()
+            self.shutdown_request(request)
+
+    def _handle_pooled(self, request, client_address, slots) -> None:
+        try:
+            self.finish_request(request, client_address)
+        except Exception:
+            self.handle_error(request, client_address)
+        finally:
+            self.shutdown_request(request)
+            slots.release()
+
+    def server_close(self):
+        super().server_close()
+        pool = getattr(self, "_request_pool", None)
+        if pool is not None:
+            pool[0].shutdown(wait=False, cancel_futures=True)
+
+
+class _PooledUDPServer(_BoundedPoolMixIn, _DNSLibUDPServer):
+    pass
+
+
+class _PooledTCPServer(_BoundedPoolMixIn, _DNSLibTCPServer):
+    pass
+
+
+class _ReusePortUDPServer(_PooledUDPServer):
     def server_bind(self):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         super().server_bind()
 
 
-class _ReusePortTCPServer(_DNSLibTCPServer):
+class _ReusePortTCPServer(_PooledTCPServer):
     def server_bind(self):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         super().server_bind()
+
+
+def _with_pool_size(server_class, pool_size: int):
+    return type(server_class.__name__, (server_class,), {"pool_size": max(1, pool_size)})
+
+
+def _server_threads(config_store) -> int:
+    try:
+        return int(config_store.get("dns", "server_threads", default=DEFAULT_SERVER_THREADS))
+    except (TypeError, ValueError):
+        return DEFAULT_SERVER_THREADS
 
 
 def reuse_port_supported() -> bool:
@@ -563,7 +642,7 @@ def reuse_port_supported() -> bool:
 
 
 def _make_dot_server_class(ssl_context: ssl.SSLContext):
-    class _DoTServer(_DNSLibTCPServer):
+    class _DoTServer(_PooledTCPServer):
         def finish_request(self, request, client_address):
             try:
                 tls_request = ssl_context.wrap_socket(request, server_side=True)
@@ -646,8 +725,9 @@ def start_dns_servers(
     address = config_store.get("dns", "listen_address", default="0.0.0.0")
     port = int(config_store.get("dns", "listen_port", default=53))
 
-    udp_server = _ReusePortUDPServer if reuse_port else None
-    tcp_server = _ReusePortTCPServer if reuse_port else None
+    threads = _server_threads(config_store)
+    udp_server = _with_pool_size(_ReusePortUDPServer if reuse_port else _PooledUDPServer, threads)
+    tcp_server = _with_pool_size(_ReusePortTCPServer if reuse_port else _PooledTCPServer, threads)
     servers = [
         DNSServer(resolver, address=address, port=port, tcp=False, logger=logger_, server=udp_server),
         DNSServer(resolver, address=address, port=port, tcp=True, logger=logger_, server=tcp_server),

@@ -205,6 +205,7 @@ referencyjny:
 dns:
   listen_address: "0.0.0.0"
   listen_port: 53
+  server_threads: 64                         # wątki odpowiadające na zapytania (osobno UDP i TCP); nadmiar czeka, potem jest odrzucany
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # dowolna liczba - zobacz niżej
   upstream_timeout_seconds: 3.0
   upstream_strategy: "in_order"  # albo "fastest" / "most_stable" / "race" / "random" - zobacz niżej
