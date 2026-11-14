@@ -102,6 +102,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             "blocklist_sources": blocklist.source_counts(),
             "blocklist_source_formats": blocklist.source_formats(),
             "blocklist_last_refresh": blocklist.last_refresh(),
+            "blocklist_refreshing": blocklist.refresh_pending(),
             "source_updates": blocklist.source_update_info(),
             "allowlist_domains": blocklist.allowed_count(),
             "allowlist_sources": blocklist.allow_source_counts(),

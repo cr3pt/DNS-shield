@@ -238,7 +238,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return fn(sources)
 
         result = config_store.mutate(_mutate)
-        blocklist.refresh()
+        blocklist.request_refresh()
         return result
 
     @app.get("/api/client-groups/{index}/blocklist-sources")

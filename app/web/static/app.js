@@ -708,12 +708,33 @@ function renderPauseBar(pause) {
   }
 }
 
+// Changing lists in the UI reloads them in the background; once that's done,
+// reload the page data so the new domain counts show up.
+let blocklistReloadPoll = null;
+function scheduleRefreshAfterBlocklistReload(status) {
+  if (!status.blocklist_refreshing || blocklistReloadPoll) return;
+  blocklistReloadPoll = setTimeout(async function poll() {
+    try {
+      const now = await api("/api/status");
+      if (now.blocklist_refreshing) {
+        blocklistReloadPoll = setTimeout(poll, 2000);
+        return;
+      }
+    } catch (err) {
+      // fall through and reload anyway
+    }
+    blocklistReloadPoll = null;
+    refreshAll();
+  }, 2000);
+}
+
 async function loadStatusAndStats() {
   const [status, stats] = await Promise.all([
     api("/api/status"),
     api("/api/stats?top_n=25&log_n=100"),
   ]);
 
+  scheduleRefreshAfterBlocklistReload(status);
   document.getElementById("dns-listen").textContent = t("status.dns_listening_on", "DNS listening on") + " " + status.dns_listen;
   document.getElementById("uptime").textContent = t("status.uptime", "uptime") + " " + fmtDuration(status.uptime_seconds);
   renderPauseBar(status.pause);
