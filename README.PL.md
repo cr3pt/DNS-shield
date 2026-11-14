@@ -2797,8 +2797,11 @@ app/
   sessions.py           sesje logowania trzymane w pamięci (token -> nazwa
                         użytkownika), zasilające ciasteczko sesji - nigdy
                         niezapisywane na dysk, restart wylogowuje wszystkich
-  web/server.py        REST API oparte na FastAPI, z uwierzytelnianiem i RBAC przez
-                       ciasteczko sesji, zasilające cały panel
+  web/server.py        fabryka aplikacji FastAPI: uwierzytelnianie i RBAC przez
+                       ciasteczko sesji oraz middleware
+  web/routes/          REST API panelu, po jednym module na obszar (auth, groups,
+                       dhcp, settings, ...), każdy z funkcją register(app, ctx)
+  web/models.py        modele żądań (pydantic) przyjmowane przez API
   web/static/          samodzielna, pojedyncza strona panelu, plus osobna strona
                        logowania (bez zewnętrznych zasobów czy CDN - nawet favicon i
                        logo to wbudowany SVG, a nie pobierany plik)

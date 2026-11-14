@@ -3,7 +3,7 @@
 
 from fastapi.testclient import TestClient
 
-import app.web.server as server_module
+import app.web.routes.auth as server_module
 from app.blocklist import BlocklistManager
 from app.stats import Stats
 from app.web.server import PendingSSOStore, create_app

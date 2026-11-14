@@ -2531,7 +2531,10 @@ app/
   sessions.py           in-memory login sessions (token -> username) backing the
                         session cookie - never persisted to disk, a restart signs
                         everyone out
-  web/server.py        FastAPI REST API + session-cookie auth/RBAC, backing the dashboard
+  web/server.py        FastAPI app factory: session-cookie auth/RBAC and middleware
+  web/routes/          the REST API behind the dashboard, one module per area
+                       (auth, groups, dhcp, settings, ...), each with register(app, ctx)
+  web/models.py        request bodies (pydantic) the API accepts
   web/static/          single self-contained dashboard page, plus a separate login
                        page (no external assets/CDN - even the favicon/logo is an
                        inlined SVG, not a fetched file)
