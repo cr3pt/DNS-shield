@@ -44,6 +44,8 @@ dns:
   client_name_cache_seconds: 3600
   dot_enabled: false
   dot_port: 853
+  doq_enabled: false
+  doq_port: 853
   rebinding_protection_enabled: true
   rebinding_action: "block"
   rebinding_exempt_domains: []

@@ -749,5 +749,9 @@
   "general.public_view": "Show a public summary (query trend and top blocked domains) to visitors who aren't signed in",
   "general.hint.public_view": "Off by default: the top blocked domains can reveal what people on your network try to visit. When off, visitors are sent straight to the sign-in page.",
   "general.public_url": "Dashboard address (optional)",
-  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request."
+  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request.",
+  "dns.doq": "클라이언트용 DNS-over-QUIC(DoQ)",
+  "dns.doq_accept": "아래 UDP 포트에서 클라이언트의 DNS-over-QUIC(DoQ) 허용 (재시작 필요)",
+  "dns.doq_port": "DoQ 리슨 포트 (UDP)",
+  "dns.hint.doq": "RFC 9250, AdGuard 앱과 dnsproxy 등에서 사용합니다. DoT 및 대시보드 HTTPS와 같은 인증서를 사용하므로 자체 서명 인증서에 대한 같은 주의 사항이 적용됩니다. DoT는 TCP, DoQ는 UDP이므로 853 포트를 DoT와 함께 쓸 수 있습니다. 메인 프로세스에서만 실행됩니다."
 }

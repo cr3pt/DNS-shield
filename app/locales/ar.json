@@ -749,5 +749,9 @@
   "general.public_view": "Show a public summary (query trend and top blocked domains) to visitors who aren't signed in",
   "general.hint.public_view": "Off by default: the top blocked domains can reveal what people on your network try to visit. When off, visitors are sent straight to the sign-in page.",
   "general.public_url": "Dashboard address (optional)",
-  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request."
+  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request.",
+  "dns.doq": "DNS عبر QUIC (DoQ) للعملاء",
+  "dns.doq_accept": "قبول DNS عبر QUIC (DoQ) من العملاء على منفذ UDP أدناه (يتطلب إعادة التشغيل)",
+  "dns.doq_port": "منفذ استماع DoQ (UDP)",
+  "dns.hint.doq": "RFC 9250، تستخدمه مثلًا تطبيقات AdGuard وdnsproxy. يستخدم نفس الشهادة التي يستخدمها DoT وHTTPS للوحة التحكم، لذا ينطبق التنبيه نفسه بشأن الشهادات الموقعة ذاتيًا. يمكنه مشاركة المنفذ 853 مع DoT لأن DoT يعمل عبر TCP وDoQ عبر UDP. يعمل في العملية الرئيسية فقط."
 }

@@ -717,6 +717,25 @@
         </div>
 
         <div class="settings-group">
+          <h3 data-i18n="dns.doq">DNS-over-QUIC (DoQ) for clients</h3>
+          <div class="field checkbox">
+            <input type="checkbox" id="s-dns-doq-enabled">
+            <label for="s-dns-doq-enabled" data-i18n="dns.doq_accept">Accept DNS-over-QUIC (DoQ) from clients on the UDP port below (requires restart)</label>
+          </div>
+          <div class="field-grid">
+            <div class="field">
+              <label data-i18n="dns.doq_port">DoQ listen port (UDP)</label>
+              <input type="number" id="s-dns-doq-port" min="1" max="65535" step="1">
+            </div>
+          </div>
+          <p class="hint" data-i18n="dns.hint.doq">
+            RFC 9250, used by e.g. AdGuard apps and dnsproxy. Uses the same certificate as DoT and the
+            dashboard's HTTPS, so the same caveat about self-signed certificates applies. It can share
+            port 853 with DoT, since DoT is TCP and DoQ is UDP. Runs only in the main process.
+          </p>
+        </div>
+
+        <div class="settings-group">
           <h3 data-i18n="dns.cache">DNS answer cache</h3>
           <div class="field checkbox"><input type="checkbox" id="s-dns-cache-enabled"><label for="s-dns-cache-enabled" data-i18n="dns.cache_enabled">Answer cache enabled</label></div>
           <div class="field-grid">

@@ -152,6 +152,8 @@ def register(app: FastAPI, ctx: AppContext) -> None:
                 "web.https_key_path",
                 "dns.dot_enabled",
                 "dns.dot_port",
+                "dns.doq_enabled",
+                "dns.doq_port",
             ],
             "restart_note": RESTART_NOTE,
         }

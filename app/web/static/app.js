@@ -2875,6 +2875,8 @@ async function loadSettings() {
   document.getElementById("s-dns-typosquat-redirect-ip").value = s.dns.typosquat_redirect_ip || "";
   document.getElementById("s-dns-dot-enabled").checked = !!s.dns.dot_enabled;
   document.getElementById("s-dns-dot-port").value = s.dns.dot_port ?? 853;
+  document.getElementById("s-dns-doq-enabled").checked = !!s.dns.doq_enabled;
+  document.getElementById("s-dns-doq-port").value = s.dns.doq_port ?? 853;
   document.getElementById("s-dns-rebinding-enabled").checked = !!s.dns.rebinding_protection_enabled;
   document.getElementById("s-dns-rebinding-action").value = s.dns.rebinding_action || "alert";
   document.getElementById("s-dns-rebinding-exempt").value = (s.dns.rebinding_exempt_domains || []).join(", ");
@@ -4717,6 +4719,8 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
         typosquat_redirect_ip: document.getElementById("s-dns-typosquat-redirect-ip").value.trim(),
         dot_enabled: document.getElementById("s-dns-dot-enabled").checked,
         dot_port: intField("s-dns-dot-port"),
+        doq_enabled: document.getElementById("s-dns-doq-enabled").checked,
+        doq_port: intField("s-dns-doq-port"),
         rebinding_protection_enabled: document.getElementById("s-dns-rebinding-enabled").checked,
         rebinding_action: document.getElementById("s-dns-rebinding-action").value,
         rebinding_exempt_domains: document.getElementById("s-dns-rebinding-exempt").value.split(",").map((s) => s.trim()).filter(Boolean),

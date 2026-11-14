@@ -28,6 +28,10 @@ _doh_session.mount("https://", _doh_adapter)
 _doh_session.mount("http://", _doh_adapter)
 
 
+# DNS-over-QUIC (RFC 9250). "quic://" is what AdGuard Home and dnsproxy call it.
+DOQ_PREFIXES = ("quic://", "doq://")
+
+
 def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
     entry = entry.strip()
     if entry.startswith("["):
@@ -47,6 +51,11 @@ def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
 def forward(data: bytes, upstream: str, timeout: float) -> bytes:
     if upstream.startswith("dot://"):
         return _forward_dot(data, upstream[len("dot://") :], timeout)
+    if upstream.startswith(DOQ_PREFIXES):
+        from app import doq  # aioquic is only loaded once a DoQ upstream is used
+
+        host, port = _split_host_port(upstream.split("://", 1)[1].split("/", 1)[0], doq.DEFAULT_PORT)
+        return doq.forward(data, host, port, timeout)
     if upstream.startswith("doh://"):
         return _forward_doh(data, "https://" + upstream[len("doh://") :], timeout)
     if upstream.startswith("https://"):
@@ -237,7 +246,7 @@ def address(entry: str) -> str:
 
 def hostname_of(upstream: str) -> str | None:
     entry = address(upstream)
-    for prefix in ("dot://", "doh://", "https://"):
+    for prefix in ("dot://", "doh://", "https://", *DOQ_PREFIXES):
         if entry.startswith(prefix):
             entry = entry[len(prefix) :]
             break

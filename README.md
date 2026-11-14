@@ -68,7 +68,7 @@ DNS-shield is a DNS sinkhole with filter lists and a web UI, and it is
 - Small enough to actually read end to end; see [Architecture](#architecture)
   below for exactly what each file does.
 
-It intentionally stays small: no DoQ and no per-app controls. It's the
+It intentionally stays small: no per-app controls. It's the
 "block ads/trackers network-wide from a Docker container, with nothing
 leaving my network that I didn't ask for" job, plus the DNS-level pieces
 of parental control that fit it cleanly: forced SafeSearch/Restricted
@@ -136,7 +136,7 @@ The trade-off: with `network_mode: host` there's no `ports:` list to
 edit (Docker ignores it in this mode) - the container binds directly to
 whatever ports its own config asks for on the host: `53` for DNS, `3000`
 for the dashboard, plus `80`/`443` if you turn on the
-[reverse proxy](#reverse-proxy-optional), `853` for DNS-over-TLS, or `67`
+[reverse proxy](#reverse-proxy-optional), `853` for DNS-over-TLS (TCP) and DNS-over-QUIC (UDP), or `67`
 for DHCP, each only when its own feature is actually enabled. Make sure
 nothing else on the host is already bound to a port you plan to use -
 most commonly `53`: many Linux distributions run `systemd-resolved`'s
@@ -159,7 +159,7 @@ services:
 ```
 
 (add `80:80/tcp` and `443:443/tcp` too if you're using the reverse
-proxy, and `853:853/tcp` for DNS-over-TLS). Just be aware every client
+proxy, `853:853/tcp` for DNS-over-TLS and `853:853/udp` for DNS-over-QUIC). Just be aware every client
 will then show up as Docker's gateway address, `mac:` matching in
 [client groups](#per-clientgroup-policies) won't see your
 LAN's real ARP table, and DHCP won't work at all (see
@@ -271,12 +271,17 @@ dns:
     - "dot://1.1.1.1"                          # DNS-over-TLS
     - "doh://cloudflare-dns.com/dns-query"     # DNS-over-HTTPS
     - "https://dns.quad9.net/dns-query"        # DNS-over-HTTPS, full URL also works
+    - "quic://dns.adguard-dns.com"             # DNS-over-QUIC (RFC 9250; "doq://" works too)
 ```
+
+DNS-over-QUIC keeps one QUIC connection per upstream open and sends every
+query on its own stream over it, so after the first handshake a query
+costs a single round trip, without TCP's head-of-line blocking.
 
 Plain `host:port` entries use UDP with an automatic TCP retry if the reply
 is truncated. This section is only about the *upstream* hop - DNS-shield
 also always listens for plain DNS from your LAN clients on port 53, plus
-optionally DoH/DoT for clients that want an encrypted hop to DNS-shield
+optionally DoH/DoT/DoQ for clients that want an encrypted hop to DNS-shield
 itself; see [DNS-over-HTTPS / DNS-over-TLS for clients](#dns-over-https--dns-over-tls-for-clients)
 below.
 
@@ -2085,14 +2090,22 @@ warning" option like a browser gives you - so a self-signed certificate
 makes DoT mostly untestable-but-present until you point it at a real
 one.
 
+**DoQ** is off by default too - `dns.doq_enabled` (Settings -> DNS,
+requires a container restart) listens for DNS-over-QUIC (RFC 9250) on
+UDP `dns.doq_port` (853 by default; it can share the number with DoT,
+which is TCP). Clients such as the AdGuard apps and dnsproxy speak it.
+It uses the same certificate as DoT, with the same caveat about
+self-signed ones, and answers through the same resolver, so filtering,
+caching and the query log work as for plain DNS.
+
 Both listeners run only in the main process, not distributed across
 `DNSSHIELD_DNS_WORKERS` worker processes the way plain UDP/TCP is - the
 web dashboard itself is already single-process-only, and DoH/DoT follow
-that same boundary rather than adding per-worker certificate loading and
+that same boundary (as does DoQ) rather than adding per-worker certificate loading and
 `SO_REUSEPORT` interaction for a comparatively low-volume path. With the
 shipped `docker-compose.yml`'s host networking, DoT is reachable as soon
 as `dns.dot_enabled` is on - no port mapping needed. On bridge networking,
-add a `- "853:853/tcp"` mapping (or whatever port you set) yourself,
+add a `- "853:853/tcp"` mapping (and `- "853:853/udp"` for DoQ, or whatever ports you set) yourself,
 matching the block page's own port-mapping pattern above.
 
 ### Prometheus metrics
@@ -2789,8 +2802,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs the same lint (rules in
 
 ## Limitations / roadmap
 
-- No DoQ (DoH/DoT are supported both as an upstream transport and as a
-  listener for clients - see above). [Parental
+- DoH, DoT and DoQ are all supported, both as an upstream transport and as a
+  listener for clients (see above). [Parental
   control](#parental-control--safesearch) is limited to what DNS
   resolution can actually do - forced SafeSearch, per-group category
   blocklists, and per-group bedtime schedules - not per-app limits or

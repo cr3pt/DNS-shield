@@ -749,5 +749,9 @@
   "general.public_view": "Show a public summary (query trend and top blocked domains) to visitors who aren't signed in",
   "general.hint.public_view": "Off by default: the top blocked domains can reveal what people on your network try to visit. When off, visitors are sent straight to the sign-in page.",
   "general.public_url": "Dashboard address (optional)",
-  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request."
+  "general.hint.public_url": "The address you open the dashboard at. When set, passkeys are bound to exactly this address instead of whatever the browser sent in the request.",
+  "dns.doq": "DNS-over-QUIC (DoQ) für Clients",
+  "dns.doq_accept": "DNS-over-QUIC (DoQ) von Clients auf dem UDP-Port unten annehmen (Neustart erforderlich)",
+  "dns.doq_port": "DoQ-Listen-Port (UDP)",
+  "dns.hint.doq": "RFC 9250, genutzt z. B. von AdGuard-Apps und dnsproxy. Verwendet dasselbe Zertifikat wie DoT und das HTTPS des Dashboards, daher gilt derselbe Hinweis zu selbstsignierten Zertifikaten. Kann Port 853 mit DoT teilen, da DoT TCP und DoQ UDP nutzt. Läuft nur im Hauptprozess."
 }

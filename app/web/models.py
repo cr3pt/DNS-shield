@@ -270,7 +270,9 @@ class DnsSettingsIn(BaseModel):
     typosquat_action: str | None = None
     typosquat_redirect_ip: str | None = None
     dot_enabled: bool | None = None
-    dot_port: int | None = None
+    dot_port: int | None = Field(default=None, ge=1, le=65535)
+    doq_enabled: bool | None = None
+    doq_port: int | None = Field(default=None, ge=1, le=65535)
     rebinding_protection_enabled: bool | None = None
     rebinding_action: str | None = None
     rebinding_exempt_domains: list[str] | None = None

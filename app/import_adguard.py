@@ -46,7 +46,9 @@ def convert_upstream(entry: str) -> tuple[str | None, str | None]:
         return "dot://" + entry[len("tls://") :], None
     if entry.startswith("https://"):
         return entry, None
-    if entry.startswith(("quic://", "h3://", "sdns://")):
+    if entry.startswith("quic://"):
+        return entry, None
+    if entry.startswith(("h3://", "sdns://")):
         return None, f"unsupported upstream scheme, skipped: {entry!r}"
     if entry.startswith("udp://"):
         return entry[len("udp://") :], None

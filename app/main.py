@@ -113,9 +113,10 @@ def main() -> None:
 
     https_enabled = bool(config_store.get("web", "https_enabled", default=False))
     dot_enabled = bool(config_store.get("dns", "dot_enabled", default=False))
+    doq_enabled = bool(config_store.get("dns", "doq_enabled", default=False))
 
     cert_path = key_path = None
-    if https_enabled or dot_enabled:
+    if https_enabled or dot_enabled or doq_enabled:
         cert_path_cfg = config_store.get("web", "https_cert_path", default="") or ""
         key_path_cfg = config_store.get("web", "https_key_path", default="") or ""
         if cert_path_cfg and key_path_cfg:
@@ -304,6 +305,16 @@ def main() -> None:
             start_dot_server(resolver, cert_path, key_path, address=dns_address, port=dot_port)
         except OSError as exc:
             logger.warning("could not start DoT server on %s:%d: %s", dns_address, dot_port, exc)
+
+    if doq_enabled:
+        from app import doq
+
+        doq_port = int(config_store.get("dns", "doq_port", default=doq.DEFAULT_PORT))
+        dns_address = config_store.get("dns", "listen_address", default="0.0.0.0")
+        try:
+            doq.start_server(resolver, cert_path, key_path, address=dns_address, port=doq_port)
+        except Exception as exc:
+            logger.warning("could not start DoQ server on %s:%d: %s", dns_address, doq_port, exc)
 
     stop_startup_page_server(startup_page_server)
     uvicorn.run(app, host=web_host, port=web_port, log_level="warning", **ssl_kwargs)
