@@ -209,6 +209,8 @@
   "alerts.hint.overview": "Everything DNS-shield flags lands here: local anomaly detection, alert rule hits (watched domain/list), and threat-intel checks that came back bad enough - configure each of these in Settings -> Anomalies / Threat intelligence. \"Check now\" runs the anomaly heuristics for the current window; \"Re-analyze\" instead goes back over a historical range you choose, checking it as if the detector had been running the whole time - useful after changing thresholds, or simply to audit history for which detection wasn't enabled at the time. Ranges of 7 days or more scan a lot of data and may take a while; it never sends any notifications about what it finds (this is a retrospective audit, not a live event).",
   "stats.hint.top_queried": "All queries, blocked and allowed.",
   "stats.hint.blocked_by": "Which blocklist/rule is responsible for the most blocks.",
+  "blocklists.tlds": "Blocked top-level domains",
+  "blocklists.hint.tlds": "Every domain under a TLD listed here is blocked - e.g. \".ru\" blocks example.ru, mail.example.ru and so on. Your allowlist and allow-list sources still win, so you can let individual sites through.",
   "blocklists.title": "Blocklists",
   "blocklists.refresh_now": "Refresh now",
   "blocklists.suggested": "Suggested lists",

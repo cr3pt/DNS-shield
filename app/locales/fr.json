@@ -209,6 +209,8 @@
   "alerts.hint.overview": "Tout ce que DNS-shield signale arrive ici : détection locale d'anomalies, correspondances de règles d'alerte (domaine/liste surveillé) et vérifications de threat intelligence suffisamment mauvaises - configurez chacune d'elles dans Paramètres -> Anomalies / Threat Intelligence. \"Vérifier maintenant\" exécute les heuristiques d'anomalies pour la fenêtre actuelle ; \"Réanalyser\" remonte au contraire sur une période historique choisie, en la vérifiant comme si le détecteur avait fonctionné pendant toute cette période - utile après un changement de seuil, ou simplement pour auditer un historique pour lequel la détection n'était pas activée à l'époque. Les périodes de 7 jours ou plus analysent beaucoup de données et peuvent prendre un certain temps ; aucune notification n'est envoyée pour ce qui est trouvé (il s'agit d'un audit rétrospectif, pas d'un événement en direct).",
   "stats.hint.top_queried": "Toutes les requêtes, bloquées et autorisées.",
   "stats.hint.blocked_by": "Quelle liste de blocage/règle est responsable du plus grand nombre de blocages.",
+  "blocklists.tlds": "Domaines de premier niveau bloqués",
+  "blocklists.hint.tlds": "Tout domaine sous un TLD listé ici est bloqué - par ex. \".ru\" bloque example.ru, mail.example.ru, etc. La liste blanche et les sources de liste blanche restent prioritaires, vous pouvez donc laisser passer certains sites.",
   "blocklists.title": "Listes de blocage",
   "blocklists.refresh_now": "Actualiser maintenant",
   "blocklists.suggested": "Listes suggérées",

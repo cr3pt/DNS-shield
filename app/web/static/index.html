@@ -1820,6 +1820,16 @@
   </div>
 
   <div id="subtab-blocklists" class="subtab-panel">
+    <section class="section-deny">
+      <h2 data-i18n="blocklists.tlds">Blocked top-level domains</h2>
+      <p class="muted" data-i18n="blocklists.hint.tlds">Every domain under a TLD listed here is blocked - e.g. ".ru" blocks example.ru, mail.example.ru and so on. Your allowlist and allow-list sources still win, so you can let individual sites through.</p>
+      <form class="inline" id="add-blocked-tld-form">
+        <input type="text" id="blocked-tld" placeholder=".ru" required>
+        <button type="submit" data-i18n="common.add">Add</button>
+      </form>
+      <table><tbody id="blocked-tld-rows"></tbody></table>
+    </section>
+
     <section>
       <h2 data-i18n="blocklists.title">Blocklists</h2>
       <form class="inline" id="add-blocklist-form">
@@ -4041,6 +4051,16 @@ async function loadSourceTable(apiPath, rowsElId, countsKey, formatsKey) {
 
 async function loadBlocklists() {
   await loadSourceTable("/api/blocklists", "blocklist-rows", "blocklist_sources", "blocklist_source_formats");
+}
+
+async function loadBlockedTlds() {
+  const tlds = await api("/api/blocked-tlds");
+  const rows = document.getElementById("blocked-tld-rows");
+  rows.innerHTML = "";
+  for (const tld of tlds) {
+    const delBtn = ruleDeleteButton(t("common.remove", "Remove"), `/api/blocked-tlds/${encodeURIComponent(tld)}`);
+    rows.appendChild(el("tr", {}, [el("td", { text: "." + tld }), el("td", {}, [delBtn])]));
+  }
 }
 
 async function loadAllowSources() {
@@ -6871,6 +6891,7 @@ async function refreshAll() {
   const canViewAnomalies = isAdmin || (currentUser.permissions && currentUser.permissions.view_anomalies);
   if (canViewAnomalies) await loadAnomalies();
   if (!isAdmin) return;
+  await loadBlockedTlds();
   await loadBlocklists();
   await loadAllowSources();
   await loadBlocklistCatalog();
@@ -7678,6 +7699,24 @@ document.getElementById("add-allow-form").addEventListener("submit", async (e) =
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ domain }),
   });
+  e.target.reset();
+  refreshAll();
+});
+
+document.getElementById("add-blocked-tld-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = document.getElementById("blocked-tld").value.trim();
+  if (!value) return;
+  try {
+    await api("/api/blocked-tlds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    });
+  } catch (err) {
+    alert(t("common.action_failed", "Action failed") + ": " + (err && err.message ? err.message : err));
+    return;
+  }
   e.target.reset();
   refreshAll();
 });

@@ -172,7 +172,7 @@ file editing needed for day-to-day use. Settings is split into its own
 sub-tabs by topic: **General** (web UI, config backup), **DNS** (core resolver, upstream
 servers, per-domain routing, custom records), **Logging** (retention,
 excluded domains/clients), **Threat intelligence**, **Import** (existing
-configuration), **Blocklists** (sources, suggested lists, allow-list
+configuration), **Blocklists** (blocked top-level domains such as `.ru`, sources, suggested lists, allow-list
 sources, refresh schedule), **Own lists** (allowlist, denylist, regex
 denylist), **Clients** (blocked clients, client groups), and **Cleans**
 (DNS answer cache, delete all logged queries).
@@ -215,6 +215,7 @@ blocklists:
 
 allowlist: []   # always resolved normally, even if a blocklist matches
 denylist: []    # always blocked, even if not on a blocklist
+blocked_tlds: []   # whole TLDs blocked, e.g. ["ru", "ua"] - allowlist still wins
 denylist_regex: []   # experimental regex denylist, see below - off unless regex_denylist_enabled
 blocked_clients: []   # IPs/CIDRs with EVERY query blocked - see below
 

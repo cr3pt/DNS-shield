@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.anomaly import _base_domain
 from app.auth import verify_password
-from app.blocklist import check_regex_pattern_safety
+from app.blocklist import check_regex_pattern_safety, normalize_tld
 from app.graph import GRAPH_VIEWS
 from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app import dns_rewrites
@@ -1525,6 +1525,40 @@ def create_app(
     @app.delete("/api/rules/deny/{domain}")
     def remove_deny(domain: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
         return _remove_rule("denylist", domain)
+
+    @app.get("/api/blocked-tlds")
+    def get_blocked_tlds(_: dict[str, Any] = Depends(require_auth)) -> list[str]:
+        return config_store.get("blocked_tlds", default=[]) or []
+
+    @app.post("/api/blocked-tlds")
+    def add_blocked_tld(body: ValueIn, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
+        try:
+            tld = normalize_tld(body.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            items = data.setdefault("blocked_tlds", [])
+            if tld not in items:
+                items.append(tld)
+            return items
+
+        return config_store.mutate(_mutate)
+
+    @app.delete("/api/blocked-tlds/{tld}")
+    def remove_blocked_tld(tld: str, _: dict[str, Any] = Depends(require_permission("can_block"))) -> list[str]:
+        try:
+            value = normalize_tld(tld)
+        except ValueError:
+            value = tld.strip().strip(".").lower()
+
+        def _mutate(data: dict[str, Any]) -> list[str]:
+            items = data.setdefault("blocked_tlds", [])
+            if value in items:
+                items.remove(value)
+            return items
+
+        return config_store.mutate(_mutate)
 
     @app.post("/api/rules/deny-regex")
     def add_deny_regex(body: RegexPatternIn, _: dict[str, Any] = Depends(require_admin)) -> list[str]:

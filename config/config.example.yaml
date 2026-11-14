@@ -63,6 +63,8 @@ allowlist: []
 
 denylist: []
 
+blocked_tlds: []
+
 denylist_regex: []
 
 blocked_clients: []
