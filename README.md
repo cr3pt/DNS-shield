@@ -185,6 +185,7 @@ once at every startup) purely as a human-readable backup/reference:
 dns:
   listen_address: "0.0.0.0"
   listen_port: 53
+  server_threads: 64                         # threads answering queries (UDP and TCP each); excess queries wait, then get dropped
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # as many as you like - see below
   upstream_timeout_seconds: 3.0
   upstream_strategy: "in_order"  # or "fastest" / "most_stable" / "race" / "random" - see below

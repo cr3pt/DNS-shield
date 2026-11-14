@@ -4,6 +4,7 @@
 dns:
   listen_address: "0.0.0.0"
   listen_port: 53
+  server_threads: 64
   upstreams:
     - "1.1.1.1:53"
     - "9.9.9.9:53"
