@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -39,6 +40,51 @@ def _default_legacy_yaml_path() -> Path:
     return Path(os.environ.get("DNSSHIELD_CONFIG", "/data/config.yaml"))
 
 
+
+def _id_lists(data: dict[str, Any]) -> list[list[Any]]:
+    """Every config list whose dict entries the API addresses one by one."""
+
+    def _list(node: Any, *keys: str) -> list[Any]:
+        for key in keys:
+            node = node.get(key) if isinstance(node, dict) else None
+        return node if isinstance(node, list) else []
+
+    lists = [
+        _list(data, "blocklists", "sources"),
+        _list(data, "blocklists", "allow_sources"),
+        _list(data, "blocked_answer_ip_sources"),
+        _list(data, "client_groups"),
+        _list(data, "dhcp", "scopes"),
+        _list(data, "domain_upstreams"),
+        _list(data, "dns_rewrites"),
+        _list(data, "alert_rules", "sources"),
+        _list(data, "notifications", "webhooks"),
+    ]
+    for group in _list(data, "client_groups"):
+        lists.append(_list(group, "blocklist_sources"))
+    return lists
+
+
+def ensure_item_ids(data: dict[str, Any]) -> bool:
+    """Give every addressable list entry a stable `id`, so the API can name an
+    entry without relying on its position (which shifts when another admin
+    adds or removes an entry in between). Returns True if anything changed."""
+    changed = False
+    for items in _id_lists(data):
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id or item_id in seen:
+                item_id = secrets.token_hex(4)
+                while item_id in seen:
+                    item_id = secrets.token_hex(4)
+                item["id"] = item_id
+                changed = True
+            seen.add(item_id)
+    return changed
+
 class ConfigStore:
     def __init__(self, db_path: Path | None = None, backup_path: Path | None = None):
         self.db_path = db_path or _default_db_path()
@@ -51,6 +97,8 @@ class ConfigStore:
 
         self._init_schema()
         self._data = self._load_initial()
+        if ensure_item_ids(self._data):
+            self._save_to_db(self._data)
         self._version = 0
 
     def _connect(self) -> sqlite3.Connection:
@@ -125,6 +173,7 @@ class ConfigStore:
         with self._lock:
             data = copy.deepcopy(self._data)
             result = fn(data)
+            ensure_item_ids(data)
             self._save_to_db(data)
             self._data = data
             self._version += 1

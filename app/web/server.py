@@ -109,6 +109,17 @@ _CLEARABLE_SECRET_PATHS = {
 }
 
 
+def _ref_index(items: list[Any], ref: str, detail: str) -> int:
+    """Position of the entry a route names: its stable `id` or, for older
+    clients and plain-string lists, its numeric index. 404 if neither fits."""
+    for position, item in enumerate(items):
+        if isinstance(item, dict) and item.get("id") == ref:
+            return position
+    if ref.isdigit() and len(ref) < 7 and int(ref) < len(items):
+        return int(ref)
+    raise HTTPException(status_code=404, detail=detail)
+
+
 def _masked_key_preview(key: str | None) -> str:
     if not key:
         return ""
@@ -215,6 +226,7 @@ def _sso_settings_public(cfg: dict[str, Any]) -> dict[str, Any]:
 def _notification_webhook_public(cfg: dict[str, Any]) -> dict[str, Any]:
     wtype = cfg.get("type", "discord")
     result = {
+        "id": cfg.get("id"),
         "name": cfg.get("name", "") or "",
         "type": wtype,
         "enabled": bool(cfg.get("enabled", True)),
@@ -1459,24 +1471,22 @@ def create_app(
         blocklist.refresh()
         return result
 
-    def _delete_source(field: str, index: int) -> list[dict[str, Any]]:
+    def _delete_source(field: str, index: str) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocklists", {}).setdefault(field, [])
-            if not 0 <= index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources.pop(index)
+            pos = _ref_index(sources, index, "No such list")
+            sources.pop(pos)
             return sources
 
         result = config_store.mutate(_mutate)
         blocklist.refresh()
         return result
 
-    def _toggle_source(field: str, index: int) -> list[dict[str, Any]]:
+    def _toggle_source(field: str, index: str) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocklists", {}).setdefault(field, [])
-            if not 0 <= index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources[index]["enabled"] = not sources[index].get("enabled", True)
+            pos = _ref_index(sources, index, "No such list")
+            sources[pos]["enabled"] = not sources[pos].get("enabled", True)
             return sources
 
         result = config_store.mutate(_mutate)
@@ -1492,11 +1502,11 @@ def create_app(
         return _add_source("sources", source)
 
     @app.delete("/api/blocklists/{index}")
-    def delete_blocklist(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_blocklist(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _delete_source("sources", index)
 
     @app.post("/api/blocklists/{index}/toggle")
-    def toggle_blocklist(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def toggle_blocklist(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _toggle_source("sources", index)
 
     @app.get("/api/allow-sources")
@@ -1508,11 +1518,11 @@ def create_app(
         return _add_source("allow_sources", source)
 
     @app.delete("/api/allow-sources/{index}")
-    def delete_allow_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_allow_source(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _delete_source("allow_sources", index)
 
     @app.post("/api/allow-sources/{index}/toggle")
-    def toggle_allow_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def toggle_allow_source(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         return _toggle_source("allow_sources", index)
 
     @app.get("/api/blocklists/catalog")
@@ -1700,13 +1710,12 @@ def create_app(
 
     @app.delete("/api/answer-ip-sources/{index}")
     def delete_answer_ip_source(
-        index: int, _: dict[str, Any] = Depends(require_permission("can_block"))
+        index: str, _: dict[str, Any] = Depends(require_permission("can_block"))
     ) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocked_answer_ip_sources", [])
-            if not 0 <= index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources.pop(index)
+            pos = _ref_index(sources, index, "No such list")
+            sources.pop(pos)
             return sources
 
         result = config_store.mutate(_mutate)
@@ -1715,13 +1724,12 @@ def create_app(
 
     @app.post("/api/answer-ip-sources/{index}/toggle")
     def toggle_answer_ip_source(
-        index: int, _: dict[str, Any] = Depends(require_permission("can_block"))
+        index: str, _: dict[str, Any] = Depends(require_permission("can_block"))
     ) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("blocked_answer_ip_sources", [])
-            if not 0 <= index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources[index]["enabled"] = not sources[index].get("enabled", True)
+            pos = _ref_index(sources, index, "No such list")
+            sources[pos]["enabled"] = not sources[pos].get("enabled", True)
             return sources
 
         result = config_store.mutate(_mutate)
@@ -1807,42 +1815,39 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.delete("/api/client-groups/{index}")
-    def delete_client_group(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_client_group(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
-            if not 0 <= index < len(groups):
-                raise HTTPException(status_code=404, detail="No such client group")
-            groups.pop(index)
+            pos = _ref_index(groups, index, "No such client group")
+            groups.pop(pos)
             return groups
 
         return config_store.mutate(_mutate)
 
     @app.post("/api/client-groups/{index}/toggle")
-    def toggle_client_group(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def toggle_client_group(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
-            if not 0 <= index < len(groups):
-                raise HTTPException(status_code=404, detail="No such client group")
-            groups[index]["enabled"] = not groups[index].get("enabled", True)
+            pos = _ref_index(groups, index, "No such client group")
+            groups[pos]["enabled"] = not groups[pos].get("enabled", True)
             return groups
 
         return config_store.mutate(_mutate)
 
     @app.put("/api/client-groups/{index}/name")
     def rename_client_group(
-        index: int, body: GroupNameIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, body: GroupNameIn, _: dict[str, Any] = Depends(require_admin)
     ) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> tuple[dict[str, Any], str]:
             groups = data.setdefault("client_groups", [])
-            if not 0 <= index < len(groups):
-                raise HTTPException(status_code=404, detail="No such client group")
-            old_name = str(groups[index].get("name", ""))
+            pos = _ref_index(groups, index, "No such client group")
+            old_name = str(groups[pos].get("name", ""))
             for position, other in enumerate(groups):
-                if position != index and str(other.get("name", "")).casefold() == body.name.casefold():
+                if position != pos and str(other.get("name", "")).casefold() == body.name.casefold():
                     raise HTTPException(status_code=409, detail=f'A client group named "{body.name}" already exists')
             if old_name == body.name:
-                return groups[index], old_name
-            groups[index]["name"] = body.name
+                return groups[pos], old_name
+            groups[pos]["name"] = body.name
             for user in data.get("users", []) or []:
                 permissions = user.get("permissions")
                 allowed = permissions.get("allowed_groups") if isinstance(permissions, dict) else None
@@ -1853,7 +1858,7 @@ def create_app(
                         if entry not in renamed:
                             renamed.append(entry)
                     permissions["allowed_groups"] = renamed
-            return groups[index], old_name
+            return groups[pos], old_name
 
         group, old_name = config_store.mutate(_mutate)
         if old_name != body.name:
@@ -1862,27 +1867,25 @@ def create_app(
 
     @app.put("/api/client-groups/{index}/enabled")
     def set_client_group_enabled(
-        index: int, body: GroupEnabledIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, body: GroupEnabledIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
-            if not 0 <= index < len(groups):
-                raise HTTPException(status_code=404, detail="No such client group")
-            groups[index]["enabled"] = body.enabled
+            pos = _ref_index(groups, index, "No such client group")
+            groups[pos]["enabled"] = body.enabled
             return groups
 
         return config_store.mutate(_mutate)
 
-    def _group_mutate(index: int, fn) -> dict[str, Any]:
+    def _group_mutate(index: str, fn) -> dict[str, Any]:
         def _mutate(data: dict[str, Any]) -> dict[str, Any]:
             groups = data.setdefault("client_groups", [])
-            if not 0 <= index < len(groups):
-                raise HTTPException(status_code=404, detail="No such client group")
-            return fn(groups[index])
+            pos = _ref_index(groups, index, "No such client group")
+            return fn(groups[pos])
 
         return config_store.mutate(_mutate)
 
-    def _add_group_rule(index: int, list_name: str, domain: str) -> dict[str, Any]:
+    def _add_group_rule(index: str, list_name: str, domain: str) -> dict[str, Any]:
         domain = domain.strip().lower().rstrip(".")
         if not domain:
             raise HTTPException(status_code=400, detail="Empty domain")
@@ -1895,7 +1898,7 @@ def create_app(
 
         return _group_mutate(index, _fn)
 
-    def _remove_group_rule(index: int, list_name: str, domain: str) -> dict[str, Any]:
+    def _remove_group_rule(index: str, list_name: str, domain: str) -> dict[str, Any]:
         domain = domain.strip().lower().rstrip(".")
 
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
@@ -1907,7 +1910,7 @@ def create_app(
         return _group_mutate(index, _fn)
 
     @app.post("/api/client-groups/{index}/match")
-    def add_group_match(index: int, body: GroupMatchIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def add_group_match(index: str, body: GroupMatchIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         try:
             patterns = normalize_client_patterns(body.patterns)
         except ValueError as exc:
@@ -1923,7 +1926,7 @@ def create_app(
         return _group_mutate(index, _fn)
 
     @app.delete("/api/client-groups/{index}/match")
-    def remove_group_match(index: int, pattern: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def remove_group_match(index: str, pattern: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             items = group.setdefault("match", [])
             target = pattern if pattern in items else None
@@ -1945,23 +1948,23 @@ def create_app(
         return _group_mutate(index, _fn)
 
     @app.post("/api/client-groups/{index}/allow")
-    def add_group_allow(index: int, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def add_group_allow(index: str, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _add_group_rule(index, "allowlist", body.domain)
 
     @app.delete("/api/client-groups/{index}/allow/{domain:path}")
-    def remove_group_allow(index: int, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def remove_group_allow(index: str, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _remove_group_rule(index, "allowlist", domain)
 
     @app.post("/api/client-groups/{index}/deny")
-    def add_group_deny(index: int, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def add_group_deny(index: str, body: DomainIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _add_group_rule(index, "denylist", body.domain)
 
     @app.delete("/api/client-groups/{index}/deny/{domain:path}")
-    def remove_group_deny(index: int, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def remove_group_deny(index: str, domain: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         return _remove_group_rule(index, "denylist", domain)
 
     @app.put("/api/client-groups/{index}/upstreams")
-    def set_group_upstreams(index: int, body: UpstreamsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def set_group_upstreams(index: str, body: UpstreamsIn, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["upstreams"] = body.upstreams
             return group
@@ -1970,7 +1973,7 @@ def create_app(
 
     @app.put("/api/client-groups/{index}/safe-search")
     def set_group_safe_search(
-        index: int, body: GroupSafeSearchIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, body: GroupSafeSearchIn, _: dict[str, Any] = Depends(require_admin)
     ) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["safe_search"] = body.safe_search
@@ -1980,7 +1983,7 @@ def create_app(
 
     @app.put("/api/client-groups/{index}/schedule")
     def set_group_schedule(
-        index: int, body: GroupScheduleIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, body: GroupScheduleIn, _: dict[str, Any] = Depends(require_admin)
     ) -> dict[str, Any]:
         def _fn(group: dict[str, Any]) -> dict[str, Any]:
             group["schedule"] = {
@@ -1995,12 +1998,11 @@ def create_app(
 
         return _group_mutate(index, _fn)
 
-    def _group_source_mutate(index: int, fn) -> list[dict[str, Any]]:
+    def _group_source_mutate(index: str, fn) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             groups = data.setdefault("client_groups", [])
-            if not 0 <= index < len(groups):
-                raise HTTPException(status_code=404, detail="No such client group")
-            sources = groups[index].setdefault("blocklist_sources", [])
+            pos = _ref_index(groups, index, "No such client group")
+            sources = groups[pos].setdefault("blocklist_sources", [])
             return fn(sources)
 
         result = config_store.mutate(_mutate)
@@ -2008,15 +2010,14 @@ def create_app(
         return result
 
     @app.get("/api/client-groups/{index}/blocklist-sources")
-    def list_group_blocklist_sources(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def list_group_blocklist_sources(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         groups = config_store.get("client_groups", default=[]) or []
-        if not 0 <= index < len(groups):
-            raise HTTPException(status_code=404, detail="No such client group")
-        return groups[index].get("blocklist_sources", []) or []
+        pos = _ref_index(groups, index, "No such client group")
+        return groups[pos].get("blocklist_sources", []) or []
 
     @app.post("/api/client-groups/{index}/blocklist-sources")
     def add_group_blocklist_source(
-        index: int, source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         try:
             check_public_url(source.url)
@@ -2031,24 +2032,22 @@ def create_app(
 
     @app.delete("/api/client-groups/{index}/blocklist-sources/{source_index}")
     def delete_group_blocklist_source(
-        index: int, source_index: int, _: dict[str, Any] = Depends(require_admin)
+        index: str, source_index: str, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            if not 0 <= source_index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources.pop(source_index)
+            source_pos = _ref_index(sources, source_index, "No such list")
+            sources.pop(source_pos)
             return sources
 
         return _group_source_mutate(index, _fn)
 
     @app.post("/api/client-groups/{index}/blocklist-sources/{source_index}/toggle")
     def toggle_group_blocklist_source(
-        index: int, source_index: int, _: dict[str, Any] = Depends(require_admin)
+        index: str, source_index: str, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         def _fn(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            if not 0 <= source_index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources[source_index]["enabled"] = not sources[source_index].get("enabled", True)
+            source_pos = _ref_index(sources, source_index, "No such list")
+            sources[source_pos]["enabled"] = not sources[source_pos].get("enabled", True)
             return sources
 
         return _group_source_mutate(index, _fn)
@@ -2069,19 +2068,18 @@ def create_app(
 
         return config_store.mutate(_mutate)
 
-    def _dhcp_scope_mutate(index: int, fn) -> list[dict[str, Any]]:
+    def _dhcp_scope_mutate(index: str, fn) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             scopes = data.setdefault("dhcp", {}).setdefault("scopes", [])
-            if not 0 <= index < len(scopes):
-                raise HTTPException(status_code=404, detail="No such DHCP scope")
-            fn(scopes[index])
+            pos = _ref_index(scopes, index, "No such DHCP scope")
+            fn(scopes[pos])
             return scopes
 
         return config_store.mutate(_mutate)
 
     @app.patch("/api/dhcp/scopes/{index}")
     def update_dhcp_scope(
-        index: int, body: DhcpScopePatchIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, body: DhcpScopePatchIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         payload = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
 
@@ -2091,18 +2089,17 @@ def create_app(
         return _dhcp_scope_mutate(index, _fn)
 
     @app.delete("/api/dhcp/scopes/{index}")
-    def delete_dhcp_scope(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_dhcp_scope(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             scopes = data.setdefault("dhcp", {}).setdefault("scopes", [])
-            if not 0 <= index < len(scopes):
-                raise HTTPException(status_code=404, detail="No such DHCP scope")
-            scopes.pop(index)
+            pos = _ref_index(scopes, index, "No such DHCP scope")
+            scopes.pop(pos)
             return scopes
 
         return config_store.mutate(_mutate)
 
     @app.post("/api/dhcp/scopes/{index}/toggle")
-    def toggle_dhcp_scope(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def toggle_dhcp_scope(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _fn(scope: dict[str, Any]) -> None:
             scope["enabled"] = not scope.get("enabled", True)
 
@@ -2110,7 +2107,7 @@ def create_app(
 
     @app.post("/api/dhcp/scopes/{index}/reservations")
     def add_dhcp_reservation(
-        index: int, body: DhcpReservationIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, body: DhcpReservationIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         mac = body.mac.upper()
 
@@ -2122,12 +2119,12 @@ def create_app(
             entry["mac"] = mac
             reservations.append(entry)
 
-        _dhcp_scope_mutate(index, _fn)
-        return config_store.get("dhcp", "scopes", default=[])[index].get("reservations", [])
+        scopes = _dhcp_scope_mutate(index, _fn)
+        return scopes[_ref_index(scopes, index, "No such DHCP scope")].get("reservations", [])
 
     @app.delete("/api/dhcp/scopes/{index}/reservations/{mac}")
     def delete_dhcp_reservation(
-        index: int, mac: str, _: dict[str, Any] = Depends(require_admin)
+        index: str, mac: str, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         mac = mac.upper()
 
@@ -2135,8 +2132,8 @@ def create_app(
             reservations = scope.setdefault("reservations", [])
             scope["reservations"] = [r for r in reservations if r.get("mac", "").upper() != mac]
 
-        _dhcp_scope_mutate(index, _fn)
-        return config_store.get("dhcp", "scopes", default=[])[index].get("reservations", [])
+        scopes = _dhcp_scope_mutate(index, _fn)
+        return scopes[_ref_index(scopes, index, "No such DHCP scope")].get("reservations", [])
 
     @app.get("/api/dhcp/leases")
     def list_dhcp_leases(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
@@ -2417,12 +2414,11 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.delete("/api/domain-upstreams/{index}")
-    def delete_domain_upstream(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_domain_upstream(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             rules = data.setdefault("domain_upstreams", [])
-            if not 0 <= index < len(rules):
-                raise HTTPException(status_code=404, detail="No such rule")
-            rules.pop(index)
+            pos = _ref_index(rules, index, "No such rule")
+            rules.pop(pos)
             return rules
 
         return config_store.mutate(_mutate)
@@ -2452,12 +2448,11 @@ def create_app(
         return config_store.mutate(_mutate)
 
     @app.delete("/api/rewrites/{index}")
-    def delete_rewrite(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_rewrite(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             rewrites = data.setdefault("dns_rewrites", [])
-            if not 0 <= index < len(rewrites):
-                raise HTTPException(status_code=404, detail="No such rewrite")
-            rewrites.pop(index)
+            pos = _ref_index(rewrites, index, "No such rewrite")
+            rewrites.pop(pos)
             return rewrites
 
         return config_store.mutate(_mutate)
@@ -2701,24 +2696,22 @@ To restore into an EXISTING instance (data/config.db already exists):
         return config_store.mutate(_mutate)
 
     @app.post("/api/settings/upstreams/{index}/toggle")
-    def toggle_upstream(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+    def toggle_upstream(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         def _mutate(data: dict[str, Any]) -> list[str]:
             upstreams = data.setdefault("dns", {}).setdefault("upstreams", [])
-            if not 0 <= index < len(upstreams):
-                raise HTTPException(status_code=404, detail="No such upstream")
-            entry = upstreams[index]
-            upstreams[index] = upstream_address(entry) if upstream_is_disabled(entry) else "#" + entry.strip()
+            pos = _ref_index(upstreams, index, "No such upstream")
+            entry = upstreams[pos]
+            upstreams[pos] = upstream_address(entry) if upstream_is_disabled(entry) else "#" + entry.strip()
             return upstreams
 
         return config_store.mutate(_mutate)
 
     @app.delete("/api/settings/upstreams/{index}")
-    def delete_upstream(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
+    def delete_upstream(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[str]:
         def _mutate(data: dict[str, Any]) -> list[str]:
             upstreams = data.setdefault("dns", {}).setdefault("upstreams", [])
-            if not 0 <= index < len(upstreams):
-                raise HTTPException(status_code=404, detail="No such upstream")
-            upstreams.pop(index)
+            pos = _ref_index(upstreams, index, "No such upstream")
+            upstreams.pop(pos)
             return upstreams
 
         return config_store.mutate(_mutate)
@@ -2924,12 +2917,11 @@ To restore into an EXISTING instance (data/config.db already exists):
         return result
 
     @app.delete("/api/alert-rules/sources/{index}")
-    def delete_alert_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_alert_source(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
-            if not 0 <= index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources.pop(index)
+            pos = _ref_index(sources, index, "No such list")
+            sources.pop(pos)
             return sources
 
         result = config_store.mutate(_mutate)
@@ -2937,12 +2929,11 @@ To restore into an EXISTING instance (data/config.db already exists):
         return result
 
     @app.post("/api/alert-rules/sources/{index}/toggle")
-    def toggle_alert_source(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def toggle_alert_source(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             sources = data.setdefault("alert_rules", {}).setdefault("sources", [])
-            if not 0 <= index < len(sources):
-                raise HTTPException(status_code=404, detail="No such list")
-            sources[index]["enabled"] = not sources[index].get("enabled", True)
+            pos = _ref_index(sources, index, "No such list")
+            sources[pos]["enabled"] = not sources[pos].get("enabled", True)
             return sources
 
         result = config_store.mutate(_mutate)
@@ -2992,7 +2983,7 @@ To restore into an EXISTING instance (data/config.db already exists):
 
     @app.patch("/api/settings/notifications/webhooks/{index}")
     def update_notification_webhook(
-        index: int, body: NotificationWebhookIn, _: dict[str, Any] = Depends(require_admin)
+        index: str, body: NotificationWebhookIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         data_in = body.model_dump(exclude_unset=True)
         payload = {
@@ -3001,41 +2992,40 @@ To restore into an EXISTING instance (data/config.db already exists):
 
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             webhooks = data.setdefault("notifications", {}).setdefault("webhooks", [])
-            if not 0 <= index < len(webhooks):
-                raise HTTPException(status_code=404, detail="No such webhook")
-            webhooks[index].update(payload)
+            pos = _ref_index(webhooks, index, "No such webhook")
+            webhooks[pos].update(payload)
             return [_notification_webhook_public(w) for w in webhooks]
 
         return config_store.mutate(_mutate)
 
     @app.delete("/api/settings/notifications/webhooks/{index}")
-    def delete_notification_webhook(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def delete_notification_webhook(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             webhooks = data.setdefault("notifications", {}).setdefault("webhooks", [])
-            if not 0 <= index < len(webhooks):
-                raise HTTPException(status_code=404, detail="No such webhook")
-            webhooks.pop(index)
+            pos = _ref_index(webhooks, index, "No such webhook")
+            webhooks.pop(pos)
             return [_notification_webhook_public(w) for w in webhooks]
 
         return config_store.mutate(_mutate)
 
     @app.post("/api/settings/notifications/webhooks/{index}/toggle")
-    def toggle_notification_webhook(index: int, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    def toggle_notification_webhook(index: str, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             webhooks = data.setdefault("notifications", {}).setdefault("webhooks", [])
-            if not 0 <= index < len(webhooks):
-                raise HTTPException(status_code=404, detail="No such webhook")
-            webhooks[index]["enabled"] = not webhooks[index].get("enabled", True)
+            pos = _ref_index(webhooks, index, "No such webhook")
+            webhooks[pos]["enabled"] = not webhooks[pos].get("enabled", True)
             return [_notification_webhook_public(w) for w in webhooks]
 
         return config_store.mutate(_mutate)
 
     @app.post("/api/notifications/test-webhook/{index}")
-    def send_test_webhook(index: int, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    def send_test_webhook(index: str, _: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         if notifications is None:
             raise HTTPException(status_code=503, detail="Notifications are not available")
+        webhooks = config_store.get("notifications", "webhooks", default=[]) or []
+        pos = _ref_index(webhooks, index, "No such webhook")
         try:
-            notifications.send_test_webhook(index)
+            notifications.send_test_webhook(pos)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True}
