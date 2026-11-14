@@ -445,6 +445,7 @@
   "dns.cache_prefetch_min_hits": "更新前に必要な最小ヒット数",
   "dns.client_hostnames": "クライアントのホスト名(逆引きDNS)",
   "dns.resolve_hostnames": "クライアントのホスト名を解決する",
+  "dns.names_from_dhcp": "DHCP リースのホスト名を使用する",
   "dns.name_resolver": "名前解決サーバー(あなたのルーター)",
   "dns.name_cache": "名前キャッシュ(秒)",
   "dns.save": "DNS設定を保存",

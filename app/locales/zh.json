@@ -445,6 +445,7 @@
   "dns.cache_prefetch_min_hits": "刷新前所需的最少命中次数",
   "dns.client_hostnames": "客户端主机名(反向 DNS)",
   "dns.resolve_hostnames": "解析客户端主机名",
+  "dns.names_from_dhcp": "使用 DHCP 租约中的主机名",
   "dns.name_resolver": "名称解析器(你的路由器)",
   "dns.name_cache": "名称缓存时长(秒)",
   "dns.save": "保存 DNS 设置",

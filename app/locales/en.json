@@ -445,6 +445,7 @@
   "dns.cache_prefetch_min_hits": "Minimum hits before refreshing",
   "dns.client_hostnames": "Client hostnames (reverse DNS)",
   "dns.resolve_hostnames": "Resolve client hostnames",
+  "dns.names_from_dhcp": "Use hostnames from DHCP leases",
   "dns.name_resolver": "Name resolver (your router)",
   "dns.name_cache": "Name cache (seconds)",
   "dns.save": "Save DNS settings",

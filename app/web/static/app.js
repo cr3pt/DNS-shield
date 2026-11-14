@@ -2966,6 +2966,7 @@ async function loadSettings() {
   document.getElementById("s-dns-cache-prefetch-before").value = s.dns.cache_prefetch_before_expiry_seconds ?? 10;
   document.getElementById("s-dns-cache-prefetch-min-hits").value = s.dns.cache_prefetch_min_hits ?? 2;
   document.getElementById("s-dns-resolve-names").checked = !!s.dns.resolve_client_names;
+  document.getElementById("s-dns-names-from-dhcp").checked = s.dns.client_names_from_dhcp !== false;
   document.getElementById("s-dns-name-resolver").value = s.dns.client_name_resolver ?? "";
   document.getElementById("s-dns-name-cache-seconds").value = s.dns.client_name_cache_seconds ?? "";
 
@@ -4810,6 +4811,7 @@ document.getElementById("dns-settings-form").addEventListener("submit", async (e
         cache_prefetch_before_expiry_seconds: intField("s-dns-cache-prefetch-before"),
         cache_prefetch_min_hits: intField("s-dns-cache-prefetch-min-hits"),
         resolve_client_names: document.getElementById("s-dns-resolve-names").checked,
+        client_names_from_dhcp: document.getElementById("s-dns-names-from-dhcp").checked,
         client_name_resolver: document.getElementById("s-dns-name-resolver").value.trim(),
         client_name_cache_seconds: intField("s-dns-name-cache-seconds"),
       }),

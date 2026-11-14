@@ -204,6 +204,7 @@ dns:
   cache_max_ttl_seconds: 3600     # cap applied to cached TTLs
   cache_negative_max_ttl_seconds: 300  # cap for cached "no such name/record" answers; 0 = don't cache them
   resolve_client_names: false    # reverse-DNS client IPs for display (see below)
+  client_names_from_dhcp: true   # name clients by the hostname they gave the built-in DHCP server
   client_name_resolver: ""       # e.g. "192.168.1.1:53" - your router, not an upstream
   client_name_cache_seconds: 3600
 
@@ -619,6 +620,13 @@ and client list will show e.g. `laptop-jan.lan (192.168.1.50)` instead of
 just the raw IP. Resolution happens in a background thread and is purely a
 display aid - it never delays answering a client's actual query, and
 nothing is written to disk (in-memory cache only, `dns.client_name_cache_seconds`).
+
+If DNS-shield's own DHCP server hands out the addresses, no resolver is
+needed: the hostname each device sent with its DHCP request (and the
+`hostname` of a reservation) names it right away
+(`dns.client_names_from_dhcp`, on by default). A DHCP name wins over a PTR
+answer. PTR lookups work for IPv6 clients too (`ip6.arpa`), and the
+resolver can be given as `[fd00::1]:53`.
 
 ### Per-client/group policies
 

@@ -265,6 +265,7 @@ class DnsSettingsIn(BaseModel):
     cache_prefetch_before_expiry_seconds: int | None = None
     cache_prefetch_min_hits: int | None = None
     resolve_client_names: bool | None = None
+    client_names_from_dhcp: bool | None = None
     client_name_resolver: str | None = None
     client_name_cache_seconds: int | None = None
     block_page_enabled: bool | None = None

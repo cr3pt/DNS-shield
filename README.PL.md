@@ -224,6 +224,7 @@ dns:
   cache_max_ttl_seconds: 3600     # górna granica dla buforowanych TTL
   cache_negative_max_ttl_seconds: 300  # górna granica dla buforowanych odpowiedzi "nie ma takiej nazwy/rekordu"; 0 = nie buforuj
   resolve_client_names: false    # odwrotny DNS dla IP klientów, wyłącznie do wyświetlania (zobacz niżej)
+  client_names_from_dhcp: true   # nazwa klienta z hosta podanego wbudowanemu serwerowi DHCP
   client_name_resolver: ""       # np. "192.168.1.1:53" - adres routera, nie serwera nadrzędnego do filtrowania
   client_name_cache_seconds: 3600
 
@@ -680,6 +681,13 @@ surowego adresu IP. Rozwiązywanie nazw odbywa się w wątku działającym w
 tle i jest wyłącznie pomocą przy wyświetlaniu - nigdy nie opóźnia
 odpowiedzi na faktyczne zapytanie klienta, a wyniki nie są zapisywane na
 dysk (tylko w pamięci, `dns.client_name_cache_seconds`).
+
+Jeśli adresy rozdaje wbudowany serwer DHCP DNS-shield, resolwer nie jest
+potrzebny: urządzenie od razu dostaje nazwę, którą wysłało w żądaniu DHCP
+(albo `hostname` z rezerwacji) (`dns.client_names_from_dhcp`, domyślnie
+włączone). Nazwa z DHCP ma pierwszeństwo przed odpowiedzią PTR. Zapytania
+PTR działają też dla klientów IPv6 (`ip6.arpa`), a resolwer można podać
+jako `[fd00::1]:53`.
 
 ### Polityki dla poszczególnych klientów i grup
 

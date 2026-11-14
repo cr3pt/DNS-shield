@@ -445,6 +445,7 @@
   "dns.cache_prefetch_min_hits": "الحد الأدنى لعدد الإصابات قبل التحديث",
   "dns.client_hostnames": "أسماء مضيفي العملاء (DNS العكسي)",
   "dns.resolve_hostnames": "حل أسماء مضيفي العملاء",
+  "dns.names_from_dhcp": "استخدام أسماء المضيفين من عقود DHCP",
   "dns.name_resolver": "محلّل الأسماء (موجّهك)",
   "dns.name_cache": "التخزين المؤقت للأسماء (ثوانٍ)",
   "dns.save": "حفظ إعدادات DNS",
