@@ -10,6 +10,7 @@ import secrets
 import socket
 import ssl
 import struct
+import threading
 import time
 import weakref
 from collections.abc import Set as AbstractSet
@@ -22,50 +23,95 @@ from app.enrichment import THREAT_INTEL_HOSTNAMES
 
 DOH_CONTENT_TYPE = "application/dns-message"
 
-# Async TTL cache for forward_plain: keyed by (query_hash, upstream).
+# The resolver (app/dns_server.py) calls forward() from plain worker threads,
+# while the transports below are coroutines. One shared event loop runs in a
+# daemon thread; forward() hands work to it when the caller isn't already
+# inside a running loop.
+_bg_loop: asyncio.AbstractEventLoop | None = None
+_bg_loop_lock = threading.Lock()
+
+
+def _background_loop() -> asyncio.AbstractEventLoop:
+    global _bg_loop
+    with _bg_loop_lock:
+        if _bg_loop is None or _bg_loop.is_closed() or not _bg_loop.is_running():
+            loop = asyncio.new_event_loop()
+            started = threading.Event()
+
+            def _run() -> None:
+                asyncio.set_event_loop(loop)
+                loop.call_soon(started.set)
+                loop.run_forever()
+
+            threading.Thread(target=_run, name="dnsshield-upstream-loop", daemon=True).start()
+            started.wait(5)
+            _bg_loop = loop
+        return _bg_loop
+
+
+# TTL cache for forward_plain: keyed by (hash of the question without the
+# transaction ID, upstream). A threading lock is used because the critical
+# sections never await and callers may run on different event loops.
 _cache: dict[tuple[str, str], tuple[bytes, float]] = {}
-_cache_lock = asyncio.Lock()
+_cache_lock = threading.Lock()
 _CACHE_TTL_SECONDS = 60.0
+_CACHE_MAX_ENTRIES = 4096
 
 
 def _query_hash(query: bytes) -> str:
-    """Deterministic hash of a DNS query for cache keying."""
-    return hashlib.sha256(query).hexdigest()
+    """Deterministic hash of a DNS query for cache keying (transaction ID excluded)."""
+    return hashlib.sha256(query[2:]).hexdigest()
+
+
+def _cacheable(resp: bytes) -> bool:
+    # Only NOERROR / NXDOMAIN, and never a truncated answer.
+    return len(resp) >= 12 and not resp[2] & 0x02 and (resp[3] & 0x0F) in (0, 3)
+
+
+def _cache_prune(now: float) -> None:
+    for key in [k for k, (_, expires) in _cache.items() if expires <= now]:
+        del _cache[key]
+    while len(_cache) >= _CACHE_MAX_ENTRIES:
+        _cache.pop(next(iter(_cache)))
 
 
 async def _forward_plain_cached(
-    data: bytes, upstream: str, timeout: float,
+    data: bytes,
+    upstream: str,
+    timeout: float,
 ) -> bytes:
     """Cache wrapper around forward_plain with TTL expiration."""
-    qhash = _query_hash(data)
-    key = (qhash, upstream)
-    async with _cache_lock:
+    key = (_query_hash(data), upstream)
+    with _cache_lock:
         entry = _cache.get(key)
-        if entry is not None:
-            resp, expires = entry
-            if time.monotonic() < expires:
-                return resp
+        if entry is not None and time.monotonic() < entry[1]:
+            return data[:2] + entry[0][2:]
     resp = await forward_plain(data, upstream, timeout)
-    async with _cache_lock:
-        _cache[key] = (resp, time.monotonic() + _CACHE_TTL_SECONDS)
+    if _cacheable(resp):
+        now = time.monotonic()
+        with _cache_lock:
+            _cache_prune(now)
+            _cache[key] = (resp, now + _CACHE_TTL_SECONDS)
     return resp
 
 
-# Lazy-initialized async session for DNS-over-HTTPS.
-_doh_session: aiohttp.ClientSession | None = None
-_doh_connector: aiohttp.TCPConnector | None = None
+# DNS-over-HTTPS sessions, one per event loop (an aiohttp session is bound to
+# the loop it was created in).
+_doh_sessions: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 def _get_doh_session() -> aiohttp.ClientSession:
-    global _doh_session, _doh_connector
-    if _doh_session is None:
-        _doh_connector = aiohttp.TCPConnector(
+    loop = asyncio.get_running_loop()
+    session = _doh_sessions.get(loop)
+    if session is None or session.closed:
+        connector = aiohttp.TCPConnector(
             limit=100,
             limit_per_host=20,
             enable_cleanup_closed=True,
         )
-        _doh_session = aiohttp.ClientSession(connector=_doh_connector)
-    return _doh_session
+        session = aiohttp.ClientSession(connector=connector)
+        _doh_sessions[loop] = session
+    return session
 
 
 # DNS-over-QUIC (RFC 9250). "quic://" is what AdGuard Home and dnsproxy call it.
@@ -88,7 +134,8 @@ def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
     return host, int(port_str) if port_str.isdigit() else default_port
 
 
-async def forward(data: bytes, upstream: str, timeout: float) -> bytes:
+async def aforward(data: bytes, upstream: str, timeout: float) -> bytes:
+    """Coroutine form of forward(): send one query to one upstream."""
     if upstream.startswith("dot://"):
         return await forward_dot(data, upstream[len("dot://") :], timeout)
     if upstream.startswith(DOQ_PREFIXES):
@@ -101,6 +148,25 @@ async def forward(data: bytes, upstream: str, timeout: float) -> bytes:
     if upstream.startswith("https://"):
         return await forward_doh(data, upstream, timeout)
     return await _forward_plain_cached(data, upstream, timeout)
+
+
+def forward(data: bytes, upstream: str, timeout: float):
+    """Send one query to one upstream.
+
+    From a plain thread (the resolver's workers) this blocks and returns the
+    response bytes. From inside a running event loop it returns a coroutine to
+    await, so both kinds of caller work.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        future = asyncio.run_coroutine_threadsafe(aforward(data, upstream, timeout), _background_loop())
+        try:
+            return future.result(timeout + 2.0)
+        except BaseException:
+            future.cancel()
+            raise
+    return aforward(data, upstream, timeout)
 
 
 def _question_of(packet: bytes) -> tuple[str, int, int] | None:
@@ -152,7 +218,7 @@ class _DNSDatagramProtocol(asyncio.DatagramProtocol):
         if self.response is not None:
             return  # Already got a valid response.
         verdict = _check_response(self.query, data)
-        if verdict == "ok":
+        if verdict in ("ok", "case"):
             self.response = data
             self.response_event.set()
 
@@ -188,6 +254,8 @@ async def forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
         await asyncio.wait_for(protocol.response_event.wait(), timeout=remaining)
     except asyncio.TimeoutError:
         raise TimeoutError(f"no matching response from {upstream}")
+    finally:
+        transport.close()
 
     resp = protocol.response
     verdict = _check_response(query, resp)
@@ -221,16 +289,14 @@ async def forward_tcp(data: bytes, host: str, port: int, timeout: float) -> byte
             pass
 
 
-# DNS-over-TLS connections are kept open and reused (RFC 7858 s3.4): a new
-# TCP + TLS handshake per query costs several round trips. Servers close idle
-# connections after a while, so one idle longer than this isn't reused.
+# DNS-over-TLS (RFC 7858). Each query uses its own connection; the SSL context
+# is shared because loading the CA store is slow.
 _DOT_IDLE_SECONDS = 15.0
 _DOT_MAX_IDLE_PER_UPSTREAM = 4
 _dot_context: ssl.SSLContext | None = None
 
 
 def _dot_ssl_context() -> ssl.SSLContext:
-    # Loading the CA store is slow; one context serves every connection.
     global _dot_context
     if _dot_context is None:
         _dot_context = ssl.create_default_context()
@@ -240,35 +306,36 @@ def _dot_ssl_context() -> ssl.SSLContext:
 async def forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
     host, port = _split_host_port(hostport, 853)
 
-    raw_sock = socket.create_connection((host, port), timeout=timeout)
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, port, ssl=_dot_ssl_context(), server_hostname=host),
+        timeout=timeout,
+    )
     try:
-        sock = _dot_ssl_context().wrap_socket(raw_sock, server_hostname=host)
-    except BaseException:
-        raw_sock.close()
-        raise
-    try:
-        sock.settimeout(timeout)
-        sock.sendall(struct.pack("!H", len(data)) + data)
-        length = struct.unpack("!H", _recv_exact(sock, 2))[0]
-        resp = _recv_exact(sock, length)
+        writer.write(struct.pack("!H", len(data)) + data)
+        await writer.drain()
+        length = struct.unpack("!H", await asyncio.wait_for(reader.readexactly(2), timeout=timeout))[0]
+        resp = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
         if resp[:2] != data[:2]:
             raise ConnectionError("DoT response for a different query")
         return resp
-    except BaseException:
-        sock.close()
-        raise
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
 
 
 async def forward_doh(data: bytes, url: str, timeout: float) -> bytes:
     session = _get_doh_session()
-    resp = await session.post(
+    async with session.post(
         url,
         data=data,
         headers={"Content-Type": DOH_CONTENT_TYPE, "Accept": DOH_CONTENT_TYPE},
         timeout=aiohttp.ClientTimeout(total=timeout),
-    )
-    resp.raise_for_status()
-    return await resp.read()
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.read()
 
 
 def _recv_exact(sock, n: int) -> bytes:
