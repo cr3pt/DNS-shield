@@ -13,6 +13,12 @@ upstream is back, if it fails the cool-down doubles (up to MAX_OPEN_SECONDS).
 Only network-type failures count (OSError, which includes timeouts, refused
 connections and HTTP errors); a malformed query or a bug doesn't open the
 breaker.
+
+An upstream that answers, but slowly, can tie up the resolver's worker threads
+without ever failing: each query holds a thread for as long as it waits. So at
+most MAX_IN_FLIGHT queries to one upstream run at a time; beyond that the
+query is skipped at once, which leaves the other threads free for queries to
+the other upstreams, the cache and the blocklist.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ logger = logging.getLogger("dnsshield.upstream")
 FAILURES_TO_OPEN = 3
 OPEN_SECONDS = 15.0
 MAX_OPEN_SECONDS = 120.0
+MAX_IN_FLIGHT = 32
 
 
 class UpstreamSkipped(ConnectionError):
@@ -44,6 +51,7 @@ class _State:
 
 
 _states: dict[str, _State] = {}
+_in_flight: dict[str, int] = {}
 _lock = threading.Lock()
 
 
@@ -51,6 +59,7 @@ def reset() -> None:
     """Forget everything (tests)."""
     with _lock:
         _states.clear()
+        _in_flight.clear()
 
 
 def _describe(exc: BaseException) -> str:
@@ -63,22 +72,33 @@ def _enter(upstream: str) -> bool:
     now = time.monotonic()
     with _lock:
         state = _states.get(upstream)
-        if state is None or state.failures < FAILURES_TO_OPEN:
-            return False
-        if now < state.open_until:
+        open_state = state is not None and state.failures >= FAILURES_TO_OPEN
+        if open_state and now < state.open_until:
             raise UpstreamSkipped(
                 f"{upstream} skipped for another {state.open_until - now:.0f}s after {state.failures} failures in a row"
             )
-        if state.probing:
-            raise UpstreamSkipped(f"{upstream} is being probed")
-        state.probing = True
-        return True
+        in_flight = _in_flight.get(upstream, 0)
+        if in_flight >= MAX_IN_FLIGHT:
+            raise UpstreamSkipped(f"{upstream} skipped: {in_flight} queries to it are already waiting for an answer")
+        probe = False
+        if open_state:
+            if state.probing:
+                raise UpstreamSkipped(f"{upstream} is being probed")
+            state.probing = True
+            probe = True
+        _in_flight[upstream] = in_flight + 1
+        return probe
 
 
 def _leave(upstream: str, outcome: object, probe: bool) -> None:
     """outcome: True (answered), an exception, or None (cancelled)."""
     now = time.monotonic()
     with _lock:
+        remaining = _in_flight.get(upstream, 1) - 1
+        if remaining > 0:
+            _in_flight[upstream] = remaining
+        else:
+            _in_flight.pop(upstream, None)
         if outcome is True:
             state = _states.pop(upstream, None)
             if state is not None and state.failures >= FAILURES_TO_OPEN:
