@@ -21,7 +21,7 @@ import queue
 import socket
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import timezone, datetime
 
 logger = logging.getLogger("dnsshield.syslog")
 
@@ -40,7 +40,7 @@ def _sd_escape(value: str) -> str:
 def format_message(entry: dict, fmt: str = "text", hostname: str | None = None) -> bytes:
     severity = _SEVERITY_NOTICE if entry.get("blocked") else _SEVERITY_INFO
     pri = _FACILITY_LOCAL0 * 8 + severity
-    timestamp = datetime.fromtimestamp(entry["ts"], tz=UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    timestamp = datetime.fromtimestamp(entry["ts"], tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     host = (hostname or socket.gethostname() or "-").replace(" ", "_")[:255]
     fields = {
         "client": entry.get("client") or "",

@@ -3,29 +3,39 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import secrets
 import socket
 import ssl
 import struct
-import threading
 import time
 import weakref
 from collections.abc import Set as AbstractSet
 from urllib.parse import urlparse
 
-import requests
+import aiohttp
 from dnslib import DNSRecord
-from requests.adapters import HTTPAdapter
 
 from app.enrichment import THREAT_INTEL_HOSTNAMES
 
 DOH_CONTENT_TYPE = "application/dns-message"
 
-_doh_session = requests.Session()
-_doh_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100)
-_doh_session.mount("https://", _doh_adapter)
-_doh_session.mount("http://", _doh_adapter)
+# Lazy-initialized async session for DNS-over-HTTPS.
+_doh_session: aiohttp.ClientSession | None = None
+_doh_connector: aiohttp.TCPConnector | None = None
+
+
+def _get_doh_session() -> aiohttp.ClientSession:
+    global _doh_session, _doh_connector
+    if _doh_session is None:
+        _doh_connector = aiohttp.TCPConnector(
+            limit=100,
+            limit_per_host=20,
+            enable_cleanup_closed=True,
+        )
+        _doh_session = aiohttp.ClientSession(connector=_doh_connector)
+    return _doh_session
 
 
 # DNS-over-QUIC (RFC 9250). "quic://" is what AdGuard Home and dnsproxy call it.
@@ -48,19 +58,19 @@ def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
     return host, int(port_str) if port_str.isdigit() else default_port
 
 
-def forward(data: bytes, upstream: str, timeout: float) -> bytes:
+async def forward(data: bytes, upstream: str, timeout: float) -> bytes:
     if upstream.startswith("dot://"):
-        return _forward_dot(data, upstream[len("dot://") :], timeout)
+        return await forward_dot(data, upstream[len("dot://") :], timeout)
     if upstream.startswith(DOQ_PREFIXES):
         from app import doq  # aioquic is only loaded once a DoQ upstream is used
 
         host, port = _split_host_port(upstream.split("://", 1)[1].split("/", 1)[0], doq.DEFAULT_PORT)
-        return doq.forward(data, host, port, timeout)
+        return await asyncio.to_thread(doq.forward, data, host, port, timeout)
     if upstream.startswith("doh://"):
-        return _forward_doh(data, "https://" + upstream[len("doh://") :], timeout)
+        return await forward_doh(data, "https://" + upstream[len("doh://") :], timeout)
     if upstream.startswith("https://"):
-        return _forward_doh(data, upstream, timeout)
-    return _forward_plain(data, upstream, timeout)
+        return await forward_doh(data, upstream, timeout)
+    return await forward_plain(data, upstream, timeout)
 
 
 def _question_of(packet: bytes) -> tuple[str, int, int] | None:
@@ -94,7 +104,36 @@ def _check_response(query: bytes, resp: bytes) -> str:
     return "mismatch"
 
 
-def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
+class _DNSDatagramProtocol(asyncio.DatagramProtocol):
+    """Minimal UDP datagram protocol for DNS: sends a query and waits for a response."""
+
+    def __init__(self, query: bytes, family: int, destination: tuple[str, int]):
+        self.query = query
+        self.family = family
+        self.destination = destination
+        self.response: bytes | None = None
+        self.response_event = asyncio.Event()
+
+    def connection_made(self, transport: asyncio.DatagramTransport):
+        self.transport = transport  # type: ignore[attr-defined]
+        self.transport.sendto(self.query, self.destination)
+
+    def datagram_received(self, data: bytes, addr: tuple):
+        if self.response is not None:
+            return  # Already got a valid response.
+        verdict = _check_response(self.query, data)
+        if verdict == "ok":
+            self.response = data
+            self.response_event.set()
+
+    def error_received(self, exc: Exception | None):
+        pass
+
+    def connection_lost(self, exc: Exception | None):
+        pass
+
+
+async def forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
     host, port = _split_host_port(upstream, 53)
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
 
@@ -105,35 +144,51 @@ def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
     query = secrets.token_bytes(2) + data[2:]
     deadline = time.monotonic() + timeout
 
-    with socket.socket(family, socket.SOCK_DGRAM) as sock:
-        # connect() makes the kernel drop datagrams from any other address/port.
-        sock.connect((host, port))
-        sock.send(query)
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError(f"no matching response from {upstream}")
-            sock.settimeout(remaining)
-            resp = sock.recv(65535)
-            verdict = _check_response(query, resp)
-            if verdict == "ok":
-                break
-            if verdict == "case":
-                # The upstream doesn't echo the randomized case - fall back to
-                # TCP, which isn't open to blind spoofing anyway.
-                return _forward_tcp(data, host, port, max(0.1, deadline - time.monotonic()))
-            # Spoofed, stale or malformed packet: ignore it and keep waiting.
+    loop = asyncio.get_running_loop()
+    protocol = _DNSDatagramProtocol(query, family, (host, port))
+    transport, _ = await loop.create_datagram_endpoint(
+        lambda: protocol,
+        sock=socket.socket(family, socket.SOCK_DGRAM),
+    )
 
+    try:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"no matching response from {upstream}")
+        await asyncio.wait_for(protocol.response_event.wait(), timeout=remaining)
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"no matching response from {upstream}")
+
+    resp = protocol.response
+    verdict = _check_response(query, resp)
+
+    if verdict == "case":
+        return await forward_tcp(data, host, port, max(0.1, deadline - time.monotonic()))
     if len(resp) >= 3 and resp[2] & 0x02:
-        return _forward_tcp(data, host, port, timeout)
+        return await forward_tcp(data, host, port, timeout)
+
     return original_id + resp[2:]
 
 
-def _forward_tcp(data: bytes, host: str, port: int, timeout: float) -> bytes:
-    with socket.create_connection((host, port), timeout=timeout) as sock:
-        sock.sendall(struct.pack("!H", len(data)) + data)
-        length = struct.unpack("!H", _recv_exact(sock, 2))[0]
-        return _recv_exact(sock, length)
+async def forward_tcp(data: bytes, host: str, port: int, timeout: float) -> bytes:
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, port),
+        timeout=timeout,
+    )
+    try:
+        writer.write(struct.pack("!H", len(data)) + data)
+        await writer.drain()
+
+        length_bytes = await asyncio.wait_for(reader.readexactly(2), timeout=timeout)
+        length = struct.unpack("!H", length_bytes)[0]
+        resp = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
+        return resp
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
 
 
 # DNS-over-TLS connections are kept open and reused (RFC 7858 s3.4): a new
@@ -142,8 +197,6 @@ def _forward_tcp(data: bytes, host: str, port: int, timeout: float) -> bytes:
 _DOT_IDLE_SECONDS = 15.0
 _DOT_MAX_IDLE_PER_UPSTREAM = 4
 _dot_context: ssl.SSLContext | None = None
-_dot_idle: dict[tuple[str, int], list[tuple[float, ssl.SSLSocket]]] = {}
-_dot_lock = threading.Lock()
 
 
 def _dot_ssl_context() -> ssl.SSLContext:
@@ -154,51 +207,8 @@ def _dot_ssl_context() -> ssl.SSLContext:
     return _dot_context
 
 
-def _dot_take(key: tuple[str, int]) -> ssl.SSLSocket | None:
-    now = time.monotonic()
-    with _dot_lock:
-        idle = _dot_idle.get(key, [])
-        while idle:
-            since, sock = idle.pop()
-            if now - since < _DOT_IDLE_SECONDS:
-                return sock
-            sock.close()
-    return None
-
-
-def _dot_give_back(key: tuple[str, int], sock: ssl.SSLSocket) -> None:
-    with _dot_lock:
-        idle = _dot_idle.setdefault(key, [])
-        if len(idle) < _DOT_MAX_IDLE_PER_UPSTREAM:
-            idle.append((time.monotonic(), sock))
-            return
-    sock.close()
-
-
-def _dot_exchange(sock: ssl.SSLSocket, data: bytes, timeout: float) -> bytes:
-    sock.settimeout(timeout)
-    sock.sendall(struct.pack("!H", len(data)) + data)
-    length = struct.unpack("!H", _recv_exact(sock, 2))[0]
-    resp = _recv_exact(sock, length)
-    if resp[:2] != data[:2]:
-        raise ConnectionError("DoT response for a different query")
-    return resp
-
-
-def _forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
+async def forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
     host, port = _split_host_port(hostport, 853)
-    key = (host, port)
-
-    sock = _dot_take(key)
-    if sock is not None:
-        try:
-            resp = _dot_exchange(sock, data, timeout)
-        except (OSError, ConnectionError, struct.error):
-            # The server closed the idle connection - expected; retry on a fresh one.
-            sock.close()
-        else:
-            _dot_give_back(key, sock)
-            return resp
 
     raw_sock = socket.create_connection((host, port), timeout=timeout)
     try:
@@ -207,23 +217,28 @@ def _forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
         raw_sock.close()
         raise
     try:
-        resp = _dot_exchange(sock, data, timeout)
+        sock.settimeout(timeout)
+        sock.sendall(struct.pack("!H", len(data)) + data)
+        length = struct.unpack("!H", _recv_exact(sock, 2))[0]
+        resp = _recv_exact(sock, length)
+        if resp[:2] != data[:2]:
+            raise ConnectionError("DoT response for a different query")
+        return resp
     except BaseException:
         sock.close()
         raise
-    _dot_give_back(key, sock)
-    return resp
 
 
-def _forward_doh(data: bytes, url: str, timeout: float) -> bytes:
-    resp = _doh_session.post(
+async def forward_doh(data: bytes, url: str, timeout: float) -> bytes:
+    session = _get_doh_session()
+    resp = await session.post(
         url,
         data=data,
         headers={"Content-Type": DOH_CONTENT_TYPE, "Accept": DOH_CONTENT_TYPE},
-        timeout=timeout,
+        timeout=aiohttp.ClientTimeout(total=timeout),
     )
     resp.raise_for_status()
-    return resp.content
+    return await resp.read()
 
 
 def _recv_exact(sock, n: int) -> bytes:

@@ -17,7 +17,7 @@ import dns.rdataclass
 import dns.rdatatype
 import dns.rrset
 
-from app.dnssec_denial import Denial
+from app.dnssec_denial import Denial, _b32hexdecode
 from app.dnssec_validate import BOGUS, INSECURE, ROOT_TRUST_ANCHORS, SECURE, LocalValidator, _parse_anchors
 from tests.test_dnssec_local import N, World, Zone
 
@@ -231,7 +231,7 @@ def test_nsec3_closest_encloser_rules():
     assert Denial(zone, nsec3=[apex, cut]).nxdomain(N("a.sub.z.")) == BOGUS
     # Records from another zone are ignored.
     assert Denial(N("other."), nsec3=[apex]).nxdomain(N("x.other.")) == BOGUS
-    assert base64.b32hexdecode(hashes["z."])  # sanity: valid base32hex
+    assert _b32hexdecode(hashes["z."])  # sanity: valid base32hex
 
 
 # ---------------------------------------------------------------- anchors

@@ -9,7 +9,7 @@ import csv
 import io
 import json
 from collections.abc import Iterable, Iterator
-from datetime import UTC, datetime
+from datetime import timezone, datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -227,7 +227,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         def rows():
             for row in stats.iter_query_log(max_rows=limit, **filters):
                 yield {
-                    "time": datetime.fromtimestamp(row["ts"], tz=UTC).isoformat(timespec="seconds"),
+                    "time": datetime.fromtimestamp(row["ts"], tz=timezone.utc).isoformat(timespec="seconds"),
                     "domain": row["domain"],
                     "type": row["qtype"],
                     "client": row["client"],
@@ -238,7 +238,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
                     "answer_ip": row["answer_ip"] or "",
                 }
 
-        stamp = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
         if format == "jsonl":
             body = (json.dumps(row, ensure_ascii=False) + "\n" for row in rows())
             media_type, ext = "application/x-ndjson", "jsonl"

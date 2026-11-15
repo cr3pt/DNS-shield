@@ -8,6 +8,7 @@ import json
 import threading
 import time
 from collections import OrderedDict
+from typing import Union
 from pathlib import Path
 
 from dnslib import QTYPE, RCODE, RR, DNSBuffer, DNSError, DNSRecord
@@ -19,7 +20,7 @@ CacheKey = tuple[str, int, int, str]
 # (expires_at, answers, hits, negative). negative is None for a normal answer,
 # or (rcode, authority records) for a cached NXDOMAIN / NODATA (RFC 2308).
 Negative = tuple[int, list[RR]]
-CacheEntry = tuple[float, list[RR], int, Negative | None]
+CacheEntry = tuple[float, list[RR], int, Union[Negative, None]]
 
 _DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
 _EDNS_DO_BIT = 1 << 15
@@ -77,7 +78,7 @@ class DNSCache:
 
         return self._reply(request, answers, negative, ttl)
 
-    def _reply(self, request: DNSRecord, answers: list[RR], negative: Negative | None, ttl: int) -> DNSRecord:
+    def _reply(self, request: DNSRecord, answers: list[RR], negative: Union[Negative, None], ttl: int) -> DNSRecord:
         reply = request.reply(aa=0)
         for rr in self._matching_answers(request, answers):
             reply.add_answer(
@@ -129,7 +130,7 @@ class DNSCache:
         if response.header.tc or response.header.rcode not in (RCODE.NOERROR, RCODE.NXDOMAIN):
             return
         answers = list(response.rr)
-        negative: Negative | None = None
+        negative: Union[Negative, None] = None
         if response.header.rcode == RCODE.NOERROR and answers:
             min_ttl = int(self._config.get("dns", "cache_min_ttl_seconds", default=0))
             max_ttl = int(self._config.get("dns", "cache_max_ttl_seconds", default=3600))

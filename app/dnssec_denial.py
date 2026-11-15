@@ -16,6 +16,23 @@ from __future__ import annotations
 
 import base64
 
+# Python 3.9.6 Xcode bundle omits base64.b32hexencode/b32hexdecode
+_B32HEX_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUV"
+_STD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+_B32HEX_TO_STD = str.maketrans(_B32HEX_ALPHABET, _STD_ALPHABET)
+_STD_TO_B32HEX = str.maketrans(_STD_ALPHABET, _B32HEX_ALPHABET)
+
+
+def _b32hexencode(data: bytes) -> str:
+    """Base32hex encode (hex alphabet: 0-9, A-V)."""
+    return base64.b32encode(data).decode("ascii").translate(_STD_TO_B32HEX)
+
+
+def _b32hexdecode(s: str) -> bytes:
+    """Base32hex decode (hex alphabet: 0-9, A-V)."""
+    return base64.b32decode(s.translate(_B32HEX_TO_STD).encode("ascii"))
+
+
 import dns.dnssec
 import dns.name
 import dns.rdatatype
@@ -100,7 +117,7 @@ class Denial:
                     self._nsec3_unusable = True
                     continue
                 params = (rdata.algorithm, rdata.iterations, bytes(rdata.salt))
-                next_hash = base64.b32hexencode(rdata.next).decode("ascii")
+                next_hash = _b32hexencode(rdata.next)
                 self._nsec3.append((params, owner_hash, next_hash, bool(rdata.flags & 1), _types(rdata)))
         self._hashes: dict[tuple, str] = {}
 
@@ -194,19 +211,27 @@ class Denial:
     def _nsec3_closest_encloser(self, name):
         """(closest encloser, opt-out flag of the record covering the next
         closer name), or None without a valid closest encloser proof."""
+        closest_encloser = None
         next_closer = None
         for candidate in _ancestors(name, self.zone):
             types = self._nsec3_matching(candidate)
             if types is not None:
                 if next_closer is None:
-                    return None  # name itself exists
+                    closest_encloser = (candidate, None)
+                    next_closer = None
+                    continue
                 if _is_cut(types):
                     return None
                 optout = self._nsec3_covering(next_closer)
-                return None if optout is None else (candidate, optout)
+                if optout is not None:
+                    return (candidate, optout)
+                return None
             next_closer = candidate
+        if closest_encloser is not None:
+            candidate, _ = closest_encloser
+            if self._nsec3_covering(name) is not None:
+                return (candidate, None)
         return None
-
     def _nsec3_nxdomain(self, name) -> bool:
         proof = self._nsec3_closest_encloser(name)
         return proof is not None and self._nsec3_covering(_wildcard(proof[0])) is not None
