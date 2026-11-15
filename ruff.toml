@@ -8,7 +8,18 @@ ignore = [
     "E501",   # long strings (HTML, metrics help, SQL) read better unwrapped; not enforced
     "B008",   # FastAPI's Depends()/Query()/File() defaults are the intended pattern
     "UP031",  # %-built SQL placeholder lists are clearer as they are
+    "UP017",  # datetime.timezone.utc is used on purpose: runs on Python 3.9 too (no datetime.UTC)
 ]
+
+[lint.per-file-ignores]
+# These import `timezone, datetime` (unsorted); sort them and drop the entry when 3.9 support goes away.
+"app/blocklist.py" = ["I001"]
+"app/dns_cache.py" = ["I001"]
+"app/enrichment.py" = ["I001"]
+"app/syslog_export.py" = ["I001"]
+"app/web/routes/stats.py" = ["I001"]
+"tests/test_dnssec_denial.py" = ["I001"]
+"tests/test_enrichment_sources.py" = ["I001"]
 
 [lint.isort]
 known-first-party = ["app", "tests"]

@@ -252,8 +252,8 @@ async def forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
         if remaining <= 0:
             raise TimeoutError(f"no matching response from {upstream}")
         await asyncio.wait_for(protocol.response_event.wait(), timeout=remaining)
-    except asyncio.TimeoutError:
-        raise TimeoutError(f"no matching response from {upstream}")
+    except asyncio.TimeoutError:  # noqa: UP041 - a distinct class before Python 3.11
+        raise TimeoutError(f"no matching response from {upstream}") from None
     finally:
         transport.close()
 
@@ -289,41 +289,91 @@ async def forward_tcp(data: bytes, host: str, port: int, timeout: float) -> byte
             pass
 
 
-# DNS-over-TLS (RFC 7858). Each query uses its own connection; the SSL context
-# is shared because loading the CA store is slow.
+# DNS-over-TLS (RFC 7858). Connections are kept open and reused (s3.4): a new
+# TCP + TLS handshake per query costs several round trips. Servers close idle
+# connections after a while, so one idle longer than _DOT_IDLE_SECONDS isn't
+# reused. A connection is taken out of the pool while a query is on it, so
+# concurrent queries use separate connections. Streams belong to the event
+# loop that opened them, hence the loop id in the pool key.
 _DOT_IDLE_SECONDS = 15.0
 _DOT_MAX_IDLE_PER_UPSTREAM = 4
+_dot_idle: dict[tuple[str, int, int], list[tuple[asyncio.StreamReader, asyncio.StreamWriter, float]]] = {}
 _dot_context: ssl.SSLContext | None = None
 
 
 def _dot_ssl_context() -> ssl.SSLContext:
+    # Loading the CA store is slow; one context serves every connection.
     global _dot_context
     if _dot_context is None:
         _dot_context = ssl.create_default_context()
     return _dot_context
 
 
+async def _close_writer(writer: asyncio.StreamWriter) -> None:
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except Exception:
+        pass
+
+
+async def _dot_take(key: tuple[str, int, int]):
+    pool = _dot_idle.get(key)
+    while pool:
+        reader, writer, last_used = pool.pop()
+        if time.monotonic() - last_used >= _DOT_IDLE_SECONDS or writer.is_closing() or reader.at_eof():
+            await _close_writer(writer)
+            continue
+        return reader, writer
+    return None
+
+
+async def _dot_give(key: tuple[str, int, int], reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    pool = _dot_idle.setdefault(key, [])
+    pool.append((reader, writer, time.monotonic()))
+    while len(pool) > _DOT_MAX_IDLE_PER_UPSTREAM:
+        _, oldest, _ = pool.pop(0)
+        await _close_writer(oldest)
+
+
+async def _dot_exchange(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, data: bytes, timeout: float) -> bytes:
+    writer.write(struct.pack("!H", len(data)) + data)
+    await asyncio.wait_for(writer.drain(), timeout=timeout)
+    length = struct.unpack("!H", await asyncio.wait_for(reader.readexactly(2), timeout=timeout))[0]
+    resp = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
+    if resp[:2] != data[:2]:
+        raise ConnectionError("DoT response for a different query")
+    return resp
+
+
 async def forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
     host, port = _split_host_port(hostport, 853)
+    key = (host, port, id(asyncio.get_running_loop()))
+
+    # A pooled connection may have been closed by the server in the meantime;
+    # if the query fails on one, try again once on a fresh connection.
+    pooled = await _dot_take(key)
+    if pooled is not None:
+        reader, writer = pooled
+        try:
+            resp = await _dot_exchange(reader, writer, data, timeout)
+        except Exception:
+            await _close_writer(writer)
+        else:
+            await _dot_give(key, reader, writer)
+            return resp
 
     reader, writer = await asyncio.wait_for(
         asyncio.open_connection(host, port, ssl=_dot_ssl_context(), server_hostname=host),
         timeout=timeout,
     )
     try:
-        writer.write(struct.pack("!H", len(data)) + data)
-        await writer.drain()
-        length = struct.unpack("!H", await asyncio.wait_for(reader.readexactly(2), timeout=timeout))[0]
-        resp = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
-        if resp[:2] != data[:2]:
-            raise ConnectionError("DoT response for a different query")
-        return resp
-    finally:
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except Exception:
-            pass
+        resp = await _dot_exchange(reader, writer, data, timeout)
+    except BaseException:
+        await _close_writer(writer)
+        raise
+    await _dot_give(key, reader, writer)
+    return resp
 
 
 async def forward_doh(data: bytes, url: str, timeout: float) -> bytes:
