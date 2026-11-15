@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import queue
 import random
 import socket
 import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from threading import BoundedSemaphore
+from typing import Optional
 
 from dnslib import AAAA, CNAME, EDNS0, QTYPE, RCODE, RR, TXT, A, DNSHeader, DNSQuestion, DNSRecord, EDNSOption
 from dnslib.server import DNSServer
@@ -25,11 +26,6 @@ from app.rate_limit import ClientRateLimiter
 from app.safe_search import find_safe_search_target
 
 logger = logging.getLogger("dnsshield.dns")
-
-# Shared by all queries: race mode asks every upstream at once (the losers
-# finish in the background), prefetch refreshes popular cache entries.
-_RACE_POOL = ThreadPoolExecutor(max_workers=32, thread_name_prefix="dns-race")
-_PREFETCH_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dns-prefetch")
 
 _DNSSEC_UDP_SIZE = 1232
 _DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
@@ -101,7 +97,7 @@ class _UpstreamPayload:
     def __init__(self, record: DNSRecord, padding: bool):
         self._record = record
         self._plain = record.pack()
-        self._padded: bytes | None = None
+        self._padded = None
         self._padding = padding
 
     def for_upstream(self, upstream: str) -> bytes:
@@ -183,7 +179,7 @@ class FilteringResolver:
         typosquat_can_redirect = bool(typosquat) and qname and qtype_name in ("A", "AAAA")
 
         local_tld_match = self._blocklist.local_tld_match(qname) if qname else None
-        rebinding_ip: str | None = None
+        rebinding_ip = None
 
         if blocked:
             response = self._blocked_reply(request)
@@ -280,18 +276,18 @@ class FilteringResolver:
         return not any(qname == d or qname.endswith("." + d) for d in exempt)
 
     @staticmethod
-    def _answer_ip(response: DNSRecord) -> str | None:
+    def _answer_ip(response: DNSRecord) -> Optional[str]:
         for rr in response.rr:
             if rr.rtype in (QTYPE.A, QTYPE.AAAA):
                 return str(rr.rdata)
         return None
 
     @staticmethod
-    def _answer_ips(response: DNSRecord) -> list[str]:
+    def _answer_ips(response: DNSRecord) -> list:
         return [str(rr.rdata) for rr in response.rr if rr.rtype in (QTYPE.A, QTYPE.AAAA)]
 
     @staticmethod
-    def _answer_cnames(response: DNSRecord) -> list[str]:
+    def _answer_cnames(response: DNSRecord) -> list:
         return [str(rr.rdata).rstrip(".").lower() for rr in response.rr if rr.rtype == QTYPE.CNAME]
 
     def _blocked_reply(self, request: DNSRecord) -> DNSRecord:
@@ -314,7 +310,7 @@ class FilteringResolver:
         request: DNSRecord,
         target_hostname: str,
         client_ip: str,
-        group_upstreams: list[str] | None = None,
+        group_upstreams = None,
         variant: str = "",
     ) -> DNSRecord:
         qtype_name = QTYPE.get(request.q.qtype, "A")
@@ -350,7 +346,7 @@ class FilteringResolver:
             reply.add_answer(RR(request.q.qname, QTYPE.TXT, rdata=TXT(value), ttl=ttl))
         return reply
 
-    def _group_upstreams(self, client_ip: str) -> list[str] | None:
+    def _group_upstreams(self, client_ip: str):
         if not client_ip:
             return None
         group = self._blocklist.group_for(client_ip)
@@ -359,14 +355,14 @@ class FilteringResolver:
         upstreams = [u for u in (group.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
         return upstreams or None
 
-    def _client_profile(self, client_ip: str) -> tuple[bool, list[str] | None]:
+    def _client_profile(self, client_ip: str) -> tuple:
         """The per-client parts of how a query is answered: whether SafeSearch
         rewriting applies, and the client group's own upstreams (if any)."""
         safe_search = bool(self._blocklist.safe_search_enabled_for(client_ip))
         return safe_search, self._group_upstreams(client_ip)
 
     @staticmethod
-    def _cache_variant(safe_search: bool, group_upstreams: list[str] | None) -> str:
+    def _cache_variant(safe_search: bool, group_upstreams) -> str:
         parts = []
         if safe_search:
             parts.append("ss")
@@ -375,9 +371,9 @@ class FilteringResolver:
         return "|".join(parts)
 
     @staticmethod
-    def _parse_cache_variant(variant: str) -> tuple[bool, list[str] | None]:
+    def _parse_cache_variant(variant: str) -> tuple:
         safe_search = False
-        group_upstreams: list[str] | None = None
+        group_upstreams = None
         for part in (variant or "").split("|"):
             if part == "ss":
                 safe_search = True
@@ -391,7 +387,7 @@ class FilteringResolver:
         qname: str,
         client_ip: str,
         safe_search: bool,
-        group_upstreams: list[str] | None,
+        group_upstreams,
         variant: str,
         typosquat=None,
     ) -> DNSRecord:
@@ -412,7 +408,7 @@ class FilteringResolver:
 
     _UNSET = object()
 
-    def _select_upstreams(self, qname: str, client_ip: str, group_upstreams=_UNSET) -> list[str]:
+    def _select_upstreams(self, qname: str, client_ip: str, group_upstreams=_UNSET) -> list:
         for rule in self._config.get("domain_upstreams", default=[]) or []:
             domains = rule.get("domains") or []
             if any(qname == d or qname.endswith("." + d) for d in domains):
@@ -558,7 +554,7 @@ class FilteringResolver:
     def _local_validation_enabled(self) -> bool:
         return self._dnssec_enabled() and self._config.get("dns", "dnssec_validation", default="upstream") == "local"
 
-    def _validate_locally(self, resp: bytes) -> str | None:
+    def _validate_locally(self, resp: bytes):
         """"secure" / "insecure" / "bogus" / "indeterminate" with local
         validation on, None otherwise (the upstream's AD flag is used)."""
         if not self._local_validation_enabled():
@@ -589,7 +585,7 @@ class FilteringResolver:
         """Send one of the validator's own lookups (DNSKEY, DS, SOA) to the default upstreams."""
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
         upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
-        error: Exception | None = None
+        error = None
         for upstream in upstreams:
             if upstream_transport.is_disabled(upstream):
                 continue
@@ -608,7 +604,7 @@ class FilteringResolver:
         reply.header.rcode = RCODE.SERVFAIL
         return reply
 
-    def _stale_fallback(self, request: DNSRecord, variant: str = "") -> DNSRecord | None:
+    def _stale_fallback(self, request: DNSRecord, variant: str = ""):
         if self._cache is None:
             return None
         if not bool(self._config.get("dns", "cache_serve_stale_enabled", default=True)):
@@ -620,33 +616,23 @@ class FilteringResolver:
         self,
         request: DNSRecord,
         payload: _UpstreamPayload,
-        upstreams: list[str],
+        upstreams: list,
         timeout: float,
         qname: str = "",
         variant: str = "",
     ) -> DNSRecord:
-        results: queue.Queue[tuple[str, bytes | None, Exception | None]] = queue.Queue()
-
-        def worker(upstream: str) -> None:
+        """Race all upstreams synchronously, returning the first successful answer."""
+        for upstream in upstreams:
             start = time.monotonic()
             try:
                 resp = upstream_transport.forward(payload.for_upstream(upstream), upstream, timeout)
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
-                results.put((upstream, resp, None))
+                return self._finish_upstream_response(request, resp, qname)
             except Exception as exc:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, False)
-                results.put((upstream, None, exc))
-
-        for upstream in upstreams:
-            _RACE_POOL.submit(worker, upstream)
-
-        for _ in upstreams:
-            upstream, resp, exc = results.get()
-            if resp is not None:
-                return self._finish_upstream_response(request, resp, qname)
-            logger.warning("upstream %s failed (race mode): %s", upstream, exc)
+                logger.warning("upstream %s failed (race mode): %s", upstream, exc)
 
         return self._upstream_failure_reply(request, qname, variant)
 
@@ -666,9 +652,14 @@ class FilteringResolver:
         min_hits = int(self._config.get("dns", "cache_prefetch_min_hits", default=2))
         for key in self._cache.expiring_soon(threshold, min_hits):
             self._cache.mark_prefetching(key)
-            _PREFETCH_POOL.submit(self._prefetch_one, key)
+            try:
+                self._prefetch_one(key)
+            except Exception as exc:
+                logger.debug("prefetch of %s failed: %s", key, exc)
+            finally:
+                self._cache.clear_prefetching(key)
 
-    def _prefetch_one(self, key: tuple[str, int, int, str]) -> None:
+    def _prefetch_one(self, key: tuple) -> None:
         qname, qtype, _qclass, variant = key
         try:
             sub_request = DNSRecord.question(qname, qtype=QTYPE.get(qtype, "A"))
@@ -734,15 +725,16 @@ class _BoundedPoolMixIn:
     pool_size = DEFAULT_SERVER_THREADS
     dropped = 0
 
-    def _pool(self) -> tuple[ThreadPoolExecutor, threading.BoundedSemaphore]:
-        pool = getattr(self, "_request_pool", None)
-        if pool is None:
-            pool = (
-                ThreadPoolExecutor(max_workers=self.pool_size, thread_name_prefix="dns-request"),
-                threading.BoundedSemaphore(self.pool_size * (1 + _SERVER_QUEUE_PER_THREAD)),
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _pool(self):
+        if getattr(self, '_request_pool', None) is None:
+            self._request_pool = (
+                ThreadPoolExecutor(max_workers=self.pool_size),
+                BoundedSemaphore(self.pool_size * (1 + _SERVER_QUEUE_PER_THREAD)),
             )
-            self._request_pool = pool
-        return pool
+        return self._request_pool
 
     def process_request(self, request, client_address):
         executor, slots = self._pool()
@@ -879,8 +871,8 @@ def start_dns_servers(
     upstream_stats=None,
     reuse_port=False,
     dnssec_cache=None,
-    resolver: FilteringResolver | None = None,
-) -> list[DNSServer]:
+    resolver: Optional[FilteringResolver] = None,
+) -> list:
     if resolver is None:
         resolver = build_resolver(
             config_store,
@@ -914,7 +906,7 @@ def start_dns_servers(
 
 def start_cache_maintenance(
     resolver: FilteringResolver, interval_seconds: float = 5.0, save_interval_seconds: float = 300.0
-) -> threading.Thread:
+):
     def loop() -> None:
         last_save = time.monotonic()
         while True:

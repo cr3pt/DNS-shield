@@ -19,6 +19,7 @@ class _FakeServer(_BoundedPoolMixIn):
         self.release = threading.Event()
         self.handled = []
         self.closed = []
+        self._request_pool = None
 
     def finish_request(self, request, client_address):
         self.release.wait(5)
