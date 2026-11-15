@@ -19,6 +19,8 @@ from urllib.parse import urljoin
 import regex
 import requests
 
+import ahocorasick
+
 from app.netmatch import best_matching_group, client_matches
 from app.schedule import group_access_override, is_schedule_blocked
 from app.services import blocked_service, service_name
@@ -311,6 +313,11 @@ class BlocklistManager:
         self._typosquat_lock = threading.Lock()
         self._typosquat_cache: dict[str, tuple[str, str, int] | None] = {}
 
+        # Aho-Corasick automata for O(qname_length) blocklist matching.
+        self._block_automaton: ahocorasick.Automaton | None = None
+        self._allow_automaton: ahocorasick.Automaton | None = None
+        self._alert_automaton: ahocorasick.Automaton | None = None
+
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
         return self.block_reason(qname, client_ip) is not None
 
@@ -407,6 +414,12 @@ class BlocklistManager:
         qname = qname.rstrip(".").lower()
         with self._lock:
             alert_matched, alert_domain_source = self._alert_matched, self._alert_domain_source
+        # Use cached alert automaton when available.
+        if self._alert_automaton is not None:
+            matches = list(self._alert_automaton.iter(qname))
+            if matches:
+                return matches[0][1], alert_domain_source.get(matches[0][1])
+            return None
         matched = self._find_match(qname, alert_matched)
         if matched is None:
             return None
@@ -477,7 +490,12 @@ class BlocklistManager:
         typo = self.typosquat_match(qname)
         local_tld = self.local_tld_match_ignoring_toggle(qname)
         with self._lock:
-            on_allowlist = self._find_match(qname, self._allowed) is not None
+            # Use cached allow automaton for the most common path.
+            if self._allow_automaton is not None:
+                matches = list(self._allow_automaton.iter(qname))
+                on_allowlist = bool(matches)
+            else:
+                on_allowlist = self._find_match(qname, self._allowed) is not None
         return {
             "domain": qname,
             "blocked": reason is not None,
@@ -502,27 +520,48 @@ class BlocklistManager:
                 self._regex_cache_key = patterns
             return self._regex_cache_compiled
 
-    @staticmethod
-    def _find_match(qname: str, domain_set: frozenset[str]) -> str | None:
-        if qname in domain_set:
-            return qname
-        labels = qname.split(".")
-        for i in range(1, len(labels)):
-            candidate = ".".join(labels[i:])
-            if candidate in domain_set:
-                return candidate
+    def _find_match(self, qname: str, domain_set: frozenset[str]) -> str | None:
+        """Find the longest matching domain in domain_set using a cached
+        Aho-Corasick automaton when possible. Returns the matched domain
+        or None."""
+        # Use cached automaton for the allow list (most frequent lookup).
+        if domain_set is self._allowed and self._allow_automaton is not None:
+            matches = list(self._allow_automaton.iter(qname))
+            if matches:
+                return matches[0][1]
+            return None
+        # Fallback: build on the fly (alert_match, lookup_domain with explicit set).
+        if not domain_set:
+            return None
+        automaton = ahocorasick.Automaton()
+        for domain in domain_set:
+            automaton.add_string(domain, domain)
+        automaton.build()
+        matches = list(automaton.iter(qname))
+        if matches:
+            return matches[0][1]
         return None
 
-    @staticmethod
-    def _find_block_match(qname: str, domain_set: frozenset[str], carve_outs: dict[str, frozenset[str]]) -> str | None:
+    def _find_block_match(self, qname: str, domain_set: frozenset[str], carve_outs: dict[str, frozenset[str]]) -> str | None:
         """Like _find_match, but skips a blocked entry whose own list excepts
         the subdomain being asked for (||example.com^ + @@||sub.example.com^),
         and keeps looking at less specific entries from other lists."""
-        labels = qname.split(".")
-        for i in range(len(labels)):
-            candidate = ".".join(labels[i:])
-            if candidate not in domain_set:
-                continue
+        # Use cached automaton for the main block list (most frequent lookup).
+        if domain_set is self._blocked and self._block_automaton is not None:
+            for _end_pos, candidate in self._block_automaton.iter(qname):
+                excepted = carve_outs.get(candidate)
+                if excepted and any(qname == e or qname.endswith("." + e) for e in excepted):
+                    continue
+                return candidate
+            return None
+        # Fallback: build on the fly (group block lists).
+        if not domain_set:
+            return None
+        automaton = ahocorasick.Automaton()
+        for domain in domain_set:
+            automaton.add_string(domain, domain)
+        automaton.build()
+        for _end_pos, candidate in automaton.iter(qname):
             excepted = carve_outs.get(candidate)
             if excepted and any(qname == e or qname.endswith("." + e) for e in excepted):
                 continue
@@ -909,12 +948,30 @@ class BlocklistManager:
 
             with self._lock:
                 self._blocked = frozenset(merged)
+                # Build Aho-Corasick automaton for blocked domains.
+                if merged:
+                    ac = ahocorasick.Automaton()
+                    for domain in merged:
+                        ac.add_string(domain, domain)
+                    ac.build()
+                    self._block_automaton = ac
+                else:
+                    self._block_automaton = None
                 self._carve_outs = carve_outs
                 self._group_carve_outs = group_carve_outs
                 self._source_counts = counts
                 self._source_formats = formats
                 self._domain_source = domain_source
                 self._allowed = frozenset(allow_merged)
+                # Build Aho-Corasick automaton for allowed domains.
+                if allow_merged:
+                    ac = ahocorasick.Automaton()
+                    for domain in allow_merged:
+                        ac.add_string(domain, domain)
+                    ac.build()
+                    self._allow_automaton = ac
+                else:
+                    self._allow_automaton = None
                 self._allow_source_counts = allow_counts
                 self._allow_source_formats = allow_formats
                 self._group_blocked = group_blocked
@@ -922,6 +979,15 @@ class BlocklistManager:
                 self._group_source_counts = group_source_counts
                 self._group_source_formats = group_source_formats
                 self._alert_matched = frozenset(alert_merged)
+                # Build Aho-Corasick automaton for alert domains.
+                if alert_merged:
+                    ac = ahocorasick.Automaton()
+                    for domain in alert_merged:
+                        ac.add_string(domain, domain)
+                    ac.build()
+                    self._alert_automaton = ac
+                else:
+                    self._alert_automaton = None
                 self._alert_domain_source = alert_domain_source
                 self._alert_source_counts = alert_counts
                 self._alert_source_formats = alert_formats

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import secrets
 import socket
@@ -20,6 +21,35 @@ from dnslib import DNSRecord
 from app.enrichment import THREAT_INTEL_HOSTNAMES
 
 DOH_CONTENT_TYPE = "application/dns-message"
+
+# Async TTL cache for forward_plain: keyed by (query_hash, upstream).
+_cache: dict[tuple[str, str], tuple[bytes, float]] = {}
+_cache_lock = asyncio.Lock()
+_CACHE_TTL_SECONDS = 60.0
+
+
+def _query_hash(query: bytes) -> str:
+    """Deterministic hash of a DNS query for cache keying."""
+    return hashlib.sha256(query).hexdigest()
+
+
+async def _forward_plain_cached(
+    data: bytes, upstream: str, timeout: float,
+) -> bytes:
+    """Cache wrapper around forward_plain with TTL expiration."""
+    qhash = _query_hash(data)
+    key = (qhash, upstream)
+    async with _cache_lock:
+        entry = _cache.get(key)
+        if entry is not None:
+            resp, expires = entry
+            if time.monotonic() < expires:
+                return resp
+    resp = await forward_plain(data, upstream, timeout)
+    async with _cache_lock:
+        _cache[key] = (resp, time.monotonic() + _CACHE_TTL_SECONDS)
+    return resp
+
 
 # Lazy-initialized async session for DNS-over-HTTPS.
 _doh_session: aiohttp.ClientSession | None = None
@@ -70,7 +100,7 @@ async def forward(data: bytes, upstream: str, timeout: float) -> bytes:
         return await forward_doh(data, "https://" + upstream[len("doh://") :], timeout)
     if upstream.startswith("https://"):
         return await forward_doh(data, upstream, timeout)
-    return await forward_plain(data, upstream, timeout)
+    return await _forward_plain_cached(data, upstream, timeout)
 
 
 def _question_of(packet: bytes) -> tuple[str, int, int] | None:
