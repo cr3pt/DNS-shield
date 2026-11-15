@@ -449,7 +449,7 @@
   "dns.dnssec_validation": "Kto sprawdza podpisy",
   "dns.dnssec_validation_upstream": "Serwer nadrzędny (flaga AD)",
   "dns.dnssec_validation_local": "Sam DNS-shield (walidacja lokalna)",
-  "dns.hint.dnssec_validation": "Walidacja lokalna sprawdza podpisy RRSIG od kotwicy zaufania korzenia w dół i odpowiada SERVFAIL, gdy dane podpisanej strefy się nie weryfikują, nawet jeśli serwer nadrzędny nie waliduje albo podmienia odpowiedzi. Kosztuje kilka dodatkowych zapytań przy pierwszym spotkaniu strefy (DNSKEY, DS, SOA; potem cache). Dowody nieistnienia (NSEC/NSEC3) nie są sprawdzane.",
+  "dns.hint.dnssec_validation": "Walidacja lokalna sprawdza podpisy RRSIG od kotwicy zaufania korzenia w dół i odpowiada SERVFAIL, gdy dane podpisanej strefy się nie weryfikują, nawet jeśli serwer nadrzędny nie waliduje albo podmienia odpowiedzi. Kosztuje kilka dodatkowych zapytań przy pierwszym spotkaniu strefy (DNSKEY, DS, SOA; potem cache). Dowody nieistnienia (NSEC/NSEC3) też są sprawdzane.",
   "dns.strip_ecs": "Nie przekazuj EDNS Client Subnet do serwerów nadrzędnych (prywatność: nie poznają sieci Twoich klientów)",
   "dns.edns_padding": "Dopełniaj szyfrowane wiadomości DNS (DoT/DoH/DoQ) do stałych rozmiarów, żeby ich długość nie zdradzała nazwy",
   "sync.title": "Synchronizacja z serwerem głównym",

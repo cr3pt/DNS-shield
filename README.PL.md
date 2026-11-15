@@ -407,16 +407,19 @@ sprawdza podpisy, zamiast wierzyć fladze `AD`:
   można zastąpić własnymi liniami DS w `dns.dnssec_trust_anchors`.
 - Zestaw rekordów bez podpisów w strefie, która jest podpisana, jest
   bogus, bo tak wyglądają usunięte podpisy.
+- Brak danych jest dowodzony rekordami NSEC lub NSEC3 (RFC 4035, RFC 5155).
+  Strefa jest uznawana za niepodpisaną tylko wtedy, gdy jej podpisana
+  strefa nadrzędna udowodni brak DS albo obejmie ją zakresem NSEC3 opt-out.
+  Odpowiedzi NXDOMAIN i NODATA z podpisanej strefy oraz odpowiedzi
+  wygenerowane z wildcarda też wymagają poprawnego dowodu; bez niego są
+  bogus. Strefy z więcej niż 150 iteracjami NSEC3 są traktowane jako
+  niezabezpieczone (RFC 9276).
 
 Odpowiedź bogus dostaje `SERVFAIL` z Extended DNS Error 6 (DNSSEC Bogus) i
 nie trafia do cache. Bezpieczna dostaje `AD` dla klientów, którzy pytali z
 `DO`. Sprawdzanie kosztuje kilka dodatkowych zapytań (DNSKEY, DS, SOA) przy
 pierwszym spotkaniu strefy; potem wyniki są w cache przez
-`dns.dnssec_cache_seconds`. Ograniczenia: dowody nieistnienia (NSEC/NSEC3)
-nie są sprawdzane, więc serwer nadrzędny, który twierdzi, że strefa nie ma
-DS, jest uznawany za wiarygodny, a strefa traktowana jako niepodpisana.
-Odpowiedzi negatywne mają sprawdzane podpisy, ale nie sam dowód. Jeśli
-łańcucha nie da się w ogóle zbudować (brak danych DNSSEC od serwera
+`dns.dnssec_cache_seconds`. Jeśli łańcucha nie da się w ogóle zbudować (brak danych DNSSEC od serwera
 nadrzędnego albo klucze korzenia niezgodne z kotwicami), odpowiedź
 przechodzi jak dotąd, z ostrzeżeniem w logu, zamiast psuć każde zapytanie.
 
