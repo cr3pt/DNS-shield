@@ -17,8 +17,10 @@ from collections.abc import Set as AbstractSet
 from urllib.parse import urlparse
 
 import aiohttp
+from aiohttp.abc import AbstractResolver
 from dnslib import DNSRecord
 
+from app import bootstrap
 from app.enrichment import THREAT_INTEL_HOSTNAMES
 
 DOH_CONTENT_TYPE = "application/dns-message"
@@ -95,6 +97,29 @@ async def _forward_plain_cached(
     return resp
 
 
+class _BootstrapResolver(AbstractResolver):
+    """aiohttp resolver that falls back to the bootstrap servers (app/bootstrap.py)
+    when the system resolver can't answer for a DoH upstream's hostname."""
+
+    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_UNSPEC) -> list[dict]:
+        infos = await bootstrap.getaddrinfo(host, port or 443, type=socket.SOCK_STREAM)
+        return [
+            {
+                "hostname": host,
+                "host": sockaddr[0],
+                "port": port,
+                "family": found_family,
+                "proto": 0,
+                "flags": socket.AI_NUMERICHOST | socket.AI_NUMERICSERV,
+            }
+            for found_family, _type, _proto, _name, sockaddr in infos
+            if family in (socket.AF_UNSPEC, found_family)
+        ]
+
+    async def close(self) -> None:
+        pass
+
+
 # DNS-over-HTTPS sessions, one per event loop (an aiohttp session is bound to
 # the loop it was created in).
 _doh_sessions: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -108,6 +133,7 @@ def _get_doh_session() -> aiohttp.ClientSession:
             limit=100,
             limit_per_host=20,
             enable_cleanup_closed=True,
+            resolver=_BootstrapResolver(),
         )
         session = aiohttp.ClientSession(connector=connector)
         _doh_sessions[loop] = session
@@ -346,6 +372,23 @@ async def _dot_exchange(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     return resp
 
 
+async def _dot_connect(host: str, port: int, timeout: float):
+    """Open a TLS connection to a DoT upstream. The name is resolved by the
+    system resolver, or by the bootstrap servers when that can't answer; the
+    certificate is checked against the hostname either way."""
+    infos = await bootstrap.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    last_error: Exception | None = None
+    for _family, _type, _proto, _name, sockaddr in infos[:4]:
+        try:
+            return await asyncio.wait_for(
+                asyncio.open_connection(sockaddr[0], port, ssl=_dot_ssl_context(), server_hostname=host),
+                timeout=timeout,
+            )
+        except (OSError, TimeoutError) as exc:
+            last_error = exc
+    raise last_error if last_error is not None else OSError(f"no address for {host}")
+
+
 async def forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
     host, port = _split_host_port(hostport, 853)
     key = (host, port, id(asyncio.get_running_loop()))
@@ -363,10 +406,7 @@ async def forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
             await _dot_give(key, reader, writer)
             return resp
 
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection(host, port, ssl=_dot_ssl_context(), server_hostname=host),
-        timeout=timeout,
-    )
+    reader, writer = await _dot_connect(host, port, timeout)
     try:
         resp = await _dot_exchange(reader, writer, data, timeout)
     except BaseException:
