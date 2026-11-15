@@ -369,15 +369,18 @@ checks the signatures itself instead of believing the `AD` flag:
   which `dns.dnssec_trust_anchors` can replace with your own DS lines.
 - An RRset without signatures in a zone that is signed is bogus, because
   that is what stripped signatures look like.
+- Denials are proven with NSEC or NSEC3 (RFC 4035, RFC 5155). A zone counts
+  as unsigned only when its signed parent proves there is no DS for it, or
+  covers it with an NSEC3 opt-out span. NXDOMAIN and NODATA answers from a
+  signed zone, and answers synthesised from a wildcard, need a valid proof
+  too; without one they are bogus. Zones using more than 150 NSEC3
+  iterations are treated as insecure (RFC 9276).
 
 A bogus answer gets `SERVFAIL` with Extended DNS Error 6 (DNSSEC Bogus) and
 isn't cached. A secure one gets `AD` set for clients that asked with `DO`.
 The checking costs a few extra lookups (DNSKEY, DS, SOA) the first time a
 zone is seen; after that the results are cached for
-`dns.dnssec_cache_seconds`. Limits: denial proofs (NSEC/NSEC3) aren't
-checked, so an upstream that says a zone has no DS is believed and the zone
-is treated as unsigned. Negative answers have their signatures checked but
-not the proof itself. If the chain can't be built at all (no DNSSEC data
+`dns.dnssec_cache_seconds`. If the chain can't be built at all (no DNSSEC data
 from the upstream, or root keys that don't match the anchors), the answer
 passes through as before with a warning in the log, rather than every
 lookup failing.

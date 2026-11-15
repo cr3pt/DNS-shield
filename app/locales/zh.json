@@ -449,7 +449,7 @@
   "dns.dnssec_validation": "由谁检查签名",
   "dns.dnssec_validation_upstream": "上游解析器（AD 标志）",
   "dns.dnssec_validation_local": "DNS-shield 自己（本地验证）",
-  "dns.hint.dnssec_validation": "本地验证从根信任锚开始检查 RRSIG 签名；当已签名区域的数据无法通过验证时返回 SERVFAIL，即使上游不验证或篡改了应答。首次遇到某个区域时需要几次额外查询（DNSKEY、DS、SOA，之后缓存）。不检查不存在证明（NSEC/NSEC3）。",
+  "dns.hint.dnssec_validation": "本地验证从根信任锚开始检查 RRSIG 签名；当已签名区域的数据无法通过验证时返回 SERVFAIL，即使上游不验证或篡改了应答。首次遇到某个区域时需要几次额外查询（DNSKEY、DS、SOA，之后缓存）。也会检查不存在证明（NSEC/NSEC3）。",
   "dns.strip_ecs": "不向上游传递 EDNS Client Subnet（隐私：上游无法得知客户端的网络）",
   "dns.edns_padding": "将加密 DNS 消息（DoT/DoH/DoQ）填充到固定大小，使其长度不会泄露域名",
   "sync.title": "从主服务器同步",

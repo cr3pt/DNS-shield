@@ -56,9 +56,11 @@ class World:
         soa = example.rrset("example.", "SOA", "ns.example. admin.example. 1 3600 600 86400 300")
         self.add("example.", "SOA", soa, example.sign(soa))
         self.add("www.example.", "SOA", authority=[soa, example.sign(soa)])
-        # plain. is delegated without a DS (root says NODATA).
+        # plain. is delegated without a DS (root says NODATA and proves it).
         root_soa = root.rrset(".", "SOA", "a.root. nstld. 1 1800 900 604800 86400")
-        self.add("plain.", "DS", authority=[root_soa, root.sign(root_soa)])
+        self.root_soa = root_soa
+        plain_nsec = root.rrset("plain.", "NSEC", "zzz. NS RRSIG NSEC")
+        self.add("plain.", "DS", authority=[root_soa, root.sign(root_soa), plain_nsec, root.sign(plain_nsec)])
         plain_soa = root.rrset("plain.", "SOA", "ns.plain. admin.plain. 1 3600 600 86400 300")
         self.add("plain.", "SOA", plain_soa)
         self.add("www.plain.", "SOA", authority=[plain_soa])
