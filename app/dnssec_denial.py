@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import base64
 
+import dns.dnssec
+import dns.name
+import dns.rdatatype
+
 # Python 3.9.6 Xcode bundle omits base64.b32hexencode/b32hexdecode
 _B32HEX_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUV"
 _STD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
@@ -32,10 +36,6 @@ def _b32hexdecode(s: str) -> bytes:
     """Base32hex decode (hex alphabet: 0-9, A-V)."""
     return base64.b32decode(s.translate(_B32HEX_TO_STD).encode("ascii"))
 
-
-import dns.dnssec
-import dns.name
-import dns.rdatatype
 
 SECURE = "secure"
 INSECURE = "insecure"
@@ -232,6 +232,7 @@ class Denial:
             if self._nsec3_covering(name) is not None:
                 return (candidate, None)
         return None
+
     def _nsec3_nxdomain(self, name) -> bool:
         proof = self._nsec3_closest_encloser(name)
         return proof is not None and self._nsec3_covering(_wildcard(proof[0])) is not None
