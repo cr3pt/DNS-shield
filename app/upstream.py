@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
 import secrets
 import socket
@@ -18,6 +19,7 @@ import requests
 from dnslib import DNSRecord
 from requests.adapters import HTTPAdapter
 
+from app import upstream_guard
 from app.enrichment import THREAT_INTEL_HOSTNAMES
 
 DOH_CONTENT_TYPE = "application/dns-message"
@@ -49,6 +51,22 @@ def _split_host_port(entry: str, default_port: int) -> tuple[str, int]:
 
 
 def forward(data: bytes, upstream: str, timeout: float) -> bytes:
+    """Send one query to one upstream and return its answer.
+
+    Goes through app/upstream_guard.py, so an upstream that keeps failing is
+    skipped for a while instead of costing every query a full timeout. A
+    timeout always says which upstream and how long: the log line the resolver
+    writes (`upstream X failed: ...`) is otherwise empty for some transports.
+    """
+    try:
+        return upstream_guard.run(upstream, lambda: _forward(data, upstream, timeout))
+    except TimeoutError as exc:
+        if str(exc):
+            raise
+        raise TimeoutError(f"{upstream} did not answer within {timeout:g}s") from exc
+
+
+def _forward(data: bytes, upstream: str, timeout: float) -> bytes:
     if upstream.startswith("dot://"):
         return _forward_dot(data, upstream[len("dot://") :], timeout)
     if upstream.startswith(DOQ_PREFIXES):
@@ -61,6 +79,40 @@ def forward(data: bytes, upstream: str, timeout: float) -> bytes:
     if upstream.startswith("https://"):
         return _forward_doh(data, upstream, timeout)
     return _forward_plain(data, upstream, timeout)
+
+
+# getaddrinfo() has no timeout of its own: with an unreachable resolver it holds
+# a worker thread for the system's whole retry cycle, whatever timeout the
+# socket was given. Name lookups for upstreams therefore run on their own small
+# pool and are abandoned after the query's timeout.
+_resolve_pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="dnsshield-resolve")
+
+
+def _connect(host: str, port: int, timeout: float) -> socket.socket:
+    """socket.create_connection() with the name lookup bounded by `timeout` too."""
+    deadline = time.monotonic() + timeout
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        future = _resolve_pool.submit(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+        try:
+            infos = future.result(timeout)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            raise TimeoutError(f"looking up {host} took longer than {timeout:g}s") from None
+        addresses = [info[4][0] for info in infos]
+    else:
+        addresses = [host]
+    last_error: OSError | None = None
+    for address in addresses[:4]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            return socket.create_connection((address, port), timeout=remaining)
+        except OSError as exc:
+            last_error = exc
+    raise last_error if last_error is not None else TimeoutError(f"connecting to {host}:{port} timed out")
 
 
 def _question_of(packet: bytes) -> tuple[str, int, int] | None:
@@ -130,7 +182,8 @@ def _forward_plain(data: bytes, upstream: str, timeout: float) -> bytes:
 
 
 def _forward_tcp(data: bytes, host: str, port: int, timeout: float) -> bytes:
-    with socket.create_connection((host, port), timeout=timeout) as sock:
+    with _connect(host, port, timeout) as sock:
+        sock.settimeout(timeout)
         sock.sendall(struct.pack("!H", len(data)) + data)
         length = struct.unpack("!H", _recv_exact(sock, 2))[0]
         return _recv_exact(sock, length)
@@ -200,7 +253,7 @@ def _forward_dot(data: bytes, hostport: str, timeout: float) -> bytes:
             _dot_give_back(key, sock)
             return resp
 
-    raw_sock = socket.create_connection((host, port), timeout=timeout)
+    raw_sock = _connect(host, port, timeout)
     try:
         sock = _dot_ssl_context().wrap_socket(raw_sock, server_hostname=host)
     except BaseException:

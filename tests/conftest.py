@@ -3,6 +3,7 @@
 
 import pytest
 
+from app import upstream_guard
 from app.config import ConfigStore
 
 
@@ -32,6 +33,14 @@ class FakeStats:
 @pytest.fixture
 def config_store(tmp_path):
     return ConfigStore(db_path=tmp_path / "config.db", backup_path=tmp_path / "config.backup.yaml")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_upstream_guard():
+    """An upstream's failure history must not leak from one test into the next."""
+    upstream_guard.reset()
+    yield
+    upstream_guard.reset()
 
 
 @pytest.fixture(autouse=True)
