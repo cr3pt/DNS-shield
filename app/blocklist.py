@@ -535,8 +535,8 @@ class BlocklistManager:
             return None
         automaton = ahocorasick.Automaton()
         for domain in domain_set:
-            automaton.add_string(domain, domain)
-        automaton.build()
+            automaton.add_word(domain, domain)
+        automaton.make_automaton()
         matches = list(automaton.iter(qname))
         if matches:
             return matches[0][1]
@@ -559,8 +559,8 @@ class BlocklistManager:
             return None
         automaton = ahocorasick.Automaton()
         for domain in domain_set:
-            automaton.add_string(domain, domain)
-        automaton.build()
+            automaton.add_word(domain, domain)
+        automaton.make_automaton()
         for _end_pos, candidate in automaton.iter(qname):
             excepted = carve_outs.get(candidate)
             if excepted and any(qname == e or qname.endswith("." + e) for e in excepted):
@@ -952,8 +952,8 @@ class BlocklistManager:
                 if merged:
                     ac = ahocorasick.Automaton()
                     for domain in merged:
-                        ac.add_string(domain, domain)
-                    ac.build()
+                        ac.add_word(domain, domain)
+                    ac.make_automaton()
                     self._block_automaton = ac
                 else:
                     self._block_automaton = None
@@ -967,8 +967,8 @@ class BlocklistManager:
                 if allow_merged:
                     ac = ahocorasick.Automaton()
                     for domain in allow_merged:
-                        ac.add_string(domain, domain)
-                    ac.build()
+                        ac.add_word(domain, domain)
+                    ac.make_automaton()
                     self._allow_automaton = ac
                 else:
                     self._allow_automaton = None
@@ -983,8 +983,8 @@ class BlocklistManager:
                 if alert_merged:
                     ac = ahocorasick.Automaton()
                     for domain in alert_merged:
-                        ac.add_string(domain, domain)
-                    ac.build()
+                        ac.add_word(domain, domain)
+                    ac.make_automaton()
                     self._alert_automaton = ac
                 else:
                     self._alert_automaton = None
