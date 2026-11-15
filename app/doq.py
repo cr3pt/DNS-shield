@@ -28,6 +28,8 @@ from aioquic.quic.configuration import QuicConfiguration
 from aioquic.quic.connection import QuicConnection
 from aioquic.quic.events import ConnectionTerminated, QuicEvent
 
+from app import bootstrap
+
 logger = logging.getLogger("dnsshield.doq")
 
 ALPN = ["doq"]
@@ -85,9 +87,11 @@ async def _exchange(protocol: _Protocol, query: bytes) -> bytes:
 async def _open_connection(host: str, port: int, configuration: QuicConfiguration):
     """Like aioquic's connect(), minus its IPv6 dual-stack socket - which
     fails outright where IPv6 is disabled, as in many Docker setups. The
-    socket's family follows the address the upstream resolves to."""
+    socket's family follows the address the upstream resolves to. The name is
+    resolved by the system resolver, or by the bootstrap servers when that
+    can't answer (see app/bootstrap.py)."""
     loop = asyncio.get_running_loop()
-    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
+    infos = await bootstrap.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
     family, _type, _proto, _name, addr = infos[0]
     connection = QuicConnection(configuration=configuration)
     transport, protocol = await loop.create_datagram_endpoint(
