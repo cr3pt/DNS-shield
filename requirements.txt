@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause AND LicenseRef-Commons-Clause
 # See the LICENSE file in the project root for full license terms.
 dnslib==0.9.26
-pyahocorasick==2.2.0
+pyahocorasick==2.3.1
 fastapi==0.162.7
 uvicorn[standard]==0.54.0
 PyYAML==6.0.3
