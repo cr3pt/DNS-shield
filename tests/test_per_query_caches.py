@@ -47,3 +47,30 @@ def test_client_group_is_looked_up_once_per_config_version(config_store, tmp_pat
     config_store.mutate(lambda d: d.update({"client_groups": [{"name": "guests", "match": ["10.0.0.5"]}]}))
     assert manager.group_for("10.0.0.5")["name"] == "guests"
     assert len(calls) == 2
+
+
+def test_manual_rule_lists_are_set_lookups_rebuilt_per_config_version(config_store, tmp_path):
+    big = [f"ads{i}.example" for i in range(20000)]
+    config_store.mutate(
+        lambda d: d.update(
+            {
+                "denylist": big + ["Tracker.Example."],
+                "allowlist": ["ok.ads5.example"],
+                "blocked_tlds": ["zip", "co.zip"],
+                "client_groups": [{"name": "kids", "match": ["10.0.0.5"], "denylist": ["games.example"]}],
+            }
+        )
+    )
+    manager = BlocklistManager(config_store, tmp_path / "bl")
+    assert manager.block_reason("x.ads19999.example") == "Denylist (manually added)"
+    assert manager.block_reason("cdn.tracker.example") == "Denylist (manually added)"  # normalized entry
+    assert manager.block_reason("badads1.example") is None  # suffix, not substring
+    assert manager.block_reason("ok.ads5.example") == "Denylist (manually added)"  # denylist wins over allowlist
+    assert manager.blocked_tld_match("a.b.co.zip") == "co.zip"  # longest entry
+    assert manager.blocked_tld_match("a.zip") == "zip"
+    assert manager.block_reason("play.games.example", "10.0.0.5").startswith("Denylist (client group")
+    assert manager.block_reason("play.games.example", "10.0.0.6") is None
+
+    config_store.mutate(lambda d: d.update({"denylist": ["other.example"]}))
+    assert manager.block_reason("x.ads19999.example") is None
+    assert manager.block_reason("a.other.example") == "Denylist (manually added)"

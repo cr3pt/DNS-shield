@@ -31,6 +31,9 @@ logger = logging.getLogger("dnsshield.dns")
 _RACE_POOL = ThreadPoolExecutor(max_workers=32, thread_name_prefix="dns-race")
 _PREFETCH_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dns-prefetch")
 
+# Below this there's no point starting another upstream attempt.
+_MIN_UPSTREAM_ATTEMPT_SECONDS = 0.05
+
 _DNSSEC_UDP_SIZE = 1232
 _DNSSEC_RTYPES = frozenset({QTYPE.RRSIG, QTYPE.NSEC, QTYPE.NSEC3, QTYPE.NSEC3PARAM, QTYPE.DNSKEY, QTYPE.DS})
 _EDNS_DO_BIT = 1 << 15
@@ -512,8 +515,10 @@ class FilteringResolver:
         upstreams = self._select_upstreams(qname, client_ip, group_upstreams)
         strategy = self._config.get("dns", "upstream_strategy", default="in_order")
 
+        deadline = time.monotonic() + self._upstream_budget(timeout)
+
         if strategy == "race" and len(upstreams) > 1:
-            return self._forward_race(request, payload, upstreams, timeout, qname, variant)
+            return self._forward_race(request, payload, upstreams, timeout, qname, variant, deadline)
 
         if strategy == "random":
             upstreams = list(upstreams)
@@ -523,15 +528,21 @@ class FilteringResolver:
 
         for upstream in upstreams:
             start = time.monotonic()
+            remaining = deadline - start
+            if remaining < _MIN_UPSTREAM_ATTEMPT_SECONDS:
+                # Out of time for this query: the client is about to give up
+                # (or retry) anyway, so answer now rather than keep it waiting.
+                logger.warning("upstream time budget used up for %s - not trying %s", qname, upstream)
+                break
             try:
-                resp = upstream_transport.forward(payload.for_upstream(upstream), upstream, timeout)
+                resp = upstream_transport.forward(payload.for_upstream(upstream), upstream, min(timeout, remaining))
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, True)
                 return self._finish_upstream_response(request, resp, qname)
             except Exception as exc:
                 if self._upstream_stats is not None:
                     self._upstream_stats.record(upstream, time.monotonic() - start, False)
-                logger.warning("upstream %s failed: %s", upstream, exc)
+                logger.warning("upstream %s failed for %s: %s: %s", upstream, qname, type(exc).__name__, exc)
                 continue
 
         return self._upstream_failure_reply(request, qname, variant)
@@ -599,6 +610,16 @@ class FilteringResolver:
                 error = exc
         raise OSError(f"no upstream answered: {error}")
 
+    def _upstream_budget(self, timeout: float) -> float:
+        """Total time one client query may spend on upstreams. Without it,
+        in_order with N dead upstreams waits N x timeout - longer than any stub
+        resolver waits for an answer."""
+        try:
+            budget = float(self._config.get("dns", "upstream_total_timeout_seconds", default=5.0))
+        except (TypeError, ValueError):
+            budget = 5.0
+        return max(budget, timeout)
+
     def _upstream_failure_reply(self, request: DNSRecord, qname: str, variant: str) -> DNSRecord:
         stale = self._stale_fallback(request, variant)
         if stale is not None:
@@ -624,7 +645,10 @@ class FilteringResolver:
         timeout: float,
         qname: str = "",
         variant: str = "",
+        deadline: float | None = None,
     ) -> DNSRecord:
+        if deadline is None:
+            deadline = time.monotonic() + timeout
         results: queue.Queue[tuple[str, bytes | None, Exception | None]] = queue.Queue()
 
         def worker(upstream: str) -> None:
@@ -643,10 +667,16 @@ class FilteringResolver:
             _RACE_POOL.submit(worker, upstream)
 
         for _ in upstreams:
-            upstream, resp, exc = results.get()
+            # Each transport enforces its own timeout, but don't rely on that
+            # alone: a stuck worker must never hold the client's query.
+            try:
+                upstream, resp, exc = results.get(timeout=max(0.0, deadline - time.monotonic()) + 0.5)
+            except queue.Empty:
+                logger.warning("no upstream answered %s in time (race mode)", qname)
+                break
             if resp is not None:
                 return self._finish_upstream_response(request, resp, qname)
-            logger.warning("upstream %s failed (race mode): %s", upstream, exc)
+            logger.warning("upstream %s failed for %s (race mode): %s: %s", upstream, qname, type(exc).__name__, exc)
 
         return self._upstream_failure_reply(request, qname, variant)
 

@@ -9,6 +9,7 @@ dns:
     - "1.1.1.1:53"
     - "9.9.9.9:53"
   upstream_timeout_seconds: 3.0
+  upstream_total_timeout_seconds: 5.0  # all upstream tries of one query together
   upstream_strategy: "in_order"
   upstream_stats_window_minutes: 15
   query_case_randomization_enabled: false
