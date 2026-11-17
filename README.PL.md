@@ -207,7 +207,8 @@ dns:
   listen_port: 53
   server_threads: 64                         # wątki odpowiadające na zapytania (osobno UDP i TCP); nadmiar czeka, potem jest odrzucany
   upstreams: ["1.1.1.1:53", "9.9.9.9:53"]   # dowolna liczba - zobacz niżej
-  upstream_timeout_seconds: 3.0
+  upstream_timeout_seconds: 3.0       # na jedną próbę; jedno zapytanie klienta spędza łącznie najwyżej upstream_total_timeout_seconds, potem dostaje stary wpis z cache albo SERVFAIL
+  upstream_total_timeout_seconds: 5.0
   upstream_strategy: "in_order"  # albo "fastest" / "most_stable" / "race" / "random" - zobacz niżej
   upstream_stats_window_minutes: 15
   block_mode: "nxdomain"                     # albo "null_ip"

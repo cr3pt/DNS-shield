@@ -255,6 +255,10 @@ class _SourceIndex:
         return found
 
 
+def _normalized_domain_set(domains: Iterable[str]) -> frozenset[str]:
+    return frozenset(d for d in (str(x).strip().strip(".").lower() for x in domains) if d)
+
+
 class BlocklistManager:
     def __init__(self, config_store, cache_dir: Path, mac_resolver=None, client_names=None):
         self._config = config_store
@@ -311,6 +315,13 @@ class BlocklistManager:
         self._typosquat_lock = threading.Lock()
         self._typosquat_cache: dict[str, tuple[str, str, int] | None] = {}
 
+        # Manual allow/deny lists and blocked TLDs as frozensets, rebuilt once
+        # per config version (a Pi-hole/AdGuard import can put thousands of
+        # entries there, and they're checked on every query).
+        self._rule_sets_version: int | None = None
+        self._rule_sets: dict[tuple[str, ...], frozenset[str]] = {}
+        self._rule_sets_lock = threading.Lock()
+
     def is_blocked(self, qname: str, client_ip: str | None = None) -> bool:
         return self.block_reason(qname, client_ip) is not None
 
@@ -325,8 +336,12 @@ class BlocklistManager:
 
         group = self._find_group(client_ip)
 
-        def matches(domains: Iterable[str] | None) -> bool:
-            return any(qname == d or qname.endswith("." + d) for d in (domains or []))
+        group_key = ("group", str(group.get("id", "")), str(group.get("name", ""))) if group else ()
+
+        def matches(key: tuple[str, ...], domains: Iterable[str] | None) -> bool:
+            if not domains:
+                return False
+            return matches_domain_or_parent(qname, self._domain_set(key, domains))
 
         if matches_domain_or_parent(qname, protected_hostnames(self._config)):
             return None
@@ -343,13 +358,13 @@ class BlocklistManager:
             return f'Scheduled block (client group "{group.get("name", "")}")'
         if self.is_paused():
             return None
-        if group and matches(group.get("denylist")):
+        if group and matches((*group_key, "denylist"), group.get("denylist")):
             return f"Denylist (client group \"{group.get('name', '')}\")"
         if group:
             service_id = blocked_service(qname, group.get("blocked_services"))
             if service_id is not None:
                 return f'Blocked service: {service_name(service_id)} (client group "{group.get("name", "")}")'
-        if matches(self._config.get("denylist", default=[])):
+        if matches(("denylist",), self._config.get("denylist", default=[])):
             return "Denylist (manually added)"
         service_id = blocked_service(qname, self._config.get("blocked_services", default=[]))
         if service_id is not None:
@@ -363,9 +378,9 @@ class BlocklistManager:
                     continue
                 if matched:
                     return f"Denylist (regex, experimental): {pattern_text}"
-        if group and matches(group.get("allowlist")):
+        if group and matches((*group_key, "allowlist"), group.get("allowlist")):
             return None
-        if matches(self._config.get("allowlist", default=[])):
+        if matches(("allowlist",), self._config.get("allowlist", default=[])):
             return None
 
         with self._lock:
@@ -463,12 +478,11 @@ class BlocklistManager:
         qname = qname.rstrip(".").lower()
         if not qname:
             return None
-        best: str | None = None
-        for tld in self.blocked_tlds():
-            tld = str(tld).strip(".").lower()
-            if tld and (qname == tld or qname.endswith("." + tld)) and (best is None or len(tld) > len(best)):
-                best = tld
-        return best
+        tlds = self.blocked_tlds()
+        if not tlds:
+            return None
+        # Most specific suffix first, so the first hit is the longest entry.
+        return self._find_match(qname, self._domain_set(("blocked_tlds",), tlds))
 
     def lookup_domain(self, qname: str) -> dict[str, Any]:
         qname = qname.rstrip(".").lower()
@@ -501,6 +515,25 @@ class BlocklistManager:
                 self._regex_cache_compiled = compiled
                 self._regex_cache_key = patterns
             return self._regex_cache_compiled
+
+    def _domain_set(self, key: tuple[str, ...], domains: Iterable[str]) -> frozenset[str]:
+        """`domains` normalized into a frozenset for O(labels) suffix lookups,
+        cached under `key` until the config changes."""
+        version = getattr(self._config, "version", None)
+        if version is None:
+            return _normalized_domain_set(domains)
+        with self._rule_sets_lock:
+            if self._rule_sets_version != version:
+                self._rule_sets = {}
+                self._rule_sets_version = version
+            cached = self._rule_sets.get(key)
+        if cached is not None:
+            return cached
+        result = _normalized_domain_set(domains)
+        with self._rule_sets_lock:
+            if self._rule_sets_version == version:
+                self._rule_sets[key] = result
+        return result
 
     @staticmethod
     def _find_match(qname: str, domain_set: frozenset[str]) -> str | None:

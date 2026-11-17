@@ -272,6 +272,7 @@ class DnsSettingsIn(BaseModel):
     listen_address: str | None = None
     listen_port: int | None = None
     upstream_timeout_seconds: float | None = None
+    upstream_total_timeout_seconds: float | None = None
     upstream_strategy: str | None = None
     upstream_stats_window_minutes: float | None = None
     query_case_randomization_enabled: bool | None = None
