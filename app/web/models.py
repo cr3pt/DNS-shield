@@ -365,6 +365,26 @@ class DomainUpstreamIn(BaseModel):
     domains: list[str] = []
     upstreams: list[str] = []
 
+    @field_validator("domains")
+    @classmethod
+    def _validate_domains(cls, value: list[str]) -> list[str]:
+        domains: list[str] = []
+        for item in value:
+            domain = normalize_domain(item)
+            if domain not in domains:
+                domains.append(domain)
+        if not domains:
+            raise ValueError("Enter at least one domain")
+        return domains
+
+    @field_validator("upstreams")
+    @classmethod
+    def _validate_upstreams(cls, value: list[str]) -> list[str]:
+        upstreams = [u.strip() for u in value if u and u.strip()]
+        if not upstreams:
+            raise ValueError("Enter at least one upstream server")
+        return upstreams
+
 
 class RewriteIn(BaseModel):
     name: str

@@ -20,6 +20,7 @@ from dnslib.server import UDPServer as _DNSLibUDPServer
 
 from app import upstream as upstream_transport
 from app.dns_rewrites import find_rewrite
+from app.domain_suffix import rule_domains
 from app.netmatch import ip_matches
 from app.rate_limit import ClientRateLimiter
 from app.safe_search import find_safe_search_target
@@ -415,13 +416,29 @@ class FilteringResolver:
 
     _UNSET = object()
 
-    def _select_upstreams(self, qname: str, client_ip: str, group_upstreams=_UNSET) -> list[str]:
+    def _domain_rule_upstreams(self, qname: str) -> list[str] | None:
+        """The upstreams of the per-domain rule covering qname, or None.
+
+        The most specific domain wins (a rule for "a.pl" beats an earlier one
+        for "pl"); rule domains are compared the way queries arrive -
+        lowercase, no trailing dot, no "*." - so a rule typed as "A.pl." or
+        "*.a.pl" still matches."""
+        qname = (qname or "").rstrip(".").lower()
+        best: list[str] | None = None
+        best_len = -1
         for rule in self._config.get("domain_upstreams", default=[]) or []:
-            domains = rule.get("domains") or []
-            if any(qname == d or qname.endswith("." + d) for d in domains):
-                upstreams = [u for u in (rule.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
-                if upstreams:
-                    return upstreams
+            upstreams = [u for u in (rule.get("upstreams") or []) if not upstream_transport.is_disabled(u)]
+            if not upstreams:
+                continue
+            for domain in rule_domains(rule):
+                if len(domain) > best_len and (qname == domain or qname.endswith("." + domain)):
+                    best, best_len = upstreams, len(domain)
+        return best
+
+    def _select_upstreams(self, qname: str, client_ip: str, group_upstreams=_UNSET) -> list[str]:
+        rule_upstreams = self._domain_rule_upstreams(qname)
+        if rule_upstreams:
+            return rule_upstreams
 
         if group_upstreams is self._UNSET:
             group_upstreams = self._group_upstreams(client_ip)
@@ -597,9 +614,19 @@ class FilteringResolver:
         return self._validator
 
     def _validation_forward(self, data: bytes) -> bytes:
-        """Send one of the validator's own lookups (DNSKEY, DS, SOA) to the default upstreams."""
+        """Send one of the validator's own lookups (DNSKEY, DS, SOA) upstream:
+        to the per-domain rule's upstreams when the name falls under one (so
+        a domain sent to its own server never leaks to the default ones, and
+        its keys come from the server that answered it), otherwise to the
+        default upstreams."""
         timeout = float(self._config.get("dns", "upstream_timeout_seconds", default=3.0))
-        upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
+        try:
+            name = str(DNSRecord.parse(data).q.qname)
+        except Exception:
+            name = ""
+        upstreams = self._domain_rule_upstreams(name) if name else None
+        if not upstreams:
+            upstreams = self._config.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
         error: Exception | None = None
         for upstream in upstreams:
             if upstream_transport.is_disabled(upstream):
