@@ -18,6 +18,18 @@ from app.web.models import DomainUpstreamIn, RewriteIn
 def register(app: FastAPI, ctx: AppContext) -> None:
     config_store = ctx.config_store
     require_admin = ctx.require_admin
+    cache = ctx.cache
+
+    def _drop_cached_answers(data: dict[str, Any]) -> None:
+        """A changed per-domain rule must take effect now, not when the
+        answers cached from the previous upstream expire. Clearing here
+        covers this process; bumping the generation (saved with the same
+        change) tells extra DNS workers to drop their caches too."""
+        if cache is None:
+            return
+        cache.clear()
+        dns = data.setdefault("dns", {})
+        dns["cache_generation"] = int(dns.get("cache_generation") or 0) + 1
 
     @app.get("/api/domain-upstreams")
     def list_domain_upstreams(_: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
@@ -28,6 +40,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         def _mutate(data: dict[str, Any]) -> list[dict[str, Any]]:
             rules = data.setdefault("domain_upstreams", [])
             rules.append(rule.model_dump())
+            _drop_cached_answers(data)
             return rules
 
         return config_store.mutate(_mutate)
@@ -38,6 +51,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             rules = data.setdefault("domain_upstreams", [])
             pos = _ref_index(rules, index, "No such rule")
             rules.pop(pos)
+            _drop_cached_answers(data)
             return rules
 
         return config_store.mutate(_mutate)
