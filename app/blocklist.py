@@ -24,7 +24,7 @@ from app.schedule import group_access_override, is_schedule_blocked
 from app.services import blocked_service, service_name
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS, find_typosquat_match
 from app.upstream import matches_domain_or_parent, protected_hostnames
-from app.url_safety import check_public_url, public_dns_guard
+from app.url_safety import check_public_url, public_dns_guard, upstream_resolver
 
 logger = logging.getLogger("dnsshield.blocklist")
 
@@ -739,8 +739,11 @@ class BlocklistManager:
         max_mb = float(self._config.get("blocklists", "max_download_mb", default=_DEFAULT_MAX_DOWNLOAD_MB) or 0)
         max_bytes = int(max_mb * 1024 * 1024) if max_mb > 0 else None
         for _ in range(_MAX_REDIRECTS + 1):
-            check_public_url(url)
-            with public_dns_guard(url):
+            # The list host is resolved through the upstreams, not the
+            # system resolver: on a box that uses DNS-shield as its own DNS,
+            # the system answer for it may be our own block address.
+            addresses = check_public_url(url, resolver=upstream_resolver(self._config))
+            with public_dns_guard(url, addresses=addresses):
                 resp = requests.get(url, timeout=15, allow_redirects=False, stream=True)
                 try:
                     location = resp.headers.get("Location") if resp.status_code in _REDIRECT_CODES else None

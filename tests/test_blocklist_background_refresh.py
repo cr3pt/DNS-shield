@@ -53,7 +53,7 @@ def test_adding_a_list_returns_before_it_downloads(config_store, tmp_path, monke
     client = _admin_client(config_store, tmp_path)
     started = threading.Event()
     release = threading.Event()
-    monkeypatch.setattr("app.web.routes.rules.check_public_url", lambda url: None)
+    monkeypatch.setattr("app.web.routes.rules.check_public_url", lambda url, **kwargs: None)
 
     def slow_download(self, url):
         started.set()

@@ -3,7 +3,7 @@
 dnslib==0.9.26
 fastapi==0.165.0
 uvicorn[standard]==0.54.0
-PyYAML==6.0.3
+PyYAML==6.0.4
 requests==2.34.2
 python-multipart==0.0.34
 bcrypt==5.0.0
@@ -16,6 +16,6 @@ Authlib==1.9.10
 joserfc==1.8.0
 pyroute2==0.9.7
 tldextract==5.4.0
-regex==2026.11.19
-aioquic==1.8.0
+regex==2026.11.23
+aioquic==1.9.2
 dnspython==2.9.2
