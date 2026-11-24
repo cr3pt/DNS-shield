@@ -16,7 +16,7 @@ from app.blocklist_catalog import BLOCKLIST_CATALOG
 from app.netmatch import normalize_client_pattern
 from app.services import catalog as services_catalog
 from app.typosquat import DEFAULT_PROTECTED_DOMAINS
-from app.url_safety import check_public_url
+from app.url_safety import check_public_url, upstream_resolver
 from app.web.common import _ref_index
 from app.web.context import AppContext
 from app.web.models import BlockedServicesIn, BlocklistSourceIn, DomainIn, RegexPatternIn, ValueIn
@@ -50,7 +50,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
 
     def _add_source(field: str, source: BlocklistSourceIn) -> list[dict[str, Any]]:
         try:
-            check_public_url(source.url)
+            check_public_url(source.url, resolver=upstream_resolver(config_store))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -302,7 +302,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_permission("can_block"))
     ) -> list[dict[str, Any]]:
         try:
-            check_public_url(source.url)
+            check_public_url(source.url, resolver=upstream_resolver(config_store))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

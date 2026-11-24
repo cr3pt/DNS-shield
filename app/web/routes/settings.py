@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from app.tls import ensure_self_signed_cert
 from app.upstream import address as upstream_address
 from app.upstream import is_disabled as upstream_is_disabled
-from app.url_safety import check_public_url
+from app.url_safety import check_public_url, upstream_resolver
 from app.web.common import (
     _CLEARABLE_SECRET_PATHS,
     _alert_rules_settings,
@@ -388,7 +388,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
     @app.post("/api/alert-rules/sources")
     def add_alert_source(source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
         try:
-            check_public_url(source.url)
+            check_public_url(source.url, resolver=upstream_resolver(config_store))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

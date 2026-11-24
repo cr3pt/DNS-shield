@@ -30,8 +30,8 @@ class _Resp:
 
 
 def _no_guard(monkeypatch):
-    monkeypatch.setattr(blocklist_mod, "check_public_url", lambda url: None)
-    monkeypatch.setattr(blocklist_mod, "public_dns_guard", lambda url: contextlib.nullcontext())
+    monkeypatch.setattr(blocklist_mod, "check_public_url", lambda url, **kwargs: None)
+    monkeypatch.setattr(blocklist_mod, "public_dns_guard", lambda url, **kwargs: contextlib.nullcontext())
 
 
 def test_warm_start_reports_cache_file_time(config_store, tmp_path):
@@ -100,13 +100,13 @@ def test_redirects_are_checked_hop_by_hop(config_store, tmp_path, monkeypatch):
     _configure(config_store)
     checked = []
 
-    def check(url):
+    def check(url, **kwargs):
         checked.append(url)
         if "192.168." in url:
             raise ValueError("private address")
 
     monkeypatch.setattr(blocklist_mod, "check_public_url", check)
-    monkeypatch.setattr(blocklist_mod, "public_dns_guard", lambda url: contextlib.nullcontext())
+    monkeypatch.setattr(blocklist_mod, "public_dns_guard", lambda url, **kwargs: contextlib.nullcontext())
     monkeypatch.setattr(
         blocklist_mod.requests,
         "get",

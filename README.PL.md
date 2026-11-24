@@ -3213,7 +3213,14 @@ GitHub Actions (`.github/workflows/ci.yml`) uruchamia ten sam lint (reguły w
   wstępnej walidacji), więc odpowiedź DNS, która zmieni się między tymi
   dwoma momentami, nie przemyci adresu prywatnego obok sprawdzenia -
   zobacz [Formaty list blokad i sugerowane
-  listy](#formaty-list-blokad-i-sugerowane-listy) wyżej. Wzorzec dodany do
+  listy](#formaty-list-blokad-i-sugerowane-listy) wyżej. Hosty źródeł
+  list są rozwiązywane bezpośrednio przez upstreamy DNS-shield (najpierw
+  pasujący upstream dla domeny), a nie przez systemowy resolver, a
+  pobieranie łączy się tylko z adresami, które przeszły to sprawdzenie:
+  gdy serwer używa DNS-shield jako własnego DNS, systemowa odpowiedź dla
+  hosta listy mogłaby być adresem blokady samego DNS-shield i pobieranie
+  zostałoby odrzucone. Jeśli żaden upstream nie odpowie, używany jest
+  systemowy resolver, z tym samym sprawdzeniem. Wzorzec dodany do
   listy zablokowanej wg wyrażeń regularnych (z panelu, przez API, czy przy
   imporcie), który wykazuje cechy katastrofalnego backtrackingu,
   jest odrzucany jeszcze przed zapisaniem, a dopasowywanie do żywych

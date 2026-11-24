@@ -2914,7 +2914,14 @@ GitHub Actions (`.github/workflows/ci.yml`) runs the same lint (rules in
   actual connection (not just the upfront validation) so a DNS answer
   that changes between the two can't slip a private address past the
   check - see [Blocklist formats and suggested
-  lists](#blocklist-formats-and-suggested-lists) above. A pattern added
+  lists](#blocklist-formats-and-suggested-lists) above. List source
+  hosts are resolved by asking DNS-shield's upstreams directly (a
+  matching per-domain upstream first), not through the system
+  resolver, and the download connects only to the addresses that
+  check approved: when the box uses DNS-shield as its own DNS, the
+  system answer for a list host could otherwise be DNS-shield's own
+  block address and the download would be refused. If no upstream
+  answers, the system resolver is used, with the same check. A pattern added
   to the regex denylist (dashboard, API, or an import) that shows
   signs of catastrophic backtracking is rejected before it's saved, and
   matching against live queries is time-boxed regardless - see [Regex

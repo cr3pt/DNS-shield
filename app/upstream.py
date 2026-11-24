@@ -15,7 +15,7 @@ from collections.abc import Set as AbstractSet
 from urllib.parse import urlparse
 
 import requests
-from dnslib import DNSRecord
+from dnslib import QTYPE, RCODE, DNSRecord
 from requests.adapters import HTTPAdapter
 
 from app.enrichment import THREAT_INTEL_HOSTNAMES
@@ -335,5 +335,73 @@ def _collect_protected_hostnames(config_store) -> set[str]:
 
     _collect_source_urls(config_store.get("blocklists", "sources", default=[]))
     _collect_source_urls(config_store.get("blocklists", "allow_sources", default=[]))
+    _collect_source_urls(config_store.get("alert_rules", "sources", default=[]))
+    _collect_source_urls(config_store.get("blocked_answer_ip_sources", default=[]))
+    for group in config_store.get("client_groups", default=[]) or []:
+        if isinstance(group, dict):
+            _collect_source_urls(group.get("blocklist_sources"))
 
     return hostnames
+
+
+def _direct_upstreams(hostname: str, config_store) -> list[str]:
+    """The upstreams DNS-shield would use for hostname itself: a matching
+    per-domain rule (most specific wins), otherwise dns.upstreams."""
+    from app.domain_suffix import rule_domains
+
+    best: list[str] | None = None
+    best_len = -1
+    for rule in config_store.get("domain_upstreams", default=[]) or []:
+        if not isinstance(rule, dict):
+            continue
+        upstreams = [u for u in (rule.get("upstreams") or []) if not is_disabled(u)]
+        if not upstreams:
+            continue
+        for domain in rule_domains(rule):
+            if len(domain) > best_len and (hostname == domain or hostname.endswith("." + domain)):
+                best, best_len = upstreams, len(domain)
+    if best:
+        return [address(u) for u in best]
+    upstreams = config_store.get("dns", "upstreams", default=["1.1.1.1:53"]) or ["1.1.1.1:53"]
+    return [address(u) for u in upstreams if not is_disabled(u)]
+
+
+def resolve_direct(hostname: str, config_store, timeout: float | None = None) -> list[str] | None:
+    """A/AAAA addresses of hostname asked straight from the configured
+    upstreams - not through the system resolver.
+
+    The box DNS-shield runs on often uses DNS-shield itself as its resolver,
+    so a system lookup of a list host passes through DNS-shield's own
+    filtering: a list, schedule, rewrite or client group can answer with the
+    block address (0.0.0.0, a block-page IP...) and the download is then
+    refused by the SSRF check. Asking the upstreams directly gives the real
+    answer. Returns None when no upstream could be asked (the caller falls
+    back to the system resolver); the caller still applies the SSRF check
+    to whatever comes back."""
+    hostname = (hostname or "").rstrip(".").lower()
+    if not hostname:
+        return None
+    try:
+        ipaddress.ip_address(hostname)
+        return [hostname]
+    except ValueError:
+        pass
+    if timeout is None:
+        timeout = float(config_store.get("dns", "upstream_timeout_seconds", default=3.0) or 3.0)
+    for upstream in _direct_upstreams(hostname, config_store):
+        addresses: list[str] = []
+        try:
+            for qtype in ("A", "AAAA"):
+                query = DNSRecord.question(hostname, qtype)
+                reply = DNSRecord.parse(forward(query.pack(), upstream, timeout))
+                if reply.header.rcode not in (RCODE.NOERROR, RCODE.NXDOMAIN):
+                    raise ValueError(f"upstream answered {RCODE.get(reply.header.rcode)}")
+                for rr in reply.rr:
+                    if rr.rtype in (QTYPE.A, QTYPE.AAAA):
+                        value = str(rr.rdata)
+                        if value not in addresses:
+                            addresses.append(value)
+        except Exception:
+            continue
+        return addresses
+    return None

@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException
 
 from app.netmatch import normalize_client_pattern, normalize_client_patterns
-from app.url_safety import check_public_url
+from app.url_safety import check_public_url, upstream_resolver
 from app.web.common import _ref_index
 from app.web.context import AppContext
 from app.web.models import (
@@ -310,7 +310,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         index: str, source: BlocklistSourceIn, _: dict[str, Any] = Depends(require_admin)
     ) -> list[dict[str, Any]]:
         try:
-            check_public_url(source.url)
+            check_public_url(source.url, resolver=upstream_resolver(config_store))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
